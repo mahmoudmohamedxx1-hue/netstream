@@ -4,7 +4,6 @@ import { useEffect, useState } from "react"
 import { Search, Bell, Download, Languages, Home, Film, Tv, Bookmark, ShieldOff, Shield } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useLang } from "@/lib/lang-context"
-import DecryptedText from "@/components/react-bits/DecryptedText"
 import { GooeyNav } from "@/components/react-bits/GooeyNav"
 
 // Ad-block toggle state — shared across the app via localStorage
@@ -66,24 +65,18 @@ export function Navbar({ onSearch, onProfile, active = "home", onNav }: Props) {
       )}
     >
       <nav className="flex h-16 items-center gap-4 px-4 sm:h-16 sm:px-8">
-        {/* Logo with DecryptedText effect — hover to decrypt (slower, red) */}
+        {/* Netflix-style wordmark */}
         <button
           onClick={() => onNav?.("home")}
           className="shrink-0"
-          aria-label="NetStream home"
+          aria-label="Netflix home"
         >
-          <DecryptedText
-            text="NETSTREAM"
-            speed={120}
-            maxIterations={15}
-            animateOn="hover"
-            sequential={true}
-            revealDirection="start"
-            className="text-xl font-black tracking-tight text-primary sm:text-2xl"
-            parentClassName="text-xl font-black tracking-tight text-primary sm:text-2xl"
-            encryptedClassName="text-xl font-black tracking-tight text-primary/50 sm:text-2xl"
-            style={{ letterSpacing: "-0.04em" }}
-          />
+          <span
+            className="font-sans text-xl font-black tracking-[-0.08em] text-primary sm:text-2xl"
+            style={{ transform: "scaleX(0.92)", transformOrigin: "left center", display: "inline-block" }}
+          >
+            NETFLIX
+          </span>
         </button>
 
         {/* GooeyNav — desktop */}
