@@ -15,6 +15,7 @@ export type TmdbTitleData = {
   runtime: number | null; genres: string[]
   cast: TmdbCastMember[]
   trailerKey: string | null; trailerSite: string | null
+  maturityRating: string | null
   similar: { imdbId: string | null; title: string; poster: string | null; year: string; type: "movie" | "series" }[]
   tmdbSeasons: { season: number; name: string; episodes: number; poster: string | null; overview: string }[] | null
 }
