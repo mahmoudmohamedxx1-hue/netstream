@@ -23,15 +23,19 @@ export type TmdbTitle = {
   runtime: number | null; genres: string[]
   cast: TmdbCastMember[]
   trailerKey: string | null; trailerSite: string | null
+  // Maturity rating (MPAA for movies e.g. "PG-13", TV Parental Guidelines for series e.g. "TV-MA").
+  // Null when TMDB has no certification for this title in the US.
+  maturityRating: string | null
   similar: { imdbId: string | null; title: string; poster: string | null; year: string; type: "movie" | "series" }[]
   // TMDB TV seasons (for series)
   tmdbSeasons: { season: number; name: string; episodes: number; poster: string | null; overview: string }[] | null
 }
 
-async function tmdbFetch(path: string, lang?: string): Promise<any | null> {
+async function tmdbFetch(path: string, lang?: string, includeImageLanguage?: string): Promise<any | null> {
   try {
     const langParam = lang ? `&language=${lang}` : ""
-    const url = `${TMDB_BASE}${path}${path.includes("?") ? "&" : "?"}api_key=${TMDB_API_KEY}${langParam}`
+    const imgLangParam = includeImageLanguage ? `&include_image_language=${includeImageLanguage}` : ""
+    const url = `${TMDB_BASE}${path}${path.includes("?") ? "&" : "?"}api_key=${TMDB_API_KEY}${langParam}${imgLangParam}`
     const res = await fetch(url, { cache: "no-store" })
     if (!res.ok) return null
     return await res.json()
@@ -57,11 +61,18 @@ export async function getTmdbTitle(imdbId: string, lang?: string): Promise<TmdbT
   const tmdbId = (movie ?? tv).id
   const type: "movie" | "series" = isMovie ? "movie" : "series"
 
-  // 2) Fetch full details (with append_to_response for cast, videos, similar)
-  //    Pass the language param so title/overview/season names come back localized.
+  // 2) Fetch full details (with append_to_response for cast, videos, similar,
+  //    images, and certifications). Pass the language param so title/overview/
+  //    season names come back localized. `include_image_language=en,null`
+  //    restricts the images payload to English logos (plus any language-less
+  //    ones) so we get the brand logo art for the hero.
+  const append = isMovie
+    ? "credits,videos,similar,external_ids,images,release_dates"
+    : "credits,videos,similar,external_ids,images,content_ratings"
   const details = await tmdbFetch(
-    `/${isMovie ? "movie" : "tv"}/${tmdbId}?append_to_response=credits,videos,similar,external_ids`,
-    lang
+    `/${isMovie ? "movie" : "tv"}/${tmdbId}?append_to_response=${append}`,
+    lang,
+    "en,null"
   )
   if (!details) return null
 
@@ -93,11 +104,33 @@ export async function getTmdbTitle(imdbId: string, lang?: string): Promise<TmdbT
     type,
   }))
 
-  // Extract logo image
+  // Extract logo image (English-preferred). TMDB's images.logos array is
+  // pre-filtered by include_image_language=en,null above, so the first item
+  // is normally an English PNG with no language code attached.
   let logo: string | null = null
-  if (details.images?.logos?.length) {
-    logo = `${TMDB_IMG.replace("w500", "w300")}${details.images.logos[0].file_path}`
+  if (Array.isArray(details.images?.logos) && details.images.logos.length) {
+    // Prefer a PNG (transparent background) over SVG/JPG when both exist.
+    const logos: any[] = details.images.logos
+    const png = logos.find((l) => (l.file_type ?? "").toLowerCase() === "png") ?? logos[0]
+    if (png?.file_path) {
+      logo = `${TMDB_IMG.replace("w500", "w500")}${png.file_path}`
+    }
   }
+
+  // Extract maturity rating (US certification). For movies TMDB exposes
+  // release_dates.results[]; for TV it's content_ratings.results[]. Each
+  // entry has an iso_3166_1 country code and a list of certification items.
+  // We look for the US entry and take the first non-empty certification.
+  let maturityRating: string | null = null
+  try {
+    const list: any[] = isMovie
+      ? (details.release_dates?.results ?? [])
+      : (details.content_ratings?.results ?? [])
+    const us = list.find((r) => r?.iso_3166_1 === "US")
+    const items: any[] = us?.release_dates ?? us?.ratings ?? []
+    const firstWithCert = items.find((it: any) => typeof it?.certification === "string" && it.certification.trim() !== "")
+    if (firstWithCert) maturityRating = firstWithCert.certification.trim()
+  } catch {}
 
   return {
     tmdbId,
@@ -117,6 +150,7 @@ export async function getTmdbTitle(imdbId: string, lang?: string): Promise<TmdbT
     cast,
     trailerKey,
     trailerSite,
+    maturityRating,
     similar,
     // TMDB TV seasons (skip season 0 = specials)
     tmdbSeasons: type === "series"
