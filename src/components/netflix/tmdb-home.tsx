@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useCallback, useRef } from "react"
+import { useEffect, useState, useCallback, useRef, useMemo } from "react"
 import { motion } from "framer-motion"
 import { Play, Info, Star, Film, Tv, Loader2, RotateCw, Volume2, VolumeX } from "lucide-react"
 import { Poster } from "./poster"
@@ -8,6 +8,7 @@ import SpecularButton from "@/components/specular/SpecularButton"
 import type { CardTitle } from "./content-card"
 import { HoverPreviewCard } from "./hover-preview-card"
 import { useLang } from "@/lib/lang-context"
+import { cn } from "@/lib/utils"
 
 // Round a TMDB rating string (e.g. "8.034") to 1 decimal place ("8.0").
 function roundRating(r: string | null | undefined): string | null {
@@ -142,9 +143,15 @@ type Props = {
   continueWatching?: CardTitle[]
   myList?: CardTitle[]
   onPlayHistory?: (t: CardTitle) => void
+  // B12: enables arrow-key/Enter navigation across the content rows. The
+  // parent (page.tsx) passes `true` only when on the home nav AND no
+  // dialog/player/search/imdb-overlay is open, so this keyboard handler
+  // never interferes with the player's R/N/T/F shortcuts, the search
+  // overlay's arrow-key nav, or text input fields.
+  keyboardNavEnabled?: boolean
 }
 
-export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory }: Props) {
+export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyboardNavEnabled }: Props) {
   const { t, isArabic } = useLang()
   const [rows, setRows] = useState<TmdbRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -279,10 +286,210 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory }: Pr
     [onPlay]
   )
 
+  // ─────────────────────────────────────────────────────────────────────
+  // B12 — Keyboard / TV-style navigation across content rows
+  // ─────────────────────────────────────────────────────────────────────
+  // Arrow keys move a focus cursor between cards (Left/Right within a row,
+  // Up/Down between rows). Enter triggers the focused card's play handler.
+  // The focused card gets a white ring + scale, and is scrolled into view
+  // (both axes — vertical for cross-row moves, horizontal for cards hidden
+  // in the row's overflow scroller).
+  //
+  // The handler is gated on `keyboardNavEnabled` (passed from page.tsx),
+  // which is only true when on the home nav AND no dialog/player/search
+  // overlay is open. We also defensively skip the handler when the key
+  // event originated from an input/textarea/select/contenteditable so the
+  // handler never eats arrow keys meant for text editing.
+  //
+  // State: `focused` is `{ row, card } | null` (null = nothing focused
+  // yet, until the user presses an arrow key). `cardRefs` is a 2D array
+  // of DOM nodes registered via callback refs from each card, used by the
+  // scrollIntoView effect.
+  const [focused, setFocused] = useState<{ row: number; card: number } | null>(null)
+  const cardRefs = useRef<Array<Array<HTMLButtonElement | null>>>([])
+  const focusedRef = useRef(focused)
+  // eslint-disable-next-line react-hooks/refs
+  focusedRef.current = focused
+
+  // Set a card's DOM node in the 2D ref array. Called as a callback ref
+  // from each card so the array stays in sync with the rendered tree.
+  const setCardRef = useCallback(
+    (row: number, card: number, el: HTMLButtonElement | null) => {
+      if (!cardRefs.current[row]) cardRefs.current[row] = []
+      cardRefs.current[row][card] = el
+    },
+    []
+  )
+
+  // Compute the row layout (used by the keyboard handler to know how many
+  // cards are in each row and which onPlay to call on Enter). This mirrors
+  // the rendered rows exactly: Continue Watching → My List → TMDB rows.
+  const hasCw = !!(continueWatching && continueWatching.length > 0 && onPlayHistory)
+  const hasMl = !!(myList && myList.length > 0)
+  const localRowCount = (hasCw ? 1 : 0) + (hasMl ? 1 : 0)
+  const rowsLayout = useMemo(() => {
+    const layout: Array<{
+      titles: ReadonlyArray<TmdbTitle | CardTitle>
+      onPlay: (t: TmdbTitle | CardTitle) => void
+    }> = []
+    if (hasCw) layout.push({ titles: continueWatching!, onPlay: onPlayHistory! })
+    if (hasMl) layout.push({ titles: myList!, onPlay })
+    for (const row of rows) {
+      layout.push({ titles: row.titles, onPlay: handleClick })
+    }
+    return layout
+  }, [hasCw, hasMl, continueWatching, myList, onPlayHistory, onPlay, rows, handleClick])
+
+  // Keep a ref to the layout so the keydown handler (which subscribes once)
+  // always sees the latest rows without re-subscribing on every render.
+  const rowsLayoutRef = useRef(rowsLayout)
+  // eslint-disable-next-line react-hooks/refs
+  rowsLayoutRef.current = rowsLayout
+
+  // The keyboard handler. Subscribed once per enable/disable transition
+  // (not per focused change) — it reads from refs so it always has the
+  // latest state.
+  useEffect(() => {
+    if (!keyboardNavEnabled) return
+    const onKey = (e: KeyboardEvent) => {
+      // Never intercept when the user is typing in a form field.
+      const target = e.target as HTMLElement | null
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable)
+      ) {
+        return
+      }
+      const layout = rowsLayoutRef.current
+      if (layout.length === 0) return
+
+      // Only handle the keys we care about; let everything else bubble.
+      if (
+        e.key !== "ArrowRight" &&
+        e.key !== "ArrowLeft" &&
+        e.key !== "ArrowDown" &&
+        e.key !== "ArrowUp" &&
+        e.key !== "Enter"
+      ) {
+        return
+      }
+
+      const prev = focusedRef.current
+      let row = prev?.row ?? 0
+      let card = prev?.card ?? 0
+
+      if (e.key === "Enter") {
+        // Enter plays the focused card. If nothing is focused yet, play
+        // the first card of the first row (matches the visible cursor
+        // behaviour below).
+        const r = prev?.row ?? 0
+        const c = prev?.card ?? 0
+        const t = layout[r]?.titles[c]
+        if (t) {
+          e.preventDefault()
+          layout[r].onPlay(t)
+        }
+        return
+      }
+
+      e.preventDefault()
+      const rowCount = layout.length
+      if (e.key === "ArrowRight") {
+        if (prev === null) {
+          row = 0
+          card = 0
+        } else {
+          card = Math.min(card + 1, (layout[row]?.titles.length ?? 1) - 1)
+        }
+      } else if (e.key === "ArrowLeft") {
+        if (prev === null) {
+          row = 0
+          card = (layout[0]?.titles.length ?? 1) - 1
+        } else {
+          card = Math.max(card - 1, 0)
+        }
+      } else if (e.key === "ArrowDown") {
+        if (prev === null) {
+          row = 0
+          card = 0
+        } else {
+          row = Math.min(row + 1, rowCount - 1)
+          // Clamp card to the new row's length (rows have varying widths).
+          card = Math.min(card, (layout[row]?.titles.length ?? 1) - 1)
+        }
+      } else if (e.key === "ArrowUp") {
+        if (prev === null) {
+          row = rowCount - 1
+          card = 0
+        } else {
+          row = Math.max(row - 1, 0)
+          card = Math.min(card, (layout[row]?.titles.length ?? 1) - 1)
+        }
+      }
+
+      const next = { row, card }
+      focusedRef.current = next
+      setFocused(next)
+      // Scroll the newly focused card into view (both axes: vertical for
+      // cross-row moves, horizontal for cards hidden in the row's
+      // overflow scroller). `block: 'nearest'` avoids scrolling if the
+      // card is already visible.
+      const el = cardRefs.current[row]?.[card]
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" })
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [keyboardNavEnabled])
+
+  // Defensive scrollIntoView when `focused` changes via any other path
+  // (e.g. programmatic focus in a future enhancement). No-op for null.
+  useEffect(() => {
+    if (!focused) return
+    const el = cardRefs.current[focused.row]?.[focused.card]
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" })
+  }, [focused])
+
   if (loading) {
     return (
-      <div className="flex min-h-[60vh] items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <div className="min-h-[60vh]">
+        {/* Skeleton hero — gives the layout a stable height so the page
+            doesn't jump when the real hero renders. The shimmer class
+            animates a subtle gradient sweep across the dark background. */}
+        <section className="relative h-[78vh] min-h-[520px] w-full overflow-hidden bg-neutral-950">
+          <div className="skeleton-shimmer h-full w-full" />
+          <div className="absolute inset-0 hero-fade-left" />
+          <div className="absolute inset-0 hero-fade-bottom" />
+          {/* Skeleton title + buttons (bottom-left) */}
+          <div className="absolute bottom-20 left-4 right-4 space-y-3 sm:left-8 sm:bottom-24">
+            <div className="skeleton-shimmer h-10 w-2/3 max-w-md rounded sm:h-14" />
+            <div className="flex gap-2">
+              <div className="skeleton-shimmer h-4 w-16 rounded" />
+              <div className="skeleton-shimmer h-4 w-12 rounded" />
+              <div className="skeleton-shimmer h-4 w-12 rounded" />
+            </div>
+            <div className="skeleton-shimmer h-3 w-full max-w-lg rounded" />
+            <div className="skeleton-shimmer h-3 w-5/6 max-w-md rounded" />
+            <div className="flex gap-3 pt-2">
+              <div className="skeleton-shimmer h-10 w-28 rounded-md" />
+              <div className="skeleton-shimmer h-10 w-28 rounded-md" />
+            </div>
+          </div>
+        </section>
+
+        {/* Skeleton content rows — 4 rows: 3 landscape + 1 portrait (to
+            match the real layout where most rows are landscape backdrop
+            cards and the IMDB Top rows are portrait posters). Each row
+            has a skeleton title bar + 8 skeleton cards sized to match
+            the real card dimensions. */}
+        <div className="relative z-20 -mt-16 sm:-mt-24">
+          <SkeletonRow landscape />
+          <SkeletonRow landscape />
+          <SkeletonRow />
+          <SkeletonRow landscape />
+        </div>
       </div>
     )
   }
@@ -306,6 +513,20 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory }: Pr
 
   return (
     <div>
+      {/* Preload the NEXT hero title's backdrop so it's ready when the hero
+          rotates (every 8s). We compute the next index modulo heroTitles
+          and inject a `<link rel="preload" as="image">` — the browser
+          fetches it at low priority in the background, so by the time the
+          hero rotates the backdrop is already in the cache and the swap
+          is instant (no white flash, no progressive JPEG shimmer). Only
+          preloads when there's more than one hero title. */}
+      {heroTitles.length > 1 && (() => {
+        const next = heroTitles[(heroIdx + 1) % heroTitles.length]
+        return next?.backdrop ? (
+          <link rel="preload" as="image" href={next.backdrop} />
+        ) : null
+      })()}
+
       {/* Hero banner */}
       {current && (
         <section className="relative h-[78vh] min-h-[520px] w-full overflow-hidden">
@@ -497,28 +718,62 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory }: Pr
       {/* Content rows — Continue Watching and My List appear first, right below hero */}
       <div className="relative z-20 -mt-16 sm:-mt-24">
         {continueWatching && continueWatching.length > 0 && onPlayHistory && (
-          <LocalRow title="Continue Watching" titles={continueWatching} onPlay={onPlayHistory} showProgress />
+          <LocalRow
+            title="Continue Watching"
+            titles={continueWatching}
+            onPlay={onPlayHistory}
+            showProgress
+            rowIndex={0}
+            focusedCard={focused?.row === 0 ? focused.card : null}
+            setCardRef={setCardRef}
+          />
         )}
         {myList && myList.length > 0 && (
-          <LocalRow title="My List" titles={myList} onPlay={onPlay} />
-        )}
-        {rows.map((row, ri) => (
-          <TmdbRow
-            key={row.title}
-            row={row}
-            onPlay={handleClick}
-            numbered={row.title.toLowerCase().includes("top rated")}
+          <LocalRow
+            title="My List"
+            titles={myList}
+            onPlay={onPlay}
+            rowIndex={hasCw ? 1 : 0}
+            focusedCard={focused?.row === (hasCw ? 1 : 0) ? focused.card : null}
+            setCardRef={setCardRef}
           />
-        ))}
+        )}
+        {rows.map((row, i) => {
+          // Numbered (Top 10) rows: the API ships rows titled "IMDB Top Movies"
+          // and "IMDB Top Series" (and any future row whose title contains
+          // "top rated" or "imdb top"). These get the giant outlined rank
+          // numerals behind each poster.
+          const lower = row.title.toLowerCase()
+          const numbered =
+            lower.includes("top rated") || lower.includes("imdb top")
+          const rowIndex = localRowCount + i
+          return (
+            <TmdbRow
+              key={row.title}
+              row={row}
+              onPlay={handleClick}
+              numbered={numbered}
+              landscape={!numbered}
+              rowIndex={rowIndex}
+              focusedCard={focused?.row === rowIndex ? focused.card : null}
+              setCardRef={setCardRef}
+            />
+          )
+        })}
       </div>
     </div>
   )
 }
 
-function TmdbRow({ row, onPlay, numbered }: {
+function TmdbRow({ row, onPlay, numbered, landscape, rowIndex, focusedCard, setCardRef }: {
   row: TmdbRow
   onPlay: (t: TmdbTitle) => void
   numbered?: boolean
+  landscape?: boolean
+  // B12 keyboard-nav plumbing — passed through to each card.
+  rowIndex?: number
+  focusedCard?: number | null
+  setCardRef?: (row: number, card: number, el: HTMLButtonElement | null) => void
 }) {
   const { t } = useLang()
   if (row.titles.length === 0) return null
@@ -540,6 +795,13 @@ function TmdbRow({ row, onPlay, numbered }: {
             title={tt}
             onPlay={onPlay}
             rank={numbered ? i + 1 : undefined}
+            landscape={landscape}
+            focused={focusedCard === i}
+            cardRef={
+              setCardRef && rowIndex !== undefined
+                ? (el) => setCardRef(rowIndex, i, el)
+                : undefined
+            }
           />
         ))}
       </div>
@@ -547,12 +809,46 @@ function TmdbRow({ row, onPlay, numbered }: {
   )
 }
 
+// Skeleton row shown during the initial home content fetch. Mirrors the
+// layout of `TmdbRow`: a title bar (rounded rectangle) + a horizontal
+// strip of card-shaped skeleton blocks. The `landscape` flag picks the
+// same dimensions the real cards use so there's no layout shift when the
+// actual content renders. Uses the `skeleton-shimmer` class (defined in
+// globals.css) to animate a subtle gradient sweep across each block.
+function SkeletonRow({ landscape }: { landscape?: boolean }) {
+  return (
+    <section className="py-3">
+      <div className="mb-2 px-4 sm:px-8">
+        <div className="skeleton-shimmer h-5 w-48 rounded" />
+      </div>
+      <div className="no-scrollbar flex gap-2 overflow-hidden px-4 pb-6 pt-1 sm:gap-3 sm:px-8">
+        {Array.from({ length: 8 }).map((_, i) => (
+          <div
+            key={i}
+            className={
+              landscape
+                ? "aspect-video w-[80vw] shrink-0 sm:w-[300px]"
+                : "aspect-[2/3] w-[40vw] shrink-0 sm:w-[180px] md:w-[200px]"
+            }
+          >
+            <div className="skeleton-shimmer h-full w-full rounded-md" />
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
 // Row for local data (Continue Watching, My List) — uses CardTitle with IMDB IDs
-function LocalRow({ title, titles, onPlay, showProgress }: {
+function LocalRow({ title, titles, onPlay, showProgress, rowIndex, focusedCard, setCardRef }: {
   title: string
   titles: CardTitle[]
   onPlay: (t: CardTitle) => void
   showProgress?: boolean
+  // B12 keyboard-nav plumbing — passed through to each card.
+  rowIndex?: number
+  focusedCard?: number | null
+  setCardRef?: (row: number, card: number, el: HTMLButtonElement | null) => void
 }) {
   const { t } = useLang()
   if (titles.length === 0) return null
@@ -564,11 +860,23 @@ function LocalRow({ title, titles, onPlay, showProgress }: {
       <div className="no-scrollbar flex gap-2 overflow-x-auto scroll-smooth px-4 pb-6 pt-1 sm:gap-3 sm:px-8">
         {titles.map((tt, i) => {
           const rating = roundRating(tt.rating)
+          const isFocused = focusedCard === i
           return (
             <button
               key={tt.imdbId + i}
+              ref={
+                setCardRef && rowIndex !== undefined
+                  ? (el) => setCardRef(rowIndex, i, el)
+                  : undefined
+              }
+              tabIndex={0}
               onClick={() => onPlay(tt)}
-              className="group/card relative aspect-[2/3] w-[40vw] shrink-0 sm:w-[180px] md:w-[200px]"
+              className={cn(
+                "group/card relative aspect-[2/3] w-[40vw] shrink-0 rounded-md transition sm:w-[180px] md:w-[200px]",
+                isFocused
+                  ? "z-20 scale-105 ring-2 ring-white ring-offset-2 ring-offset-black"
+                  : "ring-0"
+              )}
             >
               <div className="relative h-full overflow-hidden rounded-md bg-neutral-900">
                 <Poster title={tt.title} src={tt.poster} year={tt.year} alt={tt.title} className="h-full w-full transition duration-300 group-hover/card:opacity-90" />
@@ -577,10 +885,12 @@ function LocalRow({ title, titles, onPlay, showProgress }: {
                     <Star className="h-2.5 w-2.5 fill-yellow-400" />{rating}
                   </span>
                 )}
-                {/* Progress bar */}
+                {/* Progress bar — red Netflix-style bar at the bottom of each
+                    Continue Watching card. Track is white/20 so the unfilled
+                    portion is visible against the poster; fill is primary. */}
                 {showProgress && tt.progress != null && tt.progress > 0 && (
                   <div className="absolute bottom-0 left-0 right-0 z-10">
-                    <div className="h-1 w-full bg-black/60">
+                    <div className="h-1 w-full bg-white/20">
                       <div className="h-full bg-primary" style={{ width: `${Math.min(tt.progress, 100)}%` }} />
                     </div>
                   </div>
