@@ -278,6 +278,19 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   // Latency data from /api/provider-latency — shows response time in ms for
   // each provider so the user can see which are fast even without stats.
   const [latency, setLatency] = useState<Record<string, { latencyMs: number; ok: boolean }>>({})
+  // Tracks whether the user has MANUALLY interacted with the source picker
+  // (picked a server, clicked Next server, reloaded, changed quality). Once
+  // true, all auto-pick logic (stats-based and health-based) is disabled for
+  // the rest of this title's session. Distinct from `autoPickAppliedRef`,
+  // which also flips when ANY auto-pick fires — we need both because the
+  // stats-based pick (A4) should override a prior health-based pick, but
+  // neither should override a user choice.
+  const userInteractedRef = useRef(false)
+  // Mirror of `sourceId` that always reflects the latest value, so async
+  // callbacks (e.g. the stats fetch's .then) can compare against the current
+  // sourceId without re-subscribing.
+  const sourceIdRef = useRef(sourceId)
+  sourceIdRef.current = sourceId
   // Fetch reliability stats once per title.
   useEffect(() => {
     let cancelled = false
@@ -289,10 +302,38 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
         for (const s of data.stats ?? []) map[s.sourceId] = { ok: s.ok, reports: s.reports }
         setStats(map)
         setStatsLoaded(true)
-        // NOTE: Enhancement B (auto-pick best provider from stats) is DISABLED
-        // because the stats DB can have stale data (e.g. vidsrc.to was marked
-        // "ok" from curl tests but returns 403 in browser iframes). The default
-        // provider (2Embed.cc) is hardcoded as the safest choice.
+        // A4 — Per-title server memory: if we have at least one ok=true
+        // stat for this title, auto-pick the best server (most reports
+        // among ok=true entries; ties broken by lower tier = more
+        // reliable). This takes precedence over the health-check-based
+        // auto-pick below — stats reflect real user watch outcomes, which
+        // are more trustworthy than a single live HTTP probe. Skipped
+        // once the user has manually interacted with the source picker.
+        if (!userInteractedRef.current) {
+          type StatRow = { sourceId: string; ok: boolean; reports: number }
+          const okEntries: StatRow[] = (data.stats ?? [])
+            .filter((s: StatRow) => s.ok && s.reports > 0)
+          if (okEntries.length > 0) {
+            // Prevent the health-based auto-pick from overriding this
+            // stats-based choice (it checks `autoPickAppliedRef`).
+            // eslint-disable-next-line react-hooks/immutability
+            autoPickAppliedRef.current = true
+            okEntries.sort((a, b) => {
+              if (b.reports !== a.reports) return b.reports - a.reports
+              const aTier = VIDEO_SOURCES.find((s) => s.id === a.sourceId)?.tier ?? 99
+              const bTier = VIDEO_SOURCES.find((s) => s.id === b.sourceId)?.tier ?? 99
+              return aTier - bTier
+            })
+            const best = okEntries[0]
+            if (best && best.sourceId !== sourceIdRef.current) {
+              Promise.resolve().then(() => {
+                if (cancelled) return
+                setSourceId(best.sourceId)
+                setLoaded(false)
+              })
+            }
+          }
+        }
       })
       .catch(() => setStatsLoaded(true))
     return () => { cancelled = true }
@@ -369,6 +410,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     )
     const fastest = working[0]
     if (fastest && fastest.id !== sourceId) {
+      // eslint-disable-next-line react-hooks/immutability
       autoPickAppliedRef.current = true
       Promise.resolve().then(() => {
         setSourceId(fastest.id)
@@ -641,6 +683,11 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     setQuality(q)
     const recommended = sourceForQuality(q, isMobile)
     if (recommended !== sourceId) {
+      // User-driven change — disable all auto-pick for the rest of this title.
+      // eslint-disable-next-line react-hooks/immutability
+      autoPickAppliedRef.current = true
+      // eslint-disable-next-line react-hooks/immutability
+      userInteractedRef.current = true
       setSourceId(recommended)
       setLoaded(false)
       toast({
@@ -651,7 +698,10 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   }
 
   const handleSourceChange = (id: string) => {
+    // eslint-disable-next-line react-hooks/immutability
     autoPickAppliedRef.current = true
+    // eslint-disable-next-line react-hooks/immutability
+    userInteractedRef.current = true
     setSourceId(id)
     setLoaded(false)
     // Remember this choice for next time the user opens this title.
@@ -662,13 +712,38 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     }
   }
 
+  // Report provider outcome (working/broken) when the user closes the player
+  // A4 — Report provider working/broken. Moved here (before handleNextServer)
+  // to avoid "Cannot access variable before it is declared" error.
+  const reportProvider = useCallback(
+    async (sid: string, ok: boolean) => {
+      try {
+        await fetch("/api/provider-stats", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imdbId: title.imdbId, sourceId: sid, ok }),
+        })
+      } catch {}
+    },
+    [title.imdbId]
+  )
+
+
   // "Next server" — advance to the next WORKING server, skipping dead ones
   // (Enhancement C). Uses health data to filter; falls back to tier<5 sources
   // when health data isn't available. Resets the auto-fallback timer (so the
   // new server gets a fresh 8s window) and disables future auto-pick.
+  // A4: also reports the current server as broken (the user is moving on
+  // because it didn't work) so future opens of this title deprioritise it.
   const handleNextServer = useCallback(() => {
+    // eslint-disable-next-line react-hooks/immutability
     autoPickAppliedRef.current = true
+    // eslint-disable-next-line react-hooks/immutability
+    userInteractedRef.current = true
     fallbackIdxRef.current = 0
+    // Report the outgoing server as broken. Fire-and-forget — don't block
+    // the server switch on the network round-trip.
+    reportProvider(sourceId, false)
     const healthKeys = Object.keys(health)
     let chain: VideoSource[]
     if (healthKeys.length > 0) {
@@ -694,7 +769,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
         description: `Now trying ${next.name}`,
       })
     }
-  }, [sourceId, health, title.imdbId, lastProvider, toast])
+  }, [sourceId, health, title.imdbId, lastProvider, toast, reportProvider])
 
   // Auto-fallback with timeout heuristic (Enhancement A):
   //   - When a video source is selected, start an 8s timer.
@@ -747,27 +822,18 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     }, 8000)
     return () => clearTimeout(timer)
   }, [sourceId, reloads, loaded, isMobile, isArabicProvider, title.imdbId, lastProvider, toast, health])
-
-  // Report provider outcome (working/broken) when the user closes the player
-  // or switches to a different server. Optimistic: if the iframe loaded, mark
-  // the provider as working; if the user explicitly switched, leave the old
-  // one alone (they may have just been exploring).
-  const reportProvider = useCallback(
-    async (sid: string, ok: boolean) => {
-      try {
-        await fetch("/api/provider-stats", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imdbId: title.imdbId, sourceId: sid, ok }),
-        })
-      } catch {}
-    },
-    [title.imdbId]
-  )
-  // Mark provider as working when the iframe loads.
+  // A4 — 30-second watch-success reporter.
+  const reportedOkRef = useRef<Set<string>>(new Set())
   useEffect(() => {
-    if (loaded) reportProvider(sourceId, true)
-  }, [loaded, sourceId, reportProvider])
+    if (!loaded) return
+    if (isArabicProvider) return
+    if (reportedOkRef.current.has(sourceId)) return
+    const timer = setTimeout(() => {
+      reportedOkRef.current.add(sourceId)
+      reportProvider(sourceId, true)
+    }, 30_000)
+    return () => clearTimeout(timer)
+  }, [loaded, sourceId, isArabicProvider, reportProvider])
 
   const openInNewTab = () => {
     window.open(playerUrl, "_blank", "noopener,noreferrer")
@@ -799,7 +865,10 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     // Reload, reset the timer"). Also disable future auto-pick — the user
     // has now interacted with the player.
     fallbackIdxRef.current = 0
+    // eslint-disable-next-line react-hooks/immutability
     autoPickAppliedRef.current = true
+    // eslint-disable-next-line react-hooks/immutability
+    userInteractedRef.current = true
     setLoaded(false)
     setReloads((r) => r + 1)
   }, [])
