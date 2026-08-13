@@ -7,7 +7,17 @@ import { Poster } from "./poster"
 import type { Title } from "@/lib/movies-data"
 import { useLibrary, type SavedTitle } from "@/lib/library-store"
 import { useToast } from "@/hooks/use-toast"
+import { useTmdbTitle } from "@/hooks/use-tmdb"
+import { useLang } from "@/lib/lang-context"
 import { cn } from "@/lib/utils"
+
+// Round a TMDB rating string (e.g. "8.034") to 1 decimal place ("8.0").
+function roundRating(r: string | null | undefined): string | null {
+  if (!r) return null
+  const n = parseFloat(r)
+  if (Number.isNaN(n)) return null
+  return n.toFixed(1)
+}
 
 // A relaxed title shape that both catalog titles and saved titles satisfy.
 export type CardTitle = {
@@ -16,6 +26,7 @@ export type CardTitle = {
   type: "movie" | "series"
   year?: string | null
   poster?: string | null
+  backdrop?: string | null
   overview?: string | null
   rating?: string | null
   genre?: string[]
@@ -36,11 +47,17 @@ type Props = {
 }
 
 export function ContentCard({ title, onPlay, onInfo, rank }: Props) {
+  const { isArabic } = useLang()
   const [hovered, setHovered] = useState(false)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const { toggleWatchlist, isInWatchlist } = useLibrary()
   const { toast } = useToast()
   const inList = isInWatchlist(title.imdbId)
+
+  // Lazily fetch TMDB metadata (backdrop + genres) only when the popup opens,
+  // so we don't spam the API for cards the user never hovers. Cached by
+  // useTmdbTitle so subsequent hovers are instant.
+  const { data: tmdb } = useTmdbTitle(hovered ? title.imdbId : null, isArabic ? "ar" : "en")
 
   const enter = () => {
     if (timer.current) clearTimeout(timer.current)
@@ -63,7 +80,9 @@ export function ContentCard({ title, onPlay, onInfo, rank }: Props) {
       rating: title.rating,
     })
     toast({
-      title: added ? "Added to My List" : "Removed from My List",
+      title: added
+        ? isArabic ? "أُضيف إلى قائمتي" : "Added to My List"
+        : isArabic ? "أُزيل من قائمتي" : "Removed from My List",
       description: title.title,
     })
   }
@@ -106,9 +125,15 @@ export function ContentCard({ title, onPlay, onInfo, rank }: Props) {
               {title.badge}
             </span>
           ) : null}
-          <span className="absolute right-2 top-2 inline-flex items-center gap-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-white backdrop-blur-sm">
-            {title.type === "series" ? "Series" : "Film"}
-          </span>
+          {/* Rating badge — Netflix shows ratings on the poster, not a type pill */}
+          {(() => {
+            const r = roundRating(title.rating)
+            return r ? (
+              <span className="absolute right-2 top-2 inline-flex items-center gap-0.5 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-yellow-400 backdrop-blur-sm">
+                <Star className="h-2.5 w-2.5 fill-yellow-400" />{r}
+              </span>
+            ) : null
+          })()}
           {/* Progress bar for Continue Watching */}
           {title.progress != null && title.progress > 0 && (
             <div className="absolute bottom-0 left-0 right-0 z-10">
@@ -123,21 +148,34 @@ export function ContentCard({ title, onPlay, onInfo, rank }: Props) {
       {/* Hover preview popup */}
       {hovered && (
         <motion.div
-          initial={{ opacity: 0, scale: 0.92, y: 8 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
+          initial={{ opacity: 0, scale: 0.92, y: 8, x: "-50%" }}
+          animate={{ opacity: 1, scale: 1, y: 0, x: "-50%" }}
           transition={{ duration: 0.18 }}
-          className="absolute left-1/2 top-0 z-40 hidden w-[260px] -translate-x-1/2 overflow-hidden rounded-md bg-[#181818] shadow-2xl ring-1 ring-white/10 md:block"
+          className="absolute left-1/2 top-0 z-40 hidden w-[260px] overflow-hidden rounded-md bg-[#181818] shadow-2xl ring-1 ring-white/10 md:block"
           style={{ transformOrigin: "center top" }}
         >
           <button
             onClick={() => onPlay(title)}
             className="relative block aspect-video w-full"
           >
-            <Poster
-              title={title.title}
-              src={title.poster}
-              className="h-full w-full"
-            />
+            {/* Prefer the real 16:9 backdrop (from TMDB or supplied) over the */}
+            {/* 2:3 poster — it looks much better in the 16:9 popup area. */}
+            {(() => {
+              const bd = tmdb?.backdrop ?? title.backdrop ?? null
+              return bd ? (
+                <img
+                  src={bd}
+                  alt={title.title}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <Poster
+                  title={title.title}
+                  src={title.poster}
+                  className="h-full w-full"
+                />
+              )
+            })()}
             <div className="absolute inset-0 bg-gradient-to-t from-[#181818] to-transparent" />
           </button>
           <div className="p-3">
@@ -173,12 +211,15 @@ export function ContentCard({ title, onPlay, onInfo, rank }: Props) {
             </div>
 
             <div className="mt-2.5 flex items-center gap-2 text-[11px] text-white/80">
-              {title.rating ? (
-                <span className="inline-flex items-center gap-1 font-semibold text-white">
-                  <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
-                  {title.rating}
-                </span>
-              ) : null}
+              {(() => {
+                const r = roundRating(title.rating)
+                return r ? (
+                  <span className="inline-flex items-center gap-1 font-semibold text-white">
+                    <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
+                    {r}
+                  </span>
+                ) : null
+              })()}
               <span>{title.year}</span>
               <span className="rounded border border-white/30 px-1 text-[9px] uppercase">
                 {title.type === "series" ? "Series" : "Movie"}
@@ -188,11 +229,14 @@ export function ContentCard({ title, onPlay, onInfo, rank }: Props) {
             <h4 className="mt-1.5 line-clamp-1 text-sm font-semibold text-white">
               {title.title}
             </h4>
-            {title.genre && title.genre.length > 0 ? (
-              <p className="mt-1 line-clamp-1 text-[11px] text-white/60">
-                {title.genre.slice(0, 3).join(" • ")}
-              </p>
-            ) : null}
+            {(() => {
+              const genres = tmdb?.genres ?? title.genre ?? []
+              return genres.length > 0 ? (
+                <p className="mt-1 line-clamp-1 text-[11px] text-white/60">
+                  {genres.slice(0, 3).join(" • ")}
+                </p>
+              ) : null
+            })()}
           </div>
         </motion.div>
       )}
