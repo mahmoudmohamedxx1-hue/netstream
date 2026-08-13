@@ -100,6 +100,20 @@ export function TmdbBrowseGrid({ type, onPlay, initialCategory, headerTitle, hea
   const [lookingUp, setLookingUp] = useState<number | null>(null)
   const sentinelRef = useRef<HTMLDivElement>(null)
 
+  // --- B7: Immersion rows ---
+  // Trending Now — always visible at the top of the browse page.
+  const [trendingRow, setTrendingRow] = useState<TmdbItem[]>([])
+  // "Because you watched X" — based on the user's most recently watched title.
+  // `recommendedSourceTitle` is the title shown in the row header (e.g.
+  // "Because you watched The Dark Knight"); empty string means no history →
+  // the row is not rendered.
+  const [recommendedRow, setRecommendedRow] = useState<TmdbItem[]>([])
+  const [recommendedSourceTitle, setRecommendedSourceTitle] = useState<string>("")
+  // "Popular in [Genre]" — shown when a genre chip is selected. Renders the
+  // first page of popular titles in that genre as a horizontal strip above
+  // the infinite-scroll grid.
+  const [genreRow, setGenreRow] = useState<TmdbItem[]>([])
+
   // Fetch genres (with Arabic translation when Arabic is on)
   useEffect(() => {
     fetch(`/api/tmdb/genres?type=${type ?? "movie"}&lang=${isArabic ? "ar" : "en"}`, { cache: "force-cache" })
@@ -107,6 +121,85 @@ export function TmdbBrowseGrid({ type, onPlay, initialCategory, headerTitle, hea
       .then((data) => setGenres(data.genres ?? []))
       .catch(() => {})
   }, [type, isArabic])
+
+  // B7: Always-on Trending Now row — fetched once when the browse page mounts
+  // (or when the type/lang changes). Independent of category/genre selection
+  // so it persists as the user filters the grid below.
+  useEffect(() => {
+    let cancelled = false
+    const params = new URLSearchParams({
+      type: type ?? "movie",
+      category: "trending",
+      page: "1",
+      lang: isArabic ? "ar" : "en",
+    })
+    fetch(`/api/tmdb/browse?${params}`, { cache: "no-store" })
+      .then((r) => r.json())
+      .then((data) => { if (!cancelled) setTrendingRow((data.items ?? []).slice(0, 20)) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [type, isArabic])
+
+  // B7: "Because you watched X" — fetch the user's most recent history item,
+  // then fetch recommendations for that title. Skipped silently if there's no
+  // history (the row simply doesn't render). The recommendations API accepts
+  // an imdbId (which is what history stores) and resolves it to a tmdbId
+  // server-side via /find/{imdbId}.
+  useEffect(() => {
+    let cancelled = false
+    fetch("/api/history", { cache: "no-store" })
+      .then((r) => r.json())
+      .then(async (data) => {
+        if (cancelled) return
+        const historyItems = data.items ?? []
+        if (historyItems.length === 0) {
+          setRecommendedRow([])
+          setRecommendedSourceTitle("")
+          return
+        }
+        const recent = historyItems[0]
+        setRecommendedSourceTitle(recent.title ?? "")
+        const params = new URLSearchParams({
+          type: type ?? "movie",
+          category: "recommendations",
+          imdbId: recent.imdbId,
+          page: "1",
+          lang: isArabic ? "ar" : "en",
+        })
+        try {
+          const res = await fetch(`/api/tmdb/browse?${params}`, { cache: "no-store" })
+          const recData = await res.json().catch(() => ({}))
+          if (!cancelled) setRecommendedRow((recData.items ?? []).slice(0, 20))
+        } catch {
+          if (!cancelled) setRecommendedRow([])
+        }
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [type, isArabic])
+
+  // B7: "Popular in [Genre]" — when a genre chip is selected, fetch the first
+  // page of popular titles in that genre as a horizontal strip. The grid
+  // below also shows genre-filtered content (with infinite scroll), so this
+  // row is a curated "best of" snapshot.
+  useEffect(() => {
+    if (!genre) {
+      setGenreRow([])
+      return
+    }
+    let cancelled = false
+    const params = new URLSearchParams({
+      type: type ?? "movie",
+      genre,
+      page: "1",
+      lang: isArabic ? "ar" : "en",
+    })
+    fetch(`/api/tmdb/browse?${params}`, { cache: "no-store" })
+      .then((r) => r.json())
+      .then((data) => { if (!cancelled) setGenreRow((data.items ?? []).slice(0, 20)) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [type, genre, isArabic])
 
   // Load page
   const loadPage = useCallback(
@@ -192,6 +285,14 @@ export function TmdbBrowseGrid({ type, onPlay, initialCategory, headerTitle, hea
     [onPlay]
   )
 
+  // Resolve the genre name for the "Popular in [Genre]" row header.
+  const selectedGenreName = useMemo(() => {
+    if (!genre) return ""
+    const g = genres.find((gg) => String(gg.id) === genre)
+    if (!g) return ""
+    return isArabic ? (GENRE_AR[g.name] ?? g.name) : g.name
+  }, [genre, genres, isArabic])
+
   const display = items
 
   return (
@@ -203,8 +304,33 @@ export function TmdbBrowseGrid({ type, onPlay, initialCategory, headerTitle, hea
         </h1>
       </div>
 
+      {/* B7: Trending Now — always visible at the top of the browse page,
+          regardless of category/genre selection. Mirrors the home page's
+          Trending Now row. */}
+      {trendingRow.length > 0 && (
+        <BrowseRow
+          title={isArabic ? "الرائج الآن" : "Trending Now"}
+          items={trendingRow}
+          onPlay={handleClick}
+          lookingUp={lookingUp}
+        />
+      )}
+
+      {/* B7: "Because you watched X" — recommendations based on the user's
+          most recently watched title. Skipped if there's no history. */}
+      {recommendedSourceTitle && recommendedRow.length > 0 && (
+        <BrowseRow
+          title={isArabic
+            ? `لأنك شاهدت ${recommendedSourceTitle}`
+            : `Because you watched ${recommendedSourceTitle}`}
+          items={recommendedRow}
+          onPlay={handleClick}
+          lookingUp={lookingUp}
+        />
+      )}
+
       {/* Category filters — SpecularButton-style chips with sliding pill */}
-      <div className="mb-3 flex flex-wrap gap-2">
+      <div className="mb-3 mt-6 flex flex-wrap gap-2">
         {CATEGORIES.filter((c) => {
           if (type === "series" && c.id === "now_playing") return false
           if (type === "movie" && c.id === "on_the_air") return false
@@ -290,6 +416,21 @@ export function TmdbBrowseGrid({ type, onPlay, initialCategory, headerTitle, hea
         </div>
       )}
 
+      {/* B7: "Popular in [Genre]" — shown above the grid when a genre chip is
+          selected. Curated horizontal strip of the most popular titles in the
+          selected genre (first page only). The grid below also shows
+          genre-filtered content with infinite scroll. */}
+      {genre && selectedGenreName && genreRow.length > 0 && (
+        <BrowseRow
+          title={isArabic
+            ? `الأكثر شعبية في ${selectedGenreName}`
+            : `Popular in ${selectedGenreName}`}
+          items={genreRow}
+          onPlay={handleClick}
+          lookingUp={lookingUp}
+        />
+      )}
+
       {/* Grid */}
       {loading ? (
         <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8">
@@ -356,5 +497,130 @@ export function TmdbBrowseGrid({ type, onPlay, initialCategory, headerTitle, hea
         </>
       )}
     </div>
+  )
+}
+
+// B7: Horizontal scrolling row of TMDB titles — used for the Trending Now,
+// "Because you watched X", and "Popular in [Genre]" immersion rows. Reuses
+// the same poster card markup as the main grid (portrait 2:3 cards with a
+// hover overlay showing title/year/rating) so the rows blend visually with
+// the grid below. Each card is `w-[40vw] sm:w-[160px]` (slightly narrower
+// than the grid cards on desktop) so 4-5 cards fit in view at once on a
+// typical desktop viewport, matching Netflix's row density.
+function BrowseRow({
+  title,
+  items,
+  onPlay,
+  lookingUp,
+}: {
+  title: string
+  items: TmdbItem[]
+  onPlay: (t: TmdbItem) => void
+  lookingUp: number | null
+}) {
+  const scrollerRef = useRef<HTMLDivElement>(null)
+  const [canLeft, setCanLeft] = useState(false)
+  const [canRight, setCanRight] = useState(false)
+
+  const update = useCallback(() => {
+    const el = scrollerRef.current
+    if (!el) return
+    setCanLeft(el.scrollLeft > 8)
+    setCanRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 8)
+  }, [])
+
+  useEffect(() => {
+    update()
+    const el = scrollerRef.current
+    if (!el) return
+    el.addEventListener("scroll", update, { passive: true })
+    window.addEventListener("resize", update)
+    return () => {
+      el.removeEventListener("scroll", update)
+      window.removeEventListener("resize", update)
+    }
+  }, [items.length, update])
+
+  const scrollBy = (dir: 1 | -1) => {
+    const el = scrollerRef.current
+    if (!el) return
+    el.scrollBy({ left: dir * Math.round(el.clientWidth * 0.85), behavior: "smooth" })
+  }
+
+  if (items.length === 0) return null
+
+  return (
+    <section className="group/row relative py-3">
+      <h3 className="mb-2 px-1 text-base font-semibold text-white/90 sm:text-lg">
+        {title}
+        <span className="ml-2 text-[10px] font-normal text-white/30">{items.length}</span>
+      </h3>
+      <div className="relative">
+        {/* Left arrow */}
+        <button
+          onClick={() => scrollBy(-1)}
+          aria-label="Scroll left"
+          className={cn(
+            "absolute left-0 top-0 z-30 hidden h-full w-10 items-center justify-center bg-black/60 text-white opacity-0 transition group-hover/row:opacity-100 md:flex",
+            !canLeft && "pointer-events-none !opacity-0"
+          )}
+        >
+          <svg className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+          </svg>
+        </button>
+
+        <div
+          ref={scrollerRef}
+          className="no-scrollbar flex gap-2 overflow-x-auto scroll-smooth px-1 pb-4 pt-1 sm:gap-3"
+        >
+          {items.map((t, i) => (
+            <button
+              key={`${t.imdbId ?? t.tmdbId}-${i}`}
+              onClick={() => onPlay(t)}
+              disabled={lookingUp === t.tmdbId}
+              className="group/card specular-card-outline relative aspect-[2/3] w-[36vw] shrink-0 transition-transform duration-200 hover:scale-105 hover:z-10 disabled:opacity-50 sm:w-[150px] md:w-[160px]"
+            >
+              <div className="relative h-full overflow-hidden rounded-md bg-neutral-900">
+                <Poster
+                  title={t.title}
+                  src={t.poster}
+                  year={t.year}
+                  className="h-full w-full transition duration-300 group-hover/card:opacity-90"
+                />
+                <div className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/90 via-black/30 to-transparent p-2 opacity-0 transition group-hover/card:opacity-100">
+                  <p className="line-clamp-2 text-xs font-bold text-white">{t.title}</p>
+                  <p className="mt-0.5 text-[10px] text-white/60">
+                    {t.year} • {t.type === "series" ? "Series" : "Movie"}
+                  </p>
+                  {t.rating && (
+                    <p className="mt-0.5 inline-flex items-center gap-0.5 text-[10px] text-yellow-400">
+                      <Star className="h-2.5 w-2.5 fill-yellow-400" /> {roundRating(t.rating)}
+                    </p>
+                  )}
+                </div>
+                <span className="absolute right-1 top-1 rounded bg-black/70 px-1 py-0.5 text-[8px] font-bold uppercase text-white/80 backdrop-blur-sm">
+                  {t.type === "series" ? "TV" : "MV"}
+                </span>
+              </div>
+            </button>
+          ))}
+        </div>
+
+        {/* Right arrow */}
+        <button
+          onClick={() => scrollBy(1)}
+          aria-label="Scroll right"
+          className={cn(
+            "absolute right-0 top-0 z-30 hidden h-full w-10 items-center justify-center bg-black/60 text-white opacity-0 transition group-hover/row:opacity-100 md:flex",
+            !canRight && "pointer-events-none !opacity-0"
+          )}
+        >
+          <svg className="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        </button>
+      </div>
+    </section>
   )
 }
