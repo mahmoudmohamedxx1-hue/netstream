@@ -42,6 +42,17 @@ type Props = {
   onPlay: (t: HoverPreviewTitle) => void
   onAddToList?: (t: HoverPreviewTitle) => void
   rank?: number
+  // When true, the base card renders as a 16:9 landscape backdrop (Netflix's
+  // default for non-Top-10 / non-Continue-Watching rows) instead of a 2:3
+  // portrait poster. The expanded hover preview is identical in both modes.
+  landscape?: boolean
+  // B12 keyboard nav: when true, the card is the keyboard-cursor target and
+  // gets a white ring + scale (matching the hover scale). The parent
+  // (TmdbHome) drives this from its `focused` state.
+  focused?: boolean
+  // B12 keyboard nav: callback ref so the parent can register this card's
+  // DOM node in its 2D ref array (used for scrollIntoView on focus moves).
+  cardRef?: (el: HTMLButtonElement | null) => void
 }
 
 type PreviewData = {
@@ -127,7 +138,7 @@ function matchPercent(r: string | null | undefined): number | null {
   return Math.round(50 + (n / 10) * 50)
 }
 
-export function HoverPreviewCard({ title, onPlay, onAddToList, rank }: Props) {
+export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, focused, cardRef }: Props) {
   const { t, isArabic } = useLang()
   const { toggleWatchlist, isInWatchlist } = useLibrary()
   const { toast } = useToast()
@@ -232,7 +243,11 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank }: Props) {
 
   return (
     <div
-      className="group/card relative aspect-[2/3] w-[40vw] shrink-0 sm:w-[180px] md:w-[200px]"
+      className={
+        landscape
+          ? "group/card relative aspect-video w-[80vw] shrink-0 sm:w-[300px]"
+          : "group/card relative aspect-[2/3] w-[40vw] shrink-0 sm:w-[180px] md:w-[200px]"
+      }
       onMouseEnter={handleEnter}
       onMouseLeave={handleLeave}
     >
@@ -253,32 +268,83 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank }: Props) {
 
       <div className="relative z-10 h-full">
         <button
+          ref={cardRef}
+          tabIndex={0}
           onClick={() => onPlay(title)}
-          className="specular-card-outline block h-full w-full overflow-hidden rounded-md bg-neutral-900 text-left transition-transform duration-200 hover:scale-105 hover:z-10"
+          className={cn(
+            "specular-card-outline block h-full w-full overflow-hidden rounded-md bg-neutral-900 text-left transition-transform duration-200 hover:scale-105 hover:z-10",
+            // B12 keyboard nav: visible white ring + scale when focused.
+            // `focus:outline-none` so we don't double-draw the browser's
+            // default outline on top of the ring.
+            focused
+              ? "z-20 scale-105 ring-2 ring-white ring-offset-2 ring-offset-black focus:outline-none"
+              : "focus:outline-none"
+          )}
         >
-          <div className="relative h-full">
-            <Poster
-              title={title.title}
-              src={title.poster}
-              year={title.year}
-              alt={title.title}
-              className="h-full w-full transition duration-300 group-hover/card:opacity-90"
-            />
-            {/* Rating badge — Netflix shows this on the poster */}
-            {roundedRating && (
-              <span className="absolute left-2 top-2 inline-flex items-center gap-0.5 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-yellow-400 backdrop-blur-sm">
-                <Star className="h-2.5 w-2.5 fill-yellow-400" />
-                {roundedRating}
-              </span>
+          {/* Inner image container — explicit bg-neutral-900 so the card
+              never flashes white while the poster/backdrop <img> is still
+              loading over a slow connection. The button already sets
+              bg-neutral-900 but we repeat it here as a defense-in-depth
+              layer (the inner div is the one that actually contains the
+              <img>, so any gap in the image's painted area shows this
+              background). */}
+          <div className="relative h-full bg-neutral-900">
+            {landscape ? (
+              <>
+                {/* Landscape card: 16:9 backdrop with an always-visible
+                    title + year overlay at the bottom. Falls back to the
+                    portrait poster (cropped to fill via object-cover) when
+                    TMDB has no backdrop for this title. */}
+                <Poster
+                  title={title.title}
+                  src={title.backdrop ?? title.poster}
+                  year={title.year}
+                  alt={title.title}
+                  className="h-full w-full transition duration-300 group-hover/card:opacity-90"
+                />
+                {/* Rating badge — top-left, same as portrait */}
+                {roundedRating && (
+                  <span className="absolute left-2 top-2 inline-flex items-center gap-0.5 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-yellow-400 backdrop-blur-sm">
+                    <Star className="h-2.5 w-2.5 fill-yellow-400" />
+                    {roundedRating}
+                  </span>
+                )}
+                {/* Bottom gradient + title — always visible (Netflix
+                    doesn't hide the title on landscape cards). The pt-8
+                    gives the gradient room to fade over the backdrop. */}
+                <div className="absolute inset-x-0 bottom-0 flex flex-col justify-end bg-gradient-to-t from-black/90 via-black/40 to-transparent p-2 pt-8">
+                  <p className="line-clamp-1 text-xs font-bold text-white drop-shadow">{title.title}</p>
+                  {title.year && (
+                    <p className="text-[10px] text-white/60">{title.year}</p>
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                <Poster
+                  title={title.title}
+                  src={title.poster}
+                  year={title.year}
+                  alt={title.title}
+                  className="h-full w-full transition duration-300 group-hover/card:opacity-90"
+                />
+                {/* Rating badge — Netflix shows this on the poster */}
+                {roundedRating && (
+                  <span className="absolute left-2 top-2 inline-flex items-center gap-0.5 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-yellow-400 backdrop-blur-sm">
+                    <Star className="h-2.5 w-2.5 fill-yellow-400" />
+                    {roundedRating}
+                  </span>
+                )}
+                {/* Hover overlay — only on the base poster, hidden once expanded */}
+                <div className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/90 via-black/30 to-transparent p-2 opacity-0 transition group-hover/card:opacity-100">
+                  <p className="line-clamp-2 text-xs font-bold text-white">{title.title}</p>
+                  <p className="text-[10px] text-white/60">{title.year}</p>
+                  <span className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-primary">
+                    <Play className="h-3 w-3 fill-current" /> {t("play")}
+                  </span>
+                </div>
+              </>
             )}
-            {/* Hover overlay — only on the base poster, hidden once expanded */}
-            <div className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/90 via-black/30 to-transparent p-2 opacity-0 transition group-hover/card:opacity-100">
-              <p className="line-clamp-2 text-xs font-bold text-white">{title.title}</p>
-              <p className="text-[10px] text-white/60">{title.year}</p>
-              <span className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-primary">
-                <Play className="h-3 w-3 fill-current" /> {t("play")}
-              </span>
-            </div>
           </div>
         </button>
       </div>
