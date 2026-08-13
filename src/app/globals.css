@@ -224,3 +224,16 @@
     transparent 80%
   );
 }
+
+/* Shimmer skeleton loading — used for the initial home content loading
+   state so rows don't pop in abruptly. The skeleton blocks are sized to
+   match the real cards (landscape = 300px / 16:9, portrait = 180px / 2:3). */
+@keyframes shimmer {
+  0% { background-position: -1000px 0; }
+  100% { background-position: 1000px 0; }
+}
+.skeleton-shimmer {
+  background: linear-gradient(90deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.03) 100%);
+  background-size: 1000px 100%;
+  animation: shimmer 2s infinite linear;
+}
