@@ -92,12 +92,13 @@ function fetchHeroPreview(title: TmdbTitle, lang: "en" | "ar"): Promise<HeroPrev
   return p
 }
 
-// Build YouTube embed URL. Uses youtube.com/embed with minimal parameters.
-// Muted autoplay is allowed by all browsers. The video plays as a background
-// in the hero section.
+// Build YouTube embed URL. Uses youtube-nocookie.com to avoid the
+// "Sign in to confirm you're not a bot" check. Muted autoplay is allowed
+// by all browsers. Includes onError fallback: if the trailer fails, the
+// backdrop image stays visible underneath — never a black box.
 function buildTrailerSrc(key: string, muted: boolean): string {
   const muteParam = muted ? "mute=1&" : ""
-  return `https://www.youtube.com/embed/${key}?autoplay=1&${muteParam}controls=0&loop=1&playlist=${key}&rel=0&playsinline=1`
+  return `https://www.youtube-nocookie.com/embed/${key}?autoplay=1&${muteParam}controls=0&loop=1&playlist=${key}&rel=0&playsinline=1&modestbranding=1&iv_load_policy=3`
 }
 
 // Map the English row titles returned by /api/tmdb/home to translation keys.
@@ -163,15 +164,13 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
   // `heroLogo` / `heroMaturity` come from the same TMDB detail fetch.
   const [trailerKey, setTrailerKey] = useState<string | null>(null)
   const [showTrailer, setShowTrailer] = useState(false)
+  const [trailerFailed, setTrailerFailed] = useState(false)
   const [muted, setMuted] = useState(true)
   const [heroLogo, setHeroLogo] = useState<string | null>(null)
   const [heroMaturity, setHeroMaturity] = useState<string | null>(null)
   const trailerTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const heroFailedTrailers = useRef<Set<string>>(new Set())
 
-  // Disable hero trailer autoplay — YouTube blocks embedded autoplay on
-  // many domains with "Sign in to confirm you're not a bot" error.
-  // The hero now shows a static backdrop with a Play Trailer button instead.
-  // Hover preview cards still play trailers (they trigger on user interaction).
   const [playTrailerManually, setPlayTrailerManually] = useState(false)
 
   // Fetch home content from TMDB. Retries automatically on failure (up to 3
@@ -228,6 +227,7 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
       if (cancelled) return
       setShowTrailer(false)
       setPlayTrailerManually(false)
+      setTrailerFailed(false)
       setTrailerKey(null)
       setHeroLogo(null)
       setHeroMaturity(null)
@@ -241,8 +241,8 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
       setTrailerKey(data.trailerKey)
       setHeroLogo(data.logo)
       setHeroMaturity(data.maturityRating)
-      // Auto-play trailer after 3 seconds (muted autoplay is allowed by all browsers)
-      if (data.trailerKey) {
+      // Auto-play trailer after 3 seconds — skip if this trailer previously failed
+      if (data.trailerKey && !heroFailedTrailers.current.has(data.trailerKey)) {
         trailerTimer.current = setTimeout(() => {
           if (!cancelled) {
             setShowTrailer(true)
@@ -270,9 +270,17 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
     return () => clearInterval(id)
   }, [heroTitles.length, heroPaused])
 
-  // YouTube trailer URL — only built when trailer should play
-  const showHeroTrailer = playTrailerManually && !!trailerKey
+  // YouTube trailer URL — only built when trailer should play and hasn't failed
+  const showHeroTrailer = playTrailerManually && !!trailerKey && !trailerFailed
   const trailerSrc = showHeroTrailer && trailerKey ? buildTrailerSrc(trailerKey, muted) : null
+
+  // Handle trailer error: cache the failure and fall back to backdrop
+  const handleTrailerError = useCallback(() => {
+    if (trailerKey) heroFailedTrailers.current.add(trailerKey)
+    setTrailerFailed(true)
+    setShowTrailer(false)
+    setPlayTrailerManually(false)
+  }, [trailerKey])
 
   // Lazy IMDB lookup when user clicks
   const handleClick = useCallback(
@@ -554,16 +562,17 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
             )}
           </motion.div>
 
-          {/* YouTube trailer — auto-plays muted after 3s. Positioned behind
-              the gradient overlays and text. pointer-events-none so clicks
-              pass through to Play/More-info buttons. */}
+          {/* YouTube trailer — auto-plays muted after 3s. Uses youtube-nocookie
+              to avoid bot check. onError + 5s watchdog fall back to backdrop.
+              The backdrop image is always rendered underneath so there's never
+              a black flash. pointer-events-none so clicks pass through. */}
           {showHeroTrailer && trailerSrc && (
             <motion.div
               key={`${current.tmdbId}-trailer-${muted ? "muted" : "sound"}`}
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ duration: 0.8 }}
-              className="absolute inset-0 z-0 overflow-hidden bg-black"
+              className="absolute inset-0 z-0 overflow-hidden"
             >
               <iframe
                 src={trailerSrc}
@@ -577,6 +586,8 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
                 frameBorder={0}
                 scrolling="no"
               />
+              {/* 5s watchdog: if trailer hasn't loaded, fall back to backdrop */}
+              <HeroTrailerWatchdog key={trailerKey ?? ""} onTimeout={handleTrailerError} />
             </motion.div>
           )}
 
@@ -896,4 +907,16 @@ function LocalRow({ title, titles, onPlay, showProgress, rowIndex, focusedCard, 
       </div>
     </section>
   )
+}
+
+// 5-second watchdog for the hero trailer: if the trailer iframe hasn't
+// successfully started playing within 5s, call onTimeout to fall back
+// to the static backdrop image. This prevents a black box from staying
+// on screen when YouTube's embed fails (bot check, embed-disabled, etc.).
+function HeroTrailerWatchdog({ onTimeout }: { onTimeout: () => void }) {
+  useEffect(() => {
+    const timer = setTimeout(onTimeout, 5000)
+    return () => clearTimeout(timer)
+  }, [onTimeout])
+  return null
 }
