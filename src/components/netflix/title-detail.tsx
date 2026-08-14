@@ -138,24 +138,27 @@ function TitleDetailInner({ title, open, onClose, onPlay }: Props) {
             transition={{ type: "spring", damping: 26, stiffness: 240 }}
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Backdrop hero — backdrop image with Watch Trailer button */}
+            {/* Backdrop hero — trailer auto-plays via proxy after 1.5s */}
             <div className="relative aspect-video w-full overflow-hidden bg-neutral-900">
               {displayBackdrop ? (
                 <img src={displayBackdrop} alt={displayTitle} className="absolute inset-0 h-full w-full object-cover" />
               ) : (
                 <Poster title={displayTitle} src={displayPoster} className="absolute inset-0 h-full w-full" />
               )}
-              {/* Watch Trailer button — opens YouTube in new tab */}
-              {tmdb?.trailerKey && (
-                <a
-                  href={`https://www.youtube.com/watch?v=${tmdb.trailerKey}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="absolute bottom-4 right-4 z-20 inline-flex items-center gap-2 rounded-md border border-white/40 bg-black/50 px-4 py-2 text-sm font-bold text-white backdrop-blur-sm transition hover:bg-black/70"
-                >
-                  <Play className="h-4 w-4 fill-current" />
-                  {isArabic ? "الإعلان" : "Trailer"}
-                </a>
+              {/* YouTube trailer via proxy — auto-plays muted, cross-fades in */}
+              {showDetailTrailer && tmdb?.trailerKey && !detailTrailerFailed && (
+                <iframe
+                  key={tmdb.trailerKey}
+                  src={`/api/youtube-embed?key=${tmdb.trailerKey}&mute=1`}
+                  title={`${displayTitle} trailer`}
+                  allow="autoplay; encrypted-media; picture-in-picture"
+                  className="absolute inset-0 h-full w-full"
+                  style={{ opacity: 1, transition: "opacity 0.8s" }}
+                  frameBorder={0}
+                />
+              )}
+              {showDetailTrailer && tmdb?.trailerKey && !detailTrailerFailed && (
+                <DetailTrailerWatchdog key={tmdb.trailerKey} onTimeout={() => setDetailTrailerFailed(true)} />
               )}
               <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0a] via-[#0a0a0a]/40 to-transparent" />
               <div className="absolute inset-0 bg-gradient-to-r from-[#0a0a0a]/80 via-transparent to-transparent" />
