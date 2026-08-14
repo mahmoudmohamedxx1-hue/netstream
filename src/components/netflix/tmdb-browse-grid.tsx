@@ -104,12 +104,13 @@ export function TmdbBrowseGrid({ type, onPlay, initialCategory, headerTitle, hea
   // Trending Now — always visible at the top of the browse page.
   const [trendingRow, setTrendingRow] = useState<TmdbItem[]>([])
   // "Because you watched X" — based on the user's most recently watched title.
-  // `recommendedSourceTitle` is the title shown in the row header (e.g.
-  // "Because you watched The Dark Knight"); empty string means no history →
-  // the row is not rendered.
   const [recommendedRow, setRecommendedRow] = useState<TmdbItem[]>([])
   const [recommendedSourceTitle, setRecommendedSourceTitle] = useState<string>("")
-  // "Popular in [Genre]" — shown when a genre chip is selected. Renders the
+  // "Top Rated" — highest rated titles of this type
+  const [topRatedRow, setTopRatedRow] = useState<TmdbItem[]>([])
+  // "Now Playing/Airing" — in theaters (movies) or airing this week (series)
+  const [nowPlayingRow, setNowPlayingRow] = useState<TmdbItem[]>([])
+  // "Popular in [Genre]" — shown when a genre chip is selected.
   // first page of popular titles in that genre as a horizontal strip above
   // the infinite-scroll grid.
   const [genreRow, setGenreRow] = useState<TmdbItem[]>([])
@@ -122,36 +123,44 @@ export function TmdbBrowseGrid({ type, onPlay, initialCategory, headerTitle, hea
       .catch(() => {})
   }, [type, isArabic])
 
-  // B7: Always-on Trending Now row — fetched once when the browse page mounts
-  // (or when the type/lang changes). Independent of category/genre selection
-  // so it persists as the user filters the grid below.
+  // B7: Always-on Trending Now + Top Rated + Now Playing rows — fetched once
+  // when the browse page mounts (or when type/lang changes).
   useEffect(() => {
     let cancelled = false
-    const params = new URLSearchParams({
-      type: type ?? "movie",
-      category: "trending",
-      page: "1",
-      lang: isArabic ? "ar" : "en",
-    })
-    fetch(`/api/tmdb/browse?${params}`, { cache: "no-store" })
-      .then((r) => r.json())
-      .then((data) => { if (!cancelled) setTrendingRow((data.items ?? []).slice(0, 20)) })
-      .catch(() => {})
+    const langParam = isArabic ? "ar" : "en"
+    const typeParam = type ?? "movie"
+
+    // Fetch Trending, Top Rated, and Now Playing/Airing in parallel
+    const fetchRow = async (cat: string) => {
+      const params = new URLSearchParams({ type: typeParam, category: cat, page: "1", lang: langParam })
+      const res = await fetch(`/api/tmdb/browse?${params}`, { cache: "no-store" })
+      const data = await res.json().catch(() => ({}))
+      return (data.items ?? []).slice(0, 20)
+    }
+
+    Promise.all([
+      fetchRow("trending"),
+      fetchRow("top_rated"),
+      fetchRow(typeParam === "movie" ? "now_playing" : "on_the_air"),
+    ]).then(([trending, topRated, nowPlaying]) => {
+      if (cancelled) return
+      setTrendingRow(trending)
+      setTopRatedRow(topRated)
+      setNowPlayingRow(nowPlaying)
+    }).catch(() => {})
     return () => { cancelled = true }
   }, [type, isArabic])
 
-  // B7: "Because you watched X" — fetch the user's most recent history item,
-  // then fetch recommendations for that title. Skipped silently if there's no
-  // history (the row simply doesn't render). The recommendations API accepts
-  // an imdbId (which is what history stores) and resolves it to a tmdbId
-  // server-side via /find/{imdbId}.
+  // B7: "Because you watched X" — fetch the user's most recent history item
+  // of the SAME type as the current page (movie/series), then fetch recommendations.
+  // This prevents showing movie recommendations on the series page.
   useEffect(() => {
     let cancelled = false
     fetch("/api/history", { cache: "no-store" })
       .then((r) => r.json())
       .then(async (data) => {
         if (cancelled) return
-        const historyItems = data.items ?? []
+        const historyItems = (data.items ?? []).filter((h: any) => h.type === (type ?? "movie"))
         if (historyItems.length === 0) {
           setRecommendedRow([])
           setRecommendedSourceTitle("")
@@ -160,7 +169,7 @@ export function TmdbBrowseGrid({ type, onPlay, initialCategory, headerTitle, hea
         const recent = historyItems[0]
         setRecommendedSourceTitle(recent.title ?? "")
         const params = new URLSearchParams({
-          type: type ?? "movie",
+          type: recent.type ?? type ?? "movie",
           category: "recommendations",
           imdbId: recent.imdbId,
           page: "1",
@@ -304,9 +313,7 @@ export function TmdbBrowseGrid({ type, onPlay, initialCategory, headerTitle, hea
         </h1>
       </div>
 
-      {/* B7: Trending Now — always visible at the top of the browse page,
-          regardless of category/genre selection. Mirrors the home page's
-          Trending Now row. */}
+      {/* B7: Trending Now — always visible at the top of the browse page. */}
       {trendingRow.length > 0 && (
         <BrowseRow
           title={isArabic ? "الرائج الآن" : "Trending Now"}
@@ -317,13 +324,35 @@ export function TmdbBrowseGrid({ type, onPlay, initialCategory, headerTitle, hea
       )}
 
       {/* B7: "Because you watched X" — recommendations based on the user's
-          most recently watched title. Skipped if there's no history. */}
+          most recently watched title of the SAME type. */}
       {recommendedSourceTitle && recommendedRow.length > 0 && (
         <BrowseRow
           title={isArabic
             ? `لأنك شاهدت ${recommendedSourceTitle}`
             : `Because you watched ${recommendedSourceTitle}`}
           items={recommendedRow}
+          onPlay={handleClick}
+          lookingUp={lookingUp}
+        />
+      )}
+
+      {/* Top Rated — highest rated titles of this type */}
+      {topRatedRow.length > 0 && (
+        <BrowseRow
+          title={isArabic ? "الأعلى تقييماً" : "Top Rated"}
+          items={topRatedRow}
+          onPlay={handleClick}
+          lookingUp={lookingUp}
+        />
+      )}
+
+      {/* Now Playing (movies) / Airing This Week (series) */}
+      {nowPlayingRow.length > 0 && (
+        <BrowseRow
+          title={type === "series"
+            ? (isArabic ? "يبث هذا الأسبوع" : "Airing This Week")
+            : (isArabic ? "يُعرض الآن" : "Now Playing")}
+          items={nowPlayingRow}
           onPlay={handleClick}
           lookingUp={lookingUp}
         />
