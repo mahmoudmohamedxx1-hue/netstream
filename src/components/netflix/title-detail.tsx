@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import {
   X, Play, Plus, Check, Star, Clock, Calendar, Film, Tv,
-  ChevronDown, Loader2, Users,
+  ChevronDown, Loader2, Users, Volume2, VolumeX,
 } from "lucide-react"
 import { Poster } from "./poster"
 import { useTmdbTitle } from "@/hooks/use-tmdb"
@@ -49,6 +49,26 @@ function TitleDetailInner({ title, open, onClose, onPlay }: Props) {
   const [showCast, setShowCast] = useState(false)
   const [selectedSeason, setSelectedSeason] = useState(1)
   const [selectedEpisode, setSelectedEpisode] = useState(1)
+  const [showDetailTrailer, setShowDetailTrailer] = useState(false)
+  const [detailTrailerFailed, setDetailTrailerFailed] = useState(false)
+  const [detailMuted, setDetailMuted] = useState(true)
+
+  // FIX 4: Auto-play trailer in the hero after 1.5s, cross-fading from backdrop
+  useEffect(() => {
+    if (!open || !tmdb?.trailerKey || detailTrailerFailed) return
+    const timer = setTimeout(() => setShowDetailTrailer(true), 1500)
+    return () => clearTimeout(timer)
+  }, [open, tmdb?.trailerKey, detailTrailerFailed])
+
+  // Stop trailer when modal closes
+  useEffect(() => {
+    if (!open) {
+      Promise.resolve().then(() => {
+        setShowDetailTrailer(false)
+        setDetailTrailerFailed(false)
+      })
+    }
+  }, [open])
 
   const close = useCallback(() => onClose(), [onClose])
 
@@ -118,12 +138,39 @@ function TitleDetailInner({ title, open, onClose, onPlay }: Props) {
             transition={{ type: "spring", damping: 26, stiffness: 240 }}
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Backdrop hero */}
+            {/* Backdrop hero — trailer cross-fades in after 1.5s */}
             <div className="relative aspect-video w-full overflow-hidden bg-neutral-900">
+              {/* Backdrop image — always underneath so there's never a black flash */}
               {displayBackdrop ? (
-                <img src={displayBackdrop} alt={displayTitle} className="h-full w-full object-cover" />
+                <img src={displayBackdrop} alt={displayTitle} className="absolute inset-0 h-full w-full object-cover" />
               ) : (
-                <Poster title={displayTitle} src={displayPoster} className="h-full w-full" />
+                <Poster title={displayTitle} src={displayPoster} className="absolute inset-0 h-full w-full" />
+              )}
+              {/* YouTube trailer — cross-fades in on top of backdrop */}
+              {showDetailTrailer && tmdb?.trailerKey && !detailTrailerFailed && (
+                <iframe
+                  key={tmdb.trailerKey}
+                  src={`https://www.youtube-nocookie.com/embed/${tmdb.trailerKey}?autoplay=1&mute=1&controls=0&loop=1&playlist=${tmdb.trailerKey}&rel=0&playsinline=1&modestbranding=1&iv_load_policy=3`}
+                  title={`${displayTitle} trailer`}
+                  allow="autoplay; encrypted-media; picture-in-picture"
+                  className="absolute inset-0 h-full w-full"
+                  style={{ opacity: 1, transition: "opacity 0.8s" }}
+                  frameBorder={0}
+                />
+              )}
+              {/* 5s watchdog for detail trailer */}
+              {showDetailTrailer && tmdb?.trailerKey && !detailTrailerFailed && (
+                <DetailTrailerWatchdog key={tmdb.trailerKey} onTimeout={() => setDetailTrailerFailed(true)} />
+              )}
+              {/* Mute toggle */}
+              {showDetailTrailer && !detailTrailerFailed && (
+                <button
+                  onClick={() => setDetailMuted(m => !m)}
+                  className="absolute bottom-4 right-4 z-20 grid h-9 w-9 place-items-center rounded-full border border-white/40 bg-black/50 text-white backdrop-blur-sm transition hover:bg-black/70"
+                  aria-label={detailMuted ? "Unmute" : "Mute"}
+                >
+                  {detailMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+                </button>
               )}
               <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0a] via-[#0a0a0a]/40 to-transparent" />
               <div className="absolute inset-0 bg-gradient-to-r from-[#0a0a0a]/80 via-transparent to-transparent" />
@@ -223,22 +270,7 @@ function TitleDetailInner({ title, open, onClose, onPlay }: Props) {
                 </div>
               )}
 
-              {/* Trailer — auto-plays muted like Netflix */}
-              {tmdb?.trailerKey && (
-                <div className="mt-6">
-                  <h3 className="mb-3 text-lg font-bold text-white">{t("trailer")}</h3>
-                  <div className="aspect-video max-w-2xl overflow-hidden rounded-lg bg-black">
-                    <iframe
-                      key={tmdb.trailerKey}
-                      src={`https://www.youtube.com/embed/${tmdb.trailerKey}?autoplay=1&mute=1&controls=1&rel=0&playsinline=1`}
-                      title={`${displayTitle} trailer`}
-                      allow="autoplay; encrypted-media; picture-in-picture"
-                      allowFullScreen
-                      className="h-full w-full"
-                    />
-                  </div>
-                </div>
-              )}
+              {/* Old standalone trailer section removed — trailer now plays in the hero */}
 
               {/* Cast */}
               {tmdb?.cast && tmdb.cast.length > 0 && (
@@ -284,4 +316,13 @@ function TitleDetailInner({ title, open, onClose, onPlay }: Props) {
       )}
     </AnimatePresence>
   )
+}
+
+// 5-second watchdog for the detail trailer
+function DetailTrailerWatchdog({ onTimeout }: { onTimeout: () => void }) {
+  useEffect(() => {
+    const timer = setTimeout(onTimeout, 5000)
+    return () => clearTimeout(timer)
+  }, [onTimeout])
+  return null
 }
