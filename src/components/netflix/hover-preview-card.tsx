@@ -245,7 +245,7 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
     <div
       className={
         landscape
-          ? "group/card relative aspect-video w-[80vw] shrink-0 sm:w-[300px]"
+          ? "group/card relative aspect-video w-[60vw] shrink-0 sm:w-[280px] md:w-[320px]"
           : "group/card relative aspect-[2/3] w-[40vw] shrink-0 sm:w-[180px] md:w-[200px]"
       }
       onMouseEnter={handleEnter}
@@ -363,7 +363,7 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
             {showVideo && preview?.trailerKey ? (
               <iframe
                 key={preview.trailerKey}
-                src={`https://www.youtube-nocookie.com/embed/${preview.trailerKey}?autoplay=1&mute=1&controls=0&loop=1&playlist=${preview.trailerKey}&modestbranding=1&rel=0&playsinline=1&iv_load_policy=3`}
+                src={`https://www.youtube.com/embed/${preview.trailerKey}?autoplay=1&mute=1&controls=0&loop=1&playlist=${preview.trailerKey}&modestbranding=1&rel=0&playsinline=1&iv_load_policy=3&enablejsapi=1`}
                 title={title.title}
                 allow="autoplay; encrypted-media; picture-in-picture"
                 allowFullScreen
