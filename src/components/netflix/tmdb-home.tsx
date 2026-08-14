@@ -241,15 +241,11 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
       setTrailerKey(data.trailerKey)
       setHeroLogo(data.logo)
       setHeroMaturity(data.maturityRating)
-      // Auto-play trailer after 3 seconds — skip if this trailer previously failed
-      if (data.trailerKey && !heroFailedTrailers.current.has(data.trailerKey)) {
-        trailerTimer.current = setTimeout(() => {
-          if (!cancelled) {
-            setShowTrailer(true)
-            setPlayTrailerManually(true)
-          }
-        }, 3000)
-      }
+      // NO YouTube autoplay — YouTube blocks it with "Sign in to confirm
+      // you're not a bot" on non-whitelisted domains. The hero shows a
+      // beautiful backdrop image with gradient overlays, title logo, and
+      // Play/More Info buttons. A "Watch Trailer" button opens YouTube
+      // in a new tab (user-initiated = no bot check).
     })
     return () => {
       cancelled = true
@@ -562,34 +558,8 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
             )}
           </motion.div>
 
-          {/* YouTube trailer — auto-plays muted after 3s. Uses youtube-nocookie
-              to avoid bot check. onError + 5s watchdog fall back to backdrop.
-              The backdrop image is always rendered underneath so there's never
-              a black flash. pointer-events-none so clicks pass through. */}
-          {showHeroTrailer && trailerSrc && (
-            <motion.div
-              key={`${current.tmdbId}-trailer-${muted ? "muted" : "sound"}`}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ duration: 0.8 }}
-              className="absolute inset-0 z-0 overflow-hidden"
-            >
-              <iframe
-                src={trailerSrc}
-                title={`${current.title} trailer`}
-                allow="autoplay; encrypted-media; picture-in-picture"
-                className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
-                style={{
-                  width: "max(100vw, calc(78vh * 16 / 9))",
-                  height: "max(78vh, calc(100vw * 9 / 16))",
-                }}
-                frameBorder={0}
-                scrolling="no"
-              />
-              {/* 5s watchdog: if trailer hasn't loaded, fall back to backdrop */}
-              <HeroTrailerWatchdog key={trailerKey ?? ""} onTimeout={handleTrailerError} />
-            </motion.div>
-          )}
+          {/* No YouTube autoplay — backdrop image only. A "Watch Trailer"
+              button opens YouTube in a new tab (user-initiated = no bot check). */}
 
           <div className="absolute inset-0 hero-fade-left" />
           <div className="absolute inset-0 hero-fade-bottom" />
@@ -669,6 +639,17 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
                   <Info className="h-5 w-5" />
                   {t("moreInfo")}
                 </SpecularButton>
+                {trailerKey && (
+                  <a
+                    href={`https://www.youtube.com/watch?v=${trailerKey}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 rounded-md border border-white/30 bg-black/40 px-4 py-3 text-sm font-bold text-white backdrop-blur-sm transition hover:border-white/60 hover:bg-black/60"
+                  >
+                    <Play className="h-4 w-4 fill-current" />
+                    {isArabic ? "الإعلان" : "Trailer"}
+                  </a>
+                )}
               </div>
             </motion.div>
           </div>
