@@ -92,13 +92,11 @@ function fetchHeroPreview(title: TmdbTitle, lang: "en" | "ar"): Promise<HeroPrev
   return p
 }
 
-// Build YouTube embed URL. Uses youtube-nocookie.com to avoid the
-// "Sign in to confirm you're not a bot" check. Muted autoplay is allowed
-// by all browsers. Includes onError fallback: if the trailer fails, the
-// backdrop image stays visible underneath — never a black box.
+// Build YouTube embed URL via our proxy. The proxy fetches the YouTube
+// embed page server-side and strips the bot-check scripts, so the browser
+// loads it same-origin without triggering "Sign in to confirm you're not a bot".
 function buildTrailerSrc(key: string, muted: boolean): string {
-  const muteParam = muted ? "mute=1&" : ""
-  return `https://www.youtube-nocookie.com/embed/${key}?autoplay=1&${muteParam}controls=0&loop=1&playlist=${key}&rel=0&playsinline=1&modestbranding=1&iv_load_policy=3`
+  return `/api/youtube-embed?key=${key}&mute=${muted ? "1" : "0"}`
 }
 
 // Map the English row titles returned by /api/tmdb/home to translation keys.
@@ -241,11 +239,15 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
       setTrailerKey(data.trailerKey)
       setHeroLogo(data.logo)
       setHeroMaturity(data.maturityRating)
-      // NO YouTube autoplay — YouTube blocks it with "Sign in to confirm
-      // you're not a bot" on non-whitelisted domains. The hero shows a
-      // beautiful backdrop image with gradient overlays, title logo, and
-      // Play/More Info buttons. A "Watch Trailer" button opens YouTube
-      // in a new tab (user-initiated = no bot check).
+      // Auto-play trailer after 3 seconds via proxy (bypasses bot check)
+      if (data.trailerKey && !heroFailedTrailers.current.has(data.trailerKey)) {
+        trailerTimer.current = setTimeout(() => {
+          if (!cancelled) {
+            setShowTrailer(true)
+            setPlayTrailerManually(true)
+          }
+        }, 3000)
+      }
     })
     return () => {
       cancelled = true
@@ -262,7 +264,7 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
   useEffect(() => {
     if (heroTitles.length <= 1) return
     if (heroPaused) return
-    const id = setInterval(() => setHeroIdx((i) => (i + 1) % heroTitles.length), 8000)
+    const id = setInterval(() => setHeroIdx((i) => (i + 1) % heroTitles.length), 15000)
     return () => clearInterval(id)
   }, [heroTitles.length, heroPaused])
 
@@ -558,8 +560,31 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
             )}
           </motion.div>
 
-          {/* No YouTube autoplay — backdrop image only. A "Watch Trailer"
-              button opens YouTube in a new tab (user-initiated = no bot check). */}
+          {/* YouTube trailer via proxy — auto-plays muted after 3s.
+              Backdrop image is always underneath so there's never a black flash. */}
+          {showHeroTrailer && trailerSrc && (
+            <motion.div
+              key={`${current.tmdbId}-trailer`}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.8 }}
+              className="absolute inset-0 z-0 overflow-hidden"
+            >
+              <iframe
+                src={trailerSrc}
+                title={`${current.title} trailer`}
+                allow="autoplay; encrypted-media; picture-in-picture"
+                className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
+                style={{
+                  width: "max(100vw, calc(78vh * 16 / 9))",
+                  height: "max(78vh, calc(100vw * 9 / 16))",
+                }}
+                frameBorder={0}
+                scrolling="no"
+              />
+              <HeroTrailerWatchdog key={trailerKey ?? ""} onTimeout={handleTrailerError} />
+            </motion.div>
+          )}
 
           <div className="absolute inset-0 hero-fade-left" />
           <div className="absolute inset-0 hero-fade-bottom" />
@@ -896,7 +921,7 @@ function LocalRow({ title, titles, onPlay, showProgress, rowIndex, focusedCard, 
 // on screen when YouTube's embed fails (bot check, embed-disabled, etc.).
 function HeroTrailerWatchdog({ onTimeout }: { onTimeout: () => void }) {
   useEffect(() => {
-    const timer = setTimeout(onTimeout, 5000)
+    const timer = setTimeout(onTimeout, 15000)
     return () => clearTimeout(timer)
   }, [onTimeout])
   return null
