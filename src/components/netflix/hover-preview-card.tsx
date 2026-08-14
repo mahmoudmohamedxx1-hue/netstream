@@ -283,48 +283,33 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
           onMouseEnter={handlePopupEnter}
           onMouseLeave={handlePopupLeave}
         >
-          {/* 16:9 video / image area */}
+          {/* 16:9 backdrop image — no YouTube autoplay (causes bot check) */}
           <div className="relative aspect-video w-full overflow-hidden bg-black">
-            {/* Backdrop image — always rendered underneath so there's never a black flash */}
             {backdropSrc ? (
               <img src={backdropSrc} alt={title.title} className="absolute inset-0 h-full w-full object-cover" />
             ) : (
               <Poster title={title.title} src={title.poster} className="absolute inset-0 h-full w-full" />
-            )}
-            {/* YouTube trailer — cross-fades in on top of the backdrop */}
-            {trailerSrc && (
-              <iframe
-                key={trailerKey}
-                src={trailerSrc}
-                title={title.title}
-                allow="autoplay; encrypted-media; picture-in-picture"
-                className="absolute inset-0 h-full w-full"
-                style={{ opacity: showTrailer ? 1 : 0, transition: "opacity 0.5s" }}
-                frameBorder={0}
-                onError={() => { if (trailerKey) failedTrailers.add(trailerKey); setTrailerFailed(true); setShowTrailer(false) }}
-              />
-            )}
-            {/* 5s watchdog: if trailer hasn't shown, give up gracefully */}
-            {showTrailer && trailerKey && !trailerFailed && (
-              <TrailerWatchdog key={trailerKey} onTimeout={() => { failedTrailers.add(trailerKey); setTrailerFailed(true); setShowTrailer(false) }} />
             )}
             <div className="absolute inset-0 bg-gradient-to-t from-[#181818] via-transparent to-transparent" />
             <span className="absolute right-2 top-2 inline-flex items-center gap-1 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold text-white backdrop-blur-sm">
               {title.type === "series" ? <Tv className="h-3 w-3" /> : <Film className="h-3 w-3" />}
               {title.type === "series" ? t("seriesShort") : t("movieShort")}
             </span>
-            {/* Mute toggle */}
-            {showTrailer && !trailerFailed && (
-              <button
-                onClick={() => setMuted(m => !m)}
+            {/* Watch Trailer button — opens YouTube in new tab (user-initiated = no bot check) */}
+            {trailerKey && (
+              <a
+                href={`https://www.youtube.com/watch?v=${trailerKey}`}
+                target="_blank"
+                rel="noopener noreferrer"
                 className="absolute bottom-2 right-2 grid h-7 w-7 place-items-center rounded-full border border-white/40 bg-black/60 text-white backdrop-blur-sm transition hover:bg-black/80"
-                aria-label={muted ? "Unmute" : "Mute"}
+                aria-label="Watch trailer"
+                onClick={(e) => e.stopPropagation()}
               >
-                {muted ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
-              </button>
+                <Play className="h-3.5 w-3.5 fill-current" />
+              </a>
             )}
             {previewLoading && (
-              <div className="absolute bottom-2 right-2 text-white/70"><Loader2 className="h-3.5 w-3.5 animate-spin" /></div>
+              <div className="absolute bottom-2 left-2 text-white/70"><Loader2 className="h-3.5 w-3.5 animate-spin" /></div>
             )}
           </div>
 
