@@ -349,30 +349,20 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
         </button>
       </div>
 
-      {/* Expanded hover preview — only on md+ screens (mobile taps the poster) */}
+      {/* Expanded hover preview */}
       {expanded && (
         <motion.div
           initial={{ opacity: 0, scale: 0.9, y: 10, x: "-50%" }}
           animate={{ opacity: 1, scale: 1, y: 0, x: "-50%" }}
           transition={{ duration: 0.2, ease: "easeOut" }}
-          className="absolute left-1/2 top-0 z-50 hidden w-[320px] overflow-hidden rounded-md bg-[#181818] shadow-2xl ring-1 ring-white/10 md:block"
+          className="absolute left-1/2 top-0 z-[100] w-[320px] overflow-visible rounded-md bg-[#181818] shadow-2xl ring-1 ring-white/10"
           style={{ transformOrigin: "center top" }}
         >
-          {/* 16:9 video / image area */}
+          {/* 16:9 backdrop image — no YouTube autoplay (causes bot check) */}
           <div className="relative aspect-video w-full overflow-hidden bg-black">
-            {showVideo && preview?.trailerKey ? (
-              <iframe
-                key={preview.trailerKey}
-                src={`https://www.youtube-nocookie.com/embed/${preview.trailerKey}?autoplay=1&mute=1&controls=0&loop=1&playlist=${preview.trailerKey}&modestbranding=1&rel=0&playsinline=1&iv_load_policy=3&fs=0&cc_load_policy=0`}
-                title={title.title}
-                allow="autoplay; encrypted-media; picture-in-picture"
-                allowFullScreen
-                className="pointer-events-none absolute inset-0 h-full w-full"
-                frameBorder={0}
-              />
-            ) : backdropSrc ? (
+            {backdropSrc || preview?.backdrop ? (
               <img
-                src={backdropSrc}
+                src={backdropSrc ?? preview?.backdrop}
                 alt={title.title}
                 className="h-full w-full object-cover"
               />
