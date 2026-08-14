@@ -223,27 +223,20 @@ function TitleDetailInner({ title, open, onClose, onPlay }: Props) {
                 </div>
               )}
 
-              {/* Trailer — clickable thumbnail that opens YouTube in new tab */}
+              {/* Trailer — auto-plays muted like Netflix */}
               {tmdb?.trailerKey && (
                 <div className="mt-6">
                   <h3 className="mb-3 text-lg font-bold text-white">{t("trailer")}</h3>
-                  <a
-                    href={`https://www.youtube.com/watch?v=${tmdb.trailerKey}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="block aspect-video max-w-2xl overflow-hidden rounded-lg bg-black relative group"
-                  >
-                    {displayBackdrop ? (
-                      <img src={displayBackdrop} alt={displayTitle} className="h-full w-full object-cover opacity-70 transition group-hover:opacity-90" />
-                    ) : (
-                      <Poster title={displayTitle} src={displayPoster} className="h-full w-full" />
-                    )}
-                    <div className="absolute inset-0 flex items-center justify-center">
-                      <div className="grid h-16 w-16 place-items-center rounded-full bg-black/70 backdrop-blur-sm transition group-hover:scale-110 group-hover:bg-primary">
-                        <Play className="h-8 w-8 fill-white text-white" />
-                      </div>
-                    </div>
-                  </a>
+                  <div className="aspect-video max-w-2xl overflow-hidden rounded-lg bg-black">
+                    <iframe
+                      key={tmdb.trailerKey}
+                      src={`https://www.youtube.com/embed/${tmdb.trailerKey}?autoplay=1&mute=1&controls=1&rel=0&playsinline=1`}
+                      title={`${displayTitle} trailer`}
+                      allow="autoplay; encrypted-media; picture-in-picture"
+                      allowFullScreen
+                      className="h-full w-full"
+                    />
+                  </div>
                 </div>
               )}
 
