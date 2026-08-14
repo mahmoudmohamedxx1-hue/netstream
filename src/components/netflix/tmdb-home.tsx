@@ -555,34 +555,8 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
             )}
           </motion.div>
 
-          {/* YouTube trailer — fades in 3s after a new title appears.
-              z-0 (below the gradient overlays + text content). The iframe is
-              sized to always cover the hero at 16:9 — on wide heroes the
-              video is cropped top/bottom; on tall/narrow heroes it is cropped
-              left/right. `pointer-events-none` so clicks pass through to the
-              Play/More-info buttons. */}
-          {showHeroTrailer && trailerSrc && (
-            <motion.div
-              key={`${current.tmdbId}-trailer-${muted ? "muted" : "sound"}`}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ duration: 0.8 }}
-              className="absolute inset-0 z-0 overflow-hidden bg-black"
-            >
-              <iframe
-                src={trailerSrc}
-                title={`${current.title} trailer`}
-                allow="autoplay; encrypted-media; picture-in-picture"
-                className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
-                style={{
-                  width: "max(100vw, calc(78vh * 16 / 9))",
-                  height: "max(78vh, calc(100vw * 9 / 16))",
-                }}
-                frameBorder={0}
-                scrolling="no"
-              />
-            </motion.div>
-          )}
+          {/* No YouTube trailer autoplay — YouTube blocks it with bot check.
+              The backdrop image with Ken Burns effect is shown instead. */}
 
           <div className="absolute inset-0 hero-fade-left" />
           <div className="absolute inset-0 hero-fade-bottom" />
@@ -683,20 +657,8 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
               >
                 <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
               </button>
-              {/* Dots + mute toggle (bottom-right). Mute only appears once
-                  the trailer is actually playing — before that, only the
-                  hero rotation dots are shown. */}
+              {/* Dots (bottom-right) */}
               <div className="absolute bottom-8 right-4 z-10 flex items-center gap-3 sm:right-8">
-                {showHeroTrailer && trailerKey && (
-                  <button
-                    onClick={() => setMuted((m) => !m)}
-                    aria-label={muted ? "Unmute trailer" : "Mute trailer"}
-                    title={muted ? "Unmute trailer" : "Mute trailer"}
-                    className="grid h-9 w-9 place-items-center rounded-full border border-white/40 bg-black/50 text-white backdrop-blur-sm transition hover:border-white/80 hover:bg-black/70"
-                  >
-                    {muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
-                  </button>
-                )}
                 <div className="flex gap-2">
                   {heroTitles.map((t, i) => (
                     <button
@@ -708,20 +670,6 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
                 </div>
               </div>
             </>
-          )}
-          {/* When there is only one hero title, still show the mute button if
-              the trailer is playing (no dots to anchor it to). */}
-          {heroTitles.length <= 1 && showTrailer && trailerKey && (
-            <div className="absolute bottom-8 right-4 z-10 flex items-center gap-3 sm:right-8">
-              <button
-                onClick={() => setMuted((m) => !m)}
-                aria-label={muted ? "Unmute trailer" : "Mute trailer"}
-                title={muted ? "Unmute trailer" : "Mute trailer"}
-                className="grid h-9 w-9 place-items-center rounded-full border border-white/40 bg-black/50 text-white backdrop-blur-sm transition hover:border-white/80 hover:bg-black/70"
-              >
-                {muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
-              </button>
-            </div>
           )}
         </section>
       )}
@@ -794,12 +742,12 @@ function TmdbRow({ row, onPlay, numbered, landscape, rowIndex, focusedCard, setC
   const rowTitle = ROW_TITLE_MAP[row.title] ? t(ROW_TITLE_MAP[row.title]) : row.title
 
   return (
-    <section className="group/row relative py-3 nf-fade-in">
+    <section className="group/row relative py-3 nf-fade-in" style={{ paddingBottom: "60px" }}>
       <h3 className="mb-2 flex items-center gap-2 px-4 text-base font-semibold text-white/90 sm:px-8 md:text-lg">
         {rowTitle}
         <span className="text-[10px] font-normal text-white/30">{row.titles.length} {t("titles")}</span>
       </h3>
-      <div className="no-scrollbar flex gap-2 overflow-x-auto scroll-smooth px-4 pb-6 pt-1 sm:gap-3 sm:px-8">
+      <div className="no-scrollbar flex gap-2 overflow-x-auto overflow-y-visible scroll-smooth px-4 pb-6 pt-1 sm:gap-3 sm:px-8" style={{ overflowY: "visible" }}>
         {row.titles.map((tt, i) => (
           <HoverPreviewCard
             key={`${tt.tmdbId}-${i}`}
@@ -868,7 +816,7 @@ function LocalRow({ title, titles, onPlay, showProgress, rowIndex, focusedCard, 
   return (
     <section className="group/row relative py-3">
       <h3 className="mb-2 px-4 text-base font-semibold text-white/90 sm:px-8 md:text-lg">{rowTitle}</h3>
-      <div className="no-scrollbar flex gap-2 overflow-x-auto scroll-smooth px-4 pb-6 pt-1 sm:gap-3 sm:px-8">
+      <div className="no-scrollbar flex gap-2 overflow-x-auto overflow-y-visible scroll-smooth px-4 pb-6 pt-1 sm:gap-3 sm:px-8" style={{ overflowY: "visible" }}>
         {titles.map((tt, i) => {
           const rating = roundRating(tt.rating)
           const isFocused = focusedCard === i
