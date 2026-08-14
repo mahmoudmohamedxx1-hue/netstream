@@ -265,15 +265,15 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
     }
   }, [current, isArabic])
 
-  // YouTube embed URL — only built when user manually clicks "Play Trailer"
-  const showHeroTrailer = playTrailerManually && trailerKey
-  const trailerSrc = showHeroTrailer ? buildTrailerSrc(trailerKey!, muted) : null
+  // Pause hero rotation when user is hovering a card (so they can read/interact)
+  const [heroPaused, setHeroPaused] = useState(false)
 
   useEffect(() => {
     if (heroTitles.length <= 1) return
+    if (heroPaused) return
     const id = setInterval(() => setHeroIdx((i) => (i + 1) % heroTitles.length), 8000)
     return () => clearInterval(id)
-  }, [heroTitles.length])
+  }, [heroTitles.length, heroPaused])
 
   // Lazy IMDB lookup when user clicks
   const handleClick = useCallback(
@@ -674,8 +674,13 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
         </section>
       )}
 
-      {/* Content rows — Continue Watching and My List appear first, right below hero */}
-      <div className="relative z-20 -mt-16 sm:-mt-24">
+      {/* Content rows — Continue Watching and My List appear first, right below hero.
+          onMouseEnter pauses hero rotation so the user can interact with cards. */}
+      <div
+        className="relative z-20 -mt-16 sm:-mt-24"
+        onMouseEnter={() => setHeroPaused(true)}
+        onMouseLeave={() => setHeroPaused(false)}
+      >
         {continueWatching && continueWatching.length > 0 && onPlayHistory && (
           <LocalRow
             title="Continue Watching"
