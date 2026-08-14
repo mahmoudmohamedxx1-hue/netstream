@@ -223,14 +223,14 @@ function TitleDetailInner({ title, open, onClose, onPlay }: Props) {
                 </div>
               )}
 
-              {/* Trailer */}
+              {/* Trailer — auto-plays muted like Netflix */}
               {tmdb?.trailerKey && (
                 <div className="mt-6">
                   <h3 className="mb-3 text-lg font-bold text-white">{t("trailer")}</h3>
                   <div className="aspect-video max-w-2xl overflow-hidden rounded-lg bg-black">
                     <iframe
                       key={tmdb.trailerKey}
-                      src={`https://www.youtube.com/embed/${tmdb.trailerKey}`}
+                      src={`https://www.youtube-nocookie.com/embed/${tmdb.trailerKey}?autoplay=1&mute=1&controls=1&modestbranding=1&rel=0&playsinline=1&iv_load_policy=3`}
                       title={`${displayTitle} trailer`}
                       allow="autoplay; encrypted-media; picture-in-picture"
                       allowFullScreen
