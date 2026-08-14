@@ -92,17 +92,12 @@ function fetchHeroPreview(title: TmdbTitle, lang: "en" | "ar"): Promise<HeroPrev
   return p
 }
 
-// Build the YouTube embed URL for the hero trailer. Mute is toggled via the
-// Build YouTube embed URL. Uses youtube-nocookie.com which doesn't trigger
-// the "Sign in to confirm you're not a bot" check. Muted autoplay is allowed
-// by all browsers (muted autoplay policy). No controls, no branding.
+// Build YouTube embed URL. Uses youtube.com/embed with minimal parameters.
+// Muted autoplay is allowed by all browsers. The video plays as a background
+// in the hero section.
 function buildTrailerSrc(key: string, muted: boolean): string {
   const muteParam = muted ? "mute=1&" : ""
-  return (
-    `https://www.youtube-nocookie.com/embed/${key}` +
-    `?autoplay=1&${muteParam}controls=0&loop=1&playlist=${key}` +
-    `&modestbranding=1&rel=0&playsinline=1&iv_load_policy=3&fs=0&cc_load_policy=0`
-  )
+  return `https://www.youtube.com/embed/${key}?autoplay=1&${muteParam}controls=0&loop=1&playlist=${key}&rel=0&playsinline=1`
 }
 
 // Map the English row titles returned by /api/tmdb/home to translation keys.
@@ -274,6 +269,10 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
     const id = setInterval(() => setHeroIdx((i) => (i + 1) % heroTitles.length), 8000)
     return () => clearInterval(id)
   }, [heroTitles.length, heroPaused])
+
+  // YouTube trailer URL — only built when trailer should play
+  const showHeroTrailer = playTrailerManually && !!trailerKey
+  const trailerSrc = showHeroTrailer && trailerKey ? buildTrailerSrc(trailerKey, muted) : null
 
   // Lazy IMDB lookup when user clicks
   const handleClick = useCallback(
@@ -555,8 +554,31 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
             )}
           </motion.div>
 
-          {/* No YouTube trailer autoplay — YouTube blocks it with bot check.
-              The backdrop image with Ken Burns effect is shown instead. */}
+          {/* YouTube trailer — auto-plays muted after 3s. Positioned behind
+              the gradient overlays and text. pointer-events-none so clicks
+              pass through to Play/More-info buttons. */}
+          {showHeroTrailer && trailerSrc && (
+            <motion.div
+              key={`${current.tmdbId}-trailer-${muted ? "muted" : "sound"}`}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.8 }}
+              className="absolute inset-0 z-0 overflow-hidden bg-black"
+            >
+              <iframe
+                src={trailerSrc}
+                title={`${current.title} trailer`}
+                allow="autoplay; encrypted-media; picture-in-picture"
+                className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
+                style={{
+                  width: "max(100vw, calc(78vh * 16 / 9))",
+                  height: "max(78vh, calc(100vw * 9 / 16))",
+                }}
+                frameBorder={0}
+                scrolling="no"
+              />
+            </motion.div>
+          )}
 
           <div className="absolute inset-0 hero-fade-left" />
           <div className="absolute inset-0 hero-fade-bottom" />
@@ -747,12 +769,12 @@ function TmdbRow({ row, onPlay, numbered, landscape, rowIndex, focusedCard, setC
   const rowTitle = ROW_TITLE_MAP[row.title] ? t(ROW_TITLE_MAP[row.title]) : row.title
 
   return (
-    <section className="group/row relative py-3 nf-fade-in" style={{ paddingBottom: "60px" }}>
+    <section className="group/row relative py-3 nf-fade-in">
       <h3 className="mb-2 flex items-center gap-2 px-4 text-base font-semibold text-white/90 sm:px-8 md:text-lg">
         {rowTitle}
         <span className="text-[10px] font-normal text-white/30">{row.titles.length} {t("titles")}</span>
       </h3>
-      <div className="no-scrollbar flex gap-2 overflow-x-auto overflow-y-visible scroll-smooth px-4 pb-6 pt-1 sm:gap-3 sm:px-8" style={{ overflowY: "visible" }}>
+      <div className="no-scrollbar flex gap-2 overflow-x-auto overflow-y-visible scroll-smooth px-4 pb-6 pt-1 sm:gap-3 sm:px-8">
         {row.titles.map((tt, i) => (
           <HoverPreviewCard
             key={`${tt.tmdbId}-${i}`}
@@ -821,7 +843,7 @@ function LocalRow({ title, titles, onPlay, showProgress, rowIndex, focusedCard, 
   return (
     <section className="group/row relative py-3">
       <h3 className="mb-2 px-4 text-base font-semibold text-white/90 sm:px-8 md:text-lg">{rowTitle}</h3>
-      <div className="no-scrollbar flex gap-2 overflow-x-auto overflow-y-visible scroll-smooth px-4 pb-6 pt-1 sm:gap-3 sm:px-8" style={{ overflowY: "visible" }}>
+      <div className="no-scrollbar flex gap-2 overflow-x-auto overflow-y-visible scroll-smooth px-4 pb-6 pt-1 sm:gap-3 sm:px-8">
         {titles.map((tt, i) => {
           const rating = roundRating(tt.rating)
           const isFocused = focusedCard === i
