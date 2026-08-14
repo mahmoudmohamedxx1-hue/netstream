@@ -98,9 +98,9 @@ function fetchHeroPreview(title: TmdbTitle, lang: "en" | "ar"): Promise<HeroPrev
 function buildTrailerSrc(key: string, muted: boolean): string {
   const muteParam = muted ? "mute=1&" : ""
   return (
-    `https://www.youtube-nocookie.com/embed/${key}` +
+    `https://www.youtube.com/embed/${key}` +
     `?autoplay=1&${muteParam}controls=0&loop=1&playlist=${key}` +
-    `&modestbranding=1&rel=0&playsinline=1&iv_load_policy=3`
+    `&modestbranding=1&rel=0&playsinline=1&iv_load_policy=3&enablejsapi=1&origin=${encodeURIComponent(typeof window !== 'undefined' ? window.location.origin : 'https://netstream.space-z.ai')}`
   )
 }
 
@@ -172,6 +172,12 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
   const [heroMaturity, setHeroMaturity] = useState<string | null>(null)
   const trailerTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // Disable hero trailer autoplay — YouTube blocks embedded autoplay on
+  // many domains with "Sign in to confirm you're not a bot" error.
+  // The hero now shows a static backdrop with a Play Trailer button instead.
+  // Hover preview cards still play trailers (they trigger on user interaction).
+  const [playTrailerManually, setPlayTrailerManually] = useState(false)
+
   // Fetch home content from TMDB. Retries automatically on failure (up to 3
   // times) because TMDB's free API sometimes rate-limits or times out.
   useEffect(() => {
@@ -186,7 +192,6 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
           setRows(fetchedRows)
           setLoading(false)
         } else {
-          // Empty response — retry if we haven't hit the limit
           if (retryCount < 3) {
             setTimeout(() => setRetryCount((c) => c + 1), 1000)
           } else {
@@ -196,7 +201,6 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
       })
       .catch(() => {
         if (cancelled) return
-        // Network error — retry if we haven't hit the limit
         if (retryCount < 3) {
           setTimeout(() => setRetryCount((c) => c + 1), 1000)
         } else {
@@ -227,6 +231,7 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
     Promise.resolve().then(() => {
       if (cancelled) return
       setShowTrailer(false)
+      setPlayTrailerManually(false)
       setTrailerKey(null)
       setHeroLogo(null)
       setHeroMaturity(null)
@@ -240,11 +245,8 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
       setTrailerKey(data.trailerKey)
       setHeroLogo(data.logo)
       setHeroMaturity(data.maturityRating)
-      if (data.trailerKey) {
-        trailerTimer.current = setTimeout(() => {
-          if (!cancelled) setShowTrailer(true)
-        }, 3000)
-      }
+      // Don't auto-play trailer — YouTube blocks autoplay with bot check.
+      // Trailer only plays when user clicks the "Play Trailer" button.
     })
     return () => {
       cancelled = true
@@ -255,8 +257,9 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
     }
   }, [current, isArabic])
 
-  // YouTube embed URL — toggles `mute=1` based on the `muted` state.
-  const trailerSrc = trailerKey ? buildTrailerSrc(trailerKey, muted) : null
+  // YouTube embed URL — only built when user manually clicks "Play Trailer"
+  const showHeroTrailer = playTrailerManually && trailerKey
+  const trailerSrc = showHeroTrailer ? buildTrailerSrc(trailerKey!, muted) : null
 
   useEffect(() => {
     if (heroTitles.length <= 1) return
@@ -550,7 +553,7 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
               video is cropped top/bottom; on tall/narrow heroes it is cropped
               left/right. `pointer-events-none` so clicks pass through to the
               Play/More-info buttons. */}
-          {showTrailer && trailerSrc && (
+          {showHeroTrailer && trailerSrc && (
             <motion.div
               key={`${current.tmdbId}-trailer-${muted ? "muted" : "sound"}`}
               initial={{ opacity: 0 }}
@@ -651,6 +654,23 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
                   <Info className="h-5 w-5" />
                   {t("moreInfo")}
                 </SpecularButton>
+                {trailerKey && !showHeroTrailer && (
+                  <button
+                    onClick={() => setPlayTrailerManually(true)}
+                    className="inline-flex items-center gap-2 rounded-md border border-white/30 bg-black/40 px-4 py-3 text-sm font-bold text-white backdrop-blur-sm transition hover:border-white/60 hover:bg-black/60"
+                  >
+                    <Play className="h-4 w-4 fill-current" />
+                    {isArabic ? "الإعلان" : "Trailer"}
+                  </button>
+                )}
+                {showHeroTrailer && (
+                  <button
+                    onClick={() => { setPlayTrailerManually(false); setMuted(true) }}
+                    className="inline-flex items-center gap-2 rounded-md border border-white/30 bg-black/40 px-4 py-3 text-sm font-bold text-white backdrop-blur-sm transition hover:border-white/60 hover:bg-black/60"
+                  >
+                    {isArabic ? "إغلاق الإعلان" : "Close"}
+                  </button>
+                )}
               </div>
             </motion.div>
           </div>
@@ -676,7 +696,7 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
                   the trailer is actually playing — before that, only the
                   hero rotation dots are shown. */}
               <div className="absolute bottom-8 right-4 z-10 flex items-center gap-3 sm:right-8">
-                {showTrailer && trailerKey && (
+                {showHeroTrailer && trailerKey && (
                   <button
                     onClick={() => setMuted((m) => !m)}
                     aria-label={muted ? "Unmute trailer" : "Mute trailer"}
