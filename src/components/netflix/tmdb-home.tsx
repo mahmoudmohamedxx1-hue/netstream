@@ -93,14 +93,15 @@ function fetchHeroPreview(title: TmdbTitle, lang: "en" | "ar"): Promise<HeroPrev
 }
 
 // Build the YouTube embed URL for the hero trailer. Mute is toggled via the
-// `muted` flag — when unmuted, the `mute=1` query param is removed so YouTube
-// loads the player with audio enabled (changing the src reloads the iframe).
+// Build YouTube embed URL. Uses youtube-nocookie.com which doesn't trigger
+// the "Sign in to confirm you're not a bot" check. Muted autoplay is allowed
+// by all browsers (muted autoplay policy). No controls, no branding.
 function buildTrailerSrc(key: string, muted: boolean): string {
   const muteParam = muted ? "mute=1&" : ""
   return (
-    `https://www.youtube.com/embed/${key}` +
+    `https://www.youtube-nocookie.com/embed/${key}` +
     `?autoplay=1&${muteParam}controls=0&loop=1&playlist=${key}` +
-    `&modestbranding=1&rel=0&playsinline=1&iv_load_policy=3&enablejsapi=1&origin=${encodeURIComponent(typeof window !== 'undefined' ? window.location.origin : 'https://netstream.space-z.ai')}`
+    `&modestbranding=1&rel=0&playsinline=1&iv_load_policy=3&fs=0&cc_load_policy=0`
   )
 }
 
@@ -245,8 +246,15 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
       setTrailerKey(data.trailerKey)
       setHeroLogo(data.logo)
       setHeroMaturity(data.maturityRating)
-      // Don't auto-play trailer — YouTube blocks autoplay with bot check.
-      // Trailer only plays when user clicks the "Play Trailer" button.
+      // Auto-play trailer after 3 seconds (muted autoplay is allowed by all browsers)
+      if (data.trailerKey) {
+        trailerTimer.current = setTimeout(() => {
+          if (!cancelled) {
+            setShowTrailer(true)
+            setPlayTrailerManually(true)
+          }
+        }, 3000)
+      }
     })
     return () => {
       cancelled = true
@@ -654,23 +662,6 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
                   <Info className="h-5 w-5" />
                   {t("moreInfo")}
                 </SpecularButton>
-                {trailerKey && !showHeroTrailer && (
-                  <button
-                    onClick={() => setPlayTrailerManually(true)}
-                    className="inline-flex items-center gap-2 rounded-md border border-white/30 bg-black/40 px-4 py-3 text-sm font-bold text-white backdrop-blur-sm transition hover:border-white/60 hover:bg-black/60"
-                  >
-                    <Play className="h-4 w-4 fill-current" />
-                    {isArabic ? "الإعلان" : "Trailer"}
-                  </button>
-                )}
-                {showHeroTrailer && (
-                  <button
-                    onClick={() => { setPlayTrailerManually(false); setMuted(true) }}
-                    className="inline-flex items-center gap-2 rounded-md border border-white/30 bg-black/40 px-4 py-3 text-sm font-bold text-white backdrop-blur-sm transition hover:border-white/60 hover:bg-black/60"
-                  >
-                    {isArabic ? "إغلاق الإعلان" : "Close"}
-                  </button>
-                )}
               </div>
             </motion.div>
           </div>
