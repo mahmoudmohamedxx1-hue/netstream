@@ -22,12 +22,6 @@ export type VideoSource = {
   region: Region
   buildMovie: (imdbId: string) => string
   buildSeries: (imdbId: string, season: number, episode: number) => string
-  /** If true, this provider uses TMDB IDs instead of IMDB IDs. */
-  useTmdbId?: boolean
-  /** Build movie URL using TMDB ID (when useTmdbId is true). */
-  buildMovieTmdb?: (tmdbId: number) => string
-  /** Build series URL using TMDB ID (when useTmdbId is true). */
-  buildSeriesTmdb?: (tmdbId: number, season: number, episode: number) => string
 }
 
 // ─── Tier 1: Best providers that work in browser iframes (tested 2025-01) ──
@@ -145,125 +139,6 @@ const TIER_1B: VideoSource[] = [
     region: "Global",
     buildMovie: (id) => `https://vidcore.net/movie/${id}`,
     buildSeries: (id, s, e) => `https://vidcore.net/tv/${id}/${s}/${e}`,
-  },
-]
-
-// ─── Tier 1c: Modern embed aggregators (2025) ──
-// Newer embed providers that bundle multiple upstream video hosts behind a
-// clean REST-style URL (/movie/{id}, /tv/{id}/{s}/{e}). Some of them
-// (VidLink, Videasy, VidFast) key off TMDB IDs instead of IMDB IDs — these
-// set useTmdbId: true and expose buildMovieTmdb/buildSeriesTmdb. When a
-// caller passes a TMDB ID through buildPlayerUrl, it will route to those
-// builders; otherwise it falls back to the IMDB builders (which for these
-// providers will produce a URL keyed off the IMDB ID — less reliable for
-// TMDB-only sources, but still functional). The rest (VidJoy, RiveStream,
-// 111movies, SuperEmbed) continue to key off the IMDB ID.
-const TIER_1C: VideoSource[] = [
-  {
-    id: "vidlink.pro",
-    name: "VidLink",
-    quality: "1080p",
-    tier: 1,
-    logo: "VL",
-    color: "from-indigo-500 to-purple-600",
-    mobile: true,
-    region: "Global",
-    useTmdbId: true,
-    buildMovie: (id) => `https://vidlink.pro/movie/${id}`,
-    buildSeries: (id, s, e) => `https://vidlink.pro/tv/${id}/${s}/${e}`,
-    buildMovieTmdb: (tmdbId) => `https://vidlink.pro/movie/${tmdbId}`,
-    buildSeriesTmdb: (tmdbId, s, e) =>
-      `https://vidlink.pro/tv/${tmdbId}/${s}/${e}`,
-  },
-  {
-    id: "videasy.net",
-    name: "Videasy",
-    quality: "1080p",
-    tier: 1,
-    logo: "VE",
-    color: "from-emerald-500 to-green-600",
-    mobile: true,
-    region: "Global",
-    useTmdbId: true,
-    buildMovie: (id) => `https://player.videasy.net/movie/${id}`,
-    buildSeries: (id, s, e) =>
-      `https://player.videasy.net/tv/${id}/${s}/${e}`,
-    buildMovieTmdb: (tmdbId) => `https://player.videasy.net/movie/${tmdbId}`,
-    buildSeriesTmdb: (tmdbId, s, e) =>
-      `https://player.videasy.net/tv/${tmdbId}/${s}/${e}`,
-  },
-  {
-    id: "vidfast.pro",
-    name: "VidFast",
-    quality: "1080p",
-    tier: 1,
-    logo: "VF",
-    color: "from-orange-500 to-red-600",
-    mobile: true,
-    region: "Global",
-    useTmdbId: true,
-    buildMovie: (id) => `https://vidfast.pro/movie/${id}`,
-    buildSeries: (id, s, e) => `https://vidfast.pro/tv/${id}/${s}/${e}`,
-    buildMovieTmdb: (tmdbId) => `https://vidfast.pro/movie/${tmdbId}`,
-    buildSeriesTmdb: (tmdbId, s, e) =>
-      `https://vidfast.pro/tv/${tmdbId}/${s}/${e}`,
-  },
-  {
-    id: "superembed",
-    name: "SuperEmbed",
-    quality: "Multi",
-    tier: 1,
-    logo: "SE",
-    color: "from-cyan-500 to-teal-600",
-    mobile: true,
-    region: "Global",
-    // SuperEmbed is a multiembed.mov variant that accepts BOTH the IMDB id
-    // (video_id=) and the TMDB id (tmdb=). The TMDB id is optional at the
-    // URL level; here we pass an empty tmdb= when only the IMDB id is
-    // available at this layer (the multiembed.mov scraper treats an empty
-    // tmdb param as "not provided" and falls back to IMDB lookup).
-    buildMovie: (id) => `https://multiembed.mov/?video_id=${id}&tmdb=`,
-    buildSeries: (id, s, e) =>
-      `https://multiembed.mov/?video_id=${id}&tmdb=&s=${s}&e=${e}`,
-  },
-  {
-    id: "vidjoy.pro",
-    name: "VidJoy",
-    quality: "HD",
-    tier: 1,
-    logo: "VJ",
-    color: "from-pink-500 to-rose-600",
-    mobile: true,
-    region: "Global",
-    buildMovie: (id) => `https://vidjoy.pro/embed/movie/${id}`,
-    buildSeries: (id, s, e) =>
-      `https://vidjoy.pro/embed/tv/${id}/${s}/${e}`,
-  },
-  {
-    id: "rivestream",
-    name: "RiveStream",
-    quality: "HD",
-    tier: 1,
-    logo: "RS",
-    color: "from-violet-500 to-indigo-600",
-    mobile: true,
-    region: "Global",
-    buildMovie: (id) => `https://rivestream.xyz/embed/movie/${id}`,
-    buildSeries: (id, s, e) =>
-      `https://rivestream.xyz/embed/tv/${id}/${s}/${e}`,
-  },
-  {
-    id: "111movies",
-    name: "111movies",
-    quality: "HD",
-    tier: 1,
-    logo: "1M",
-    color: "from-amber-500 to-orange-600",
-    mobile: true,
-    region: "Global",
-    buildMovie: (id) => `https://111movies.com/embed/movie/${id}`,
-    buildSeries: (id, s, e) =>
-      `https://111movies.com/embed/tv/${id}/${s}/${e}`,
   },
 ]
 
@@ -586,7 +461,6 @@ const TIER_5: VideoSource[] = [
 export const VIDEO_SOURCES: VideoSource[] = [
   ...TIER_1,
   ...TIER_1B,
-  ...TIER_1C,
   ...TIER_2,
   ...TIER_3,
   ...TIER_5,
@@ -654,33 +528,18 @@ export function getSource(id: string): VideoSource {
 }
 
 // Build a full player URL for a given title.
-//
-// Some providers (those with useTmdbId: true) prefer TMDB IDs over IMDB IDs.
-// When `tmdbId` is provided AND the source declares useTmdbId, we route to
-// the source's buildMovieTmdb / buildSeriesTmdb builders. Otherwise we fall
-// back to the standard IMDB-keyed builders (which every source must define).
 export function buildPlayerUrl(opts: {
   imdbId: string
-  tmdbId?: number
   type: "movie" | "series"
   season?: number
   episode?: number
   sourceId?: string
 }): string {
   const source = getSource(opts.sourceId ?? VIDEO_SOURCES[0].id)
-  if (source.useTmdbId && opts.tmdbId && source.buildMovieTmdb) {
-    if (opts.type === "series" && source.buildSeriesTmdb) {
-      return source.buildSeriesTmdb(
-        opts.tmdbId,
-        opts.season ?? 1,
-        opts.episode ?? 1,
-      )
-    }
-    return source.buildMovieTmdb(opts.tmdbId)
-  }
-  // Fall back to IMDB ID
   if (opts.type === "series") {
-    return source.buildSeries(opts.imdbId, opts.season ?? 1, opts.episode ?? 1)
+    const s = opts.season ?? 1
+    const e = opts.episode ?? 1
+    return source.buildSeries(opts.imdbId, s, e)
   }
   return source.buildMovie(opts.imdbId)
 }

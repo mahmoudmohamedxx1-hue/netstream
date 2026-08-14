@@ -9,14 +9,6 @@ import type { CardTitle } from "./content-card"
 import { cn } from "@/lib/utils"
 import { useLang } from "@/lib/lang-context"
 
-// Round a TMDB rating string (e.g. "8.034") to 1 decimal place ("8.0").
-function roundRating(r: string | null | undefined): string | null {
-  if (!r) return null
-  const n = parseFloat(r)
-  if (Number.isNaN(n)) return null
-  return n.toFixed(1)
-}
-
 type TmdbItem = {
   imdbId: string | null
   tmdbId: number
@@ -331,7 +323,7 @@ export function TmdbBrowseGrid({ type, onPlay, initialCategory, headerTitle, hea
                     </p>
                     {t.rating && (
                       <p className="mt-0.5 inline-flex items-center gap-0.5 text-[10px] text-yellow-400">
-                        <Star className="h-2.5 w-2.5 fill-yellow-400" /> {roundRating(t.rating)}
+                        <Star className="h-2.5 w-2.5 fill-yellow-400" /> {t.rating}
                       </p>
                     )}
                   </div>

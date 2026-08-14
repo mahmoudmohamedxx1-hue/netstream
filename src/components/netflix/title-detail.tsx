@@ -13,14 +13,6 @@ import { useToast } from "@/hooks/use-toast"
 import { useLang } from "@/lib/lang-context"
 import { cn } from "@/lib/utils"
 
-// Round a TMDB rating string (e.g. "8.034") to 1 decimal place ("8.0").
-function roundRating(r: string | null | undefined): string | null {
-  if (!r) return null
-  const n = parseFloat(r)
-  if (Number.isNaN(n)) return null
-  return n.toFixed(1)
-}
-
 type Props = {
   title: { imdbId: string; title: string; type: "movie" | "series"; year?: string | null; poster?: string | null; overview?: string | null; rating?: string | null }
   open: boolean
@@ -147,7 +139,7 @@ function TitleDetailInner({ title, open, onClose, onPlay }: Props) {
                 {displayRating && (
                   <div className="mt-2 flex items-center gap-2 text-sm">
                     <span className="inline-flex items-center gap-1 font-semibold text-white">
-                      <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />{roundRating(displayRating)}
+                      <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />{displayRating}
                     </span>
                     {tmdb?.voteCount && <span className="text-white/50">({tmdb.voteCount.toLocaleString()} votes)</span>}
                   </div>

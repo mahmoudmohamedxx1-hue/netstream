@@ -28,7 +28,7 @@ export const metadata: Metadata = {
   ],
   authors: [{ name: "NetStream" }],
   icons: {
-    icon: "/favicon.svg",
+    icon: "https://z-cdn.chatglm.cn/z-ai/static/logo.svg",
   },
   openGraph: {
     title: "NetStream — Watch Movies & Series",

@@ -1,107 +1,12 @@
 "use client"
 
-import { useEffect, useState, useCallback, useRef } from "react"
+import { useEffect, useState, useCallback } from "react"
 import { motion } from "framer-motion"
-import { Play, Info, Star, Film, Tv, Loader2, RotateCw, Volume2, VolumeX } from "lucide-react"
+import { Play, Info, Star, Film, Tv, Loader2, RotateCw } from "lucide-react"
 import { Poster } from "./poster"
 import SpecularButton from "@/components/specular/SpecularButton"
 import type { CardTitle } from "./content-card"
-import { HoverPreviewCard } from "./hover-preview-card"
 import { useLang } from "@/lib/lang-context"
-
-// Round a TMDB rating string (e.g. "8.034") to 1 decimal place ("8.0").
-function roundRating(r: string | null | undefined): string | null {
-  if (!r) return null
-  const n = parseFloat(r)
-  if (Number.isNaN(n)) return null
-  return n.toFixed(1)
-}
-
-// ---------------------------------------------------------------------------
-// Hero trailer fetch
-// ---------------------------------------------------------------------------
-// The TMDB /home endpoint ships row titles without an imdbId, so we do a
-// two-step lazy fetch for the current hero title:
-//   1. /api/tmdb/lookup?tmdbId=…&type=movie|tv  → resolves imdbId
-//   2. /api/tmdb/{imdbId}?lang=…                → returns trailerKey, logo,
-//                                                 maturityRating
-// Results are cached module-level so subsequent hero cycles (the hero
-// rotates every 8s through 5 titles) are instant. Mirrors the same pattern
-// used by `hover-preview-card.tsx`.
-
-type HeroPreview = {
-  imdbId: string | null
-  trailerKey: string | null
-  logo: string | null
-  maturityRating: string | null
-}
-
-const heroPreviewCache = new Map<number, HeroPreview | null>()
-const heroInflight = new Map<number, Promise<HeroPreview | null>>()
-
-function fetchHeroPreview(title: TmdbTitle, lang: "en" | "ar"): Promise<HeroPreview | null> {
-  if (heroPreviewCache.has(title.tmdbId)) {
-    return Promise.resolve(heroPreviewCache.get(title.tmdbId) ?? null)
-  }
-  const existing = heroInflight.get(title.tmdbId)
-  if (existing) return existing
-
-  const p = (async (): Promise<HeroPreview | null> => {
-    try {
-      let imdbId = title.imdbId
-      if (!imdbId) {
-        const tmdbType = title.type === "series" ? "tv" : "movie"
-        const r1 = await fetch(
-          `/api/tmdb/lookup?tmdbId=${title.tmdbId}&type=${tmdbType}`,
-          { cache: "no-store" }
-        )
-        const d1 = await r1.json().catch(() => ({}))
-        imdbId = d1.imdbId ?? null
-      }
-      if (!imdbId) {
-        heroPreviewCache.set(title.tmdbId, null)
-        return null
-      }
-      const langParam = lang === "ar" ? "?lang=ar" : ""
-      const r2 = await fetch(`/api/tmdb/${encodeURIComponent(imdbId)}${langParam}`, {
-        cache: "no-store",
-      })
-      const d2 = await r2.json().catch(() => ({}))
-      const detail = d2.title
-      if (!detail) {
-        heroPreviewCache.set(title.tmdbId, null)
-        return null
-      }
-      const data: HeroPreview = {
-        imdbId,
-        trailerKey: detail.trailerKey ?? null,
-        logo: detail.logo ?? null,
-        maturityRating: detail.maturityRating ?? null,
-      }
-      heroPreviewCache.set(title.tmdbId, data)
-      return data
-    } catch {
-      heroPreviewCache.set(title.tmdbId, null)
-      return null
-    } finally {
-      heroInflight.delete(title.tmdbId)
-    }
-  })()
-  heroInflight.set(title.tmdbId, p)
-  return p
-}
-
-// Build the YouTube embed URL for the hero trailer. Mute is toggled via the
-// `muted` flag — when unmuted, the `mute=1` query param is removed so YouTube
-// loads the player with audio enabled (changing the src reloads the iframe).
-function buildTrailerSrc(key: string, muted: boolean): string {
-  const muteParam = muted ? "mute=1&" : ""
-  return (
-    `https://www.youtube-nocookie.com/embed/${key}` +
-    `?autoplay=1&${muteParam}controls=0&loop=1&playlist=${key}` +
-    `&modestbranding=1&rel=0&playsinline=1&iv_load_policy=3`
-  )
-}
 
 // Map the English row titles returned by /api/tmdb/home to translation keys.
 // This lets us translate "Trending Now" → "الرائج الآن" etc. at render time
@@ -152,19 +57,6 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory }: Pr
   const [lookingUp, setLookingUp] = useState<number | null>(null)
   const [retryCount, setRetryCount] = useState(0)
 
-  // --- Hero trailer state ---
-  // `trailerKey` is the YouTube video id (or null while loading / unavailable).
-  // `showTrailer` flips to true 3s after `current` settles, fading the
-  // backdrop image out and the YouTube iframe in.
-  // `muted` tracks the user's mute preference and persists across hero cycles.
-  // `heroLogo` / `heroMaturity` come from the same TMDB detail fetch.
-  const [trailerKey, setTrailerKey] = useState<string | null>(null)
-  const [showTrailer, setShowTrailer] = useState(false)
-  const [muted, setMuted] = useState(true)
-  const [heroLogo, setHeroLogo] = useState<string | null>(null)
-  const [heroMaturity, setHeroMaturity] = useState<string | null>(null)
-  const trailerTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-
   // Fetch home content from TMDB. Retries automatically on failure (up to 3
   // times) because TMDB's free API sometimes rate-limits or times out.
   useEffect(() => {
@@ -203,53 +95,6 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory }: Pr
   const heroRow = rows[0]?.titles ?? []
   const heroTitles = heroRow.slice(0, 5)
   const current = heroTitles[heroIdx]
-
-  // Whenever the hero title changes (rotation, manual nav, language switch):
-  // 1. Reset trailer state — backdrop image is shown again.
-  // 2. Lazy-fetch the trailer key + logo + maturity rating for the new title.
-  // 3. If a trailer exists, start a 3-second timer to swap in the YouTube
-  //    iframe. The cleanup fn cancels the in-flight fetch + clears the timer
-  //    if `current` changes again before the timer fires.
-  //
-  // The synchronous resets are deferred via `Promise.resolve().then()` to
-  // satisfy the `react-hooks/set-state-in-effect` lint rule (same pattern as
-  // the home content fetch above). They still run before the next paint.
-  useEffect(() => {
-    if (!current) return
-    let cancelled = false
-    Promise.resolve().then(() => {
-      if (cancelled) return
-      setShowTrailer(false)
-      setTrailerKey(null)
-      setHeroLogo(null)
-      setHeroMaturity(null)
-    })
-    if (trailerTimer.current) {
-      clearTimeout(trailerTimer.current)
-      trailerTimer.current = null
-    }
-    fetchHeroPreview(current, isArabic ? "ar" : "en").then((data) => {
-      if (cancelled || !data) return
-      setTrailerKey(data.trailerKey)
-      setHeroLogo(data.logo)
-      setHeroMaturity(data.maturityRating)
-      if (data.trailerKey) {
-        trailerTimer.current = setTimeout(() => {
-          if (!cancelled) setShowTrailer(true)
-        }, 3000)
-      }
-    })
-    return () => {
-      cancelled = true
-      if (trailerTimer.current) {
-        clearTimeout(trailerTimer.current)
-        trailerTimer.current = null
-      }
-    }
-  }, [current, isArabic])
-
-  // YouTube embed URL — toggles `mute=1` based on the `muted` state.
-  const trailerSrc = trailerKey ? buildTrailerSrc(trailerKey, muted) : null
 
   useEffect(() => {
     if (heroTitles.length <= 1) return
@@ -322,36 +167,6 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory }: Pr
               <Poster title={current.title} src={current.poster} className="h-full w-full" />
             )}
           </motion.div>
-
-          {/* YouTube trailer — fades in 3s after a new title appears.
-              z-0 (below the gradient overlays + text content). The iframe is
-              sized to always cover the hero at 16:9 — on wide heroes the
-              video is cropped top/bottom; on tall/narrow heroes it is cropped
-              left/right. `pointer-events-none` so clicks pass through to the
-              Play/More-info buttons. */}
-          {showTrailer && trailerSrc && (
-            <motion.div
-              key={`${current.tmdbId}-trailer-${muted ? "muted" : "sound"}`}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ duration: 0.8 }}
-              className="absolute inset-0 z-0 overflow-hidden bg-black"
-            >
-              <iframe
-                src={trailerSrc}
-                title={`${current.title} trailer`}
-                allow="autoplay; encrypted-media; picture-in-picture"
-                className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2"
-                style={{
-                  width: "max(100vw, calc(78vh * 16 / 9))",
-                  height: "max(78vh, calc(100vw * 9 / 16))",
-                }}
-                frameBorder={0}
-                scrolling="no"
-              />
-            </motion.div>
-          )}
-
           <div className="absolute inset-0 hero-fade-left" />
           <div className="absolute inset-0 hero-fade-bottom" />
 
@@ -366,30 +181,15 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory }: Pr
                 {current.type === "series" ? <Tv className="mr-1 inline h-3 w-3" /> : <Film className="mr-1 inline h-3 w-3" />}
                 {current.type === "series" ? t("seriesShort") : t("movieShort")}
               </span>
-              {/* Prefer the TMDB logo art when available (Netflix-style brand
-                  logo); fall back to a text <h1> for titles with no logo. */}
-              {heroLogo ? (
-                <img
-                  src={heroLogo}
-                  alt={current.title}
-                  className="mb-3 max-h-[120px] max-w-[80%] object-contain object-left drop-shadow-2xl sm:max-h-[160px] md:max-w-[60%]"
-                />
-              ) : (
-                <h1 className="text-3xl font-black leading-tight text-white drop-shadow-lg sm:text-5xl md:text-6xl">{current.title}</h1>
-              )}
+              <h1 className="text-3xl font-black leading-tight text-white drop-shadow-lg sm:text-5xl md:text-6xl">{current.title}</h1>
               <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-white/90">
                 {current.rating && (
                   <span className="inline-flex items-center gap-1 font-semibold">
                     <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                    {roundRating(current.rating)}
+                    {current.rating}
                   </span>
                 )}
                 {current.year && <span>{current.year}</span>}
-                {/* Maturity rating badge (PG-13 / TV-MA / …). Fallback to
-                    "HD" when TMDB has no US certification for this title. */}
-                <span className="rounded border border-white/40 bg-black/40 px-1.5 py-0.5 text-[11px] font-bold text-white/90 backdrop-blur-sm">
-                  {heroMaturity ?? "HD"}
-                </span>
               </div>
               <p className="mt-3 line-clamp-3 max-w-lg text-sm text-white/85 drop-shadow sm:text-base">{current.overview}</p>
               <div className="mt-5 flex flex-wrap items-center gap-3">
@@ -451,45 +251,17 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory }: Pr
               >
                 <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
               </button>
-              {/* Dots + mute toggle (bottom-right). Mute only appears once
-                  the trailer is actually playing — before that, only the
-                  hero rotation dots are shown. */}
-              <div className="absolute bottom-8 right-4 z-10 flex items-center gap-3 sm:right-8">
-                {showTrailer && trailerKey && (
+              {/* Dots */}
+              <div className="absolute bottom-8 right-4 z-10 flex gap-2 sm:right-8">
+                {heroTitles.map((t, i) => (
                   <button
-                    onClick={() => setMuted((m) => !m)}
-                    aria-label={muted ? "Unmute trailer" : "Mute trailer"}
-                    title={muted ? "Unmute trailer" : "Mute trailer"}
-                    className="grid h-9 w-9 place-items-center rounded-full border border-white/40 bg-black/50 text-white backdrop-blur-sm transition hover:border-white/80 hover:bg-black/70"
-                  >
-                    {muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
-                  </button>
-                )}
-                <div className="flex gap-2">
-                  {heroTitles.map((t, i) => (
-                    <button
-                      key={t.tmdbId}
-                      onClick={() => setHeroIdx(i)}
-                      className={i === heroIdx ? "h-1.5 w-7 rounded-full bg-primary transition-all" : "h-1.5 w-3 rounded-full bg-white/40 transition-all hover:bg-white/70"}
-                    />
-                  ))}
-                </div>
+                    key={t.tmdbId}
+                    onClick={() => setHeroIdx(i)}
+                    className={i === heroIdx ? "h-1.5 w-7 rounded-full bg-primary transition-all" : "h-1.5 w-3 rounded-full bg-white/40 transition-all hover:bg-white/70"}
+                  />
+                ))}
               </div>
             </>
-          )}
-          {/* When there is only one hero title, still show the mute button if
-              the trailer is playing (no dots to anchor it to). */}
-          {heroTitles.length <= 1 && showTrailer && trailerKey && (
-            <div className="absolute bottom-8 right-4 z-10 flex items-center gap-3 sm:right-8">
-              <button
-                onClick={() => setMuted((m) => !m)}
-                aria-label={muted ? "Unmute trailer" : "Mute trailer"}
-                title={muted ? "Unmute trailer" : "Mute trailer"}
-                className="grid h-9 w-9 place-items-center rounded-full border border-white/40 bg-black/50 text-white backdrop-blur-sm transition hover:border-white/80 hover:bg-black/70"
-              >
-                {muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
-              </button>
-            </div>
           )}
         </section>
       )}
@@ -507,6 +279,7 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory }: Pr
             key={row.title}
             row={row}
             onPlay={handleClick}
+            lookingUp={lookingUp}
             numbered={row.title.toLowerCase().includes("top rated")}
           />
         ))}
@@ -515,9 +288,10 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory }: Pr
   )
 }
 
-function TmdbRow({ row, onPlay, numbered }: {
+function TmdbRow({ row, onPlay, lookingUp, numbered }: {
   row: TmdbRow
   onPlay: (t: TmdbTitle) => void
+  lookingUp: number | null
   numbered?: boolean
 }) {
   const { t } = useLang()
@@ -535,12 +309,37 @@ function TmdbRow({ row, onPlay, numbered }: {
       </h3>
       <div className="no-scrollbar flex gap-2 overflow-x-auto scroll-smooth px-4 pb-6 pt-1 sm:gap-3 sm:px-8">
         {row.titles.map((tt, i) => (
-          <HoverPreviewCard
-            key={`${tt.tmdbId}-${i}`}
-            title={tt}
-            onPlay={onPlay}
-            rank={numbered ? i + 1 : undefined}
-          />
+            <button
+              key={`${tt.tmdbId}-${i}`}
+              onClick={() => onPlay(tt)}
+              disabled={lookingUp === tt.tmdbId}
+              className="group/card specular-card-outline relative aspect-[2/3] w-[40vw] shrink-0 transition-transform duration-200 hover:scale-105 hover:z-10 sm:w-[180px] md:w-[200px] disabled:opacity-50"
+            >
+            <div className="relative h-full overflow-hidden rounded-md bg-neutral-900">
+              <Poster title={tt.title} src={tt.poster} year={tt.year} alt={tt.title} className="h-full w-full transition duration-300 group-hover/card:opacity-90" />
+              <span className="absolute right-2 top-2 inline-flex items-center gap-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-white backdrop-blur-sm">
+                {tt.type === "series" ? t("seriesShort") : t("movieShort")}
+              </span>
+              {tt.rating && (
+                <span className="absolute left-2 top-2 inline-flex items-center gap-0.5 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-yellow-400 backdrop-blur-sm">
+                  <Star className="h-2.5 w-2.5 fill-yellow-400" />{tt.rating}
+                </span>
+              )}
+              {/* Hover overlay */}
+              <div className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/90 via-black/30 to-transparent p-2 opacity-0 transition group-hover/card:opacity-100">
+                <p className="line-clamp-2 text-xs font-bold text-white">{tt.title}</p>
+                <p className="text-[10px] text-white/60">{tt.year} • {tt.type === "series" ? t("seriesShort") : t("movieShort")}</p>
+                <span className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-primary">
+                  <Play className="h-3 w-3 fill-current" /> {t("play")}
+                </span>
+              </div>
+            </div>
+            {numbered && (
+              <span className="pointer-events-none absolute -left-3 top-0 z-0 font-black leading-none text-transparent" style={{ fontSize: "clamp(72px, 12vw, 120px)", WebkitTextStroke: "3px rgba(255,255,255,0.35)" }}>
+                {i + 1}
+              </span>
+            )}
+            </button>
         ))}
       </div>
     </section>
@@ -562,41 +361,41 @@ function LocalRow({ title, titles, onPlay, showProgress }: {
     <section className="group/row relative py-3">
       <h3 className="mb-2 px-4 text-base font-semibold text-white/90 sm:px-8 md:text-lg">{rowTitle}</h3>
       <div className="no-scrollbar flex gap-2 overflow-x-auto scroll-smooth px-4 pb-6 pt-1 sm:gap-3 sm:px-8">
-        {titles.map((tt, i) => {
-          const rating = roundRating(tt.rating)
-          return (
-            <button
-              key={tt.imdbId + i}
-              onClick={() => onPlay(tt)}
-              className="group/card relative aspect-[2/3] w-[40vw] shrink-0 sm:w-[180px] md:w-[200px]"
-            >
-              <div className="relative h-full overflow-hidden rounded-md bg-neutral-900">
-                <Poster title={tt.title} src={tt.poster} year={tt.year} alt={tt.title} className="h-full w-full transition duration-300 group-hover/card:opacity-90" />
-                {rating && (
-                  <span className="absolute left-2 top-2 inline-flex items-center gap-0.5 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-yellow-400 backdrop-blur-sm">
-                    <Star className="h-2.5 w-2.5 fill-yellow-400" />{rating}
-                  </span>
-                )}
-                {/* Progress bar */}
-                {showProgress && tt.progress != null && tt.progress > 0 && (
-                  <div className="absolute bottom-0 left-0 right-0 z-10">
-                    <div className="h-1 w-full bg-black/60">
-                      <div className="h-full bg-primary" style={{ width: `${Math.min(tt.progress, 100)}%` }} />
-                    </div>
+        {titles.map((tt, i) => (
+          <button
+            key={tt.imdbId + i}
+            onClick={() => onPlay(tt)}
+            className="group/card relative aspect-[2/3] w-[40vw] shrink-0 sm:w-[180px] md:w-[200px]"
+          >
+            <div className="relative h-full overflow-hidden rounded-md bg-neutral-900">
+              <Poster title={tt.title} src={tt.poster} year={tt.year} alt={tt.title} className="h-full w-full transition duration-300 group-hover/card:opacity-90" />
+              <span className="absolute right-2 top-2 inline-flex items-center gap-1 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-white backdrop-blur-sm">
+                {tt.type === "series" ? t("seriesShort") : t("movieShort")}
+              </span>
+              {tt.rating && (
+                <span className="absolute left-2 top-2 inline-flex items-center gap-0.5 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-yellow-400 backdrop-blur-sm">
+                  <Star className="h-2.5 w-2.5 fill-yellow-400" />{tt.rating}
+                </span>
+              )}
+              {/* Progress bar */}
+              {showProgress && tt.progress != null && tt.progress > 0 && (
+                <div className="absolute bottom-0 left-0 right-0 z-10">
+                  <div className="h-1 w-full bg-black/60">
+                    <div className="h-full bg-primary" style={{ width: `${Math.min(tt.progress, 100)}%` }} />
                   </div>
-                )}
-                {/* Hover overlay */}
-                <div className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/90 via-black/30 to-transparent p-2 opacity-0 transition group-hover/card:opacity-100">
-                  <p className="line-clamp-2 text-xs font-bold text-white">{tt.title}</p>
-                  <p className="text-[10px] text-white/60">{tt.year}</p>
-                  <span className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-primary">
-                    <Play className="h-3 w-3 fill-current" /> {showProgress ? t("resume") : t("play")}
-                  </span>
                 </div>
+              )}
+              {/* Hover overlay */}
+              <div className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/90 via-black/30 to-transparent p-2 opacity-0 transition group-hover/card:opacity-100">
+                <p className="line-clamp-2 text-xs font-bold text-white">{tt.title}</p>
+                <p className="text-[10px] text-white/60">{tt.year} • {tt.type === "series" ? t("seriesShort") : t("movieShort")}</p>
+                <span className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-primary">
+                  <Play className="h-3 w-3 fill-current" /> {showProgress ? t("resume") : t("play")}
+                </span>
               </div>
-            </button>
-          )
-        })}
+            </div>
+          </button>
+        ))}
       </div>
     </section>
   )

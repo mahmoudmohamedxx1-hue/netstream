@@ -19,7 +19,6 @@ import {
   Activity,
   Maximize,
   Minimize,
-  SkipForward,
 } from "lucide-react"
 import { Poster } from "./poster"
 import { EpisodeGrid } from "./episode-grid"
@@ -312,70 +311,6 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
       .catch(() => {})
     return () => { cancelled = true }
   }, [title.imdbId, title.type])
-  // Live server-health data from /api/server-health — tests every provider's
-  // embed URL in parallel and records ok/dead/timeout + latency. Used to:
-  //   1. Auto-pick the fastest working provider on player open.
-  //   2. Sort the server dropdown (working first, dead last).
-  //   3. Show ✓/✗ health indicators next to each provider.
-  //   4. Skip dead providers when auto-advancing / clicking "Next server".
-  // Falls back gracefully to the existing tier-based ordering if the health
-  // check fails (no providers get marked ok/dead → defaults preserved).
-  const [health, setHealth] = useState<
-    Record<string, { ok: boolean; latencyMs: number; status: "ok" | "dead" | "timeout" }>
-  >({})
-  // Auto-fallback attempt counter (Enhancement A). Reset by manual "Next
-  // server" / "Reload" clicks. Caps at 3 attempts so we don't loop forever.
-  const fallbackIdxRef = useRef(0)
-  // Tracks whether the auto-pick (fastest-working-default) has already fired
-  // OR the user has manually interacted with the source. Once true, auto-pick
-  // is disabled for the rest of this title's session (component remounts on
-  // title change, so the ref resets per-title).
-  const autoPickAppliedRef = useRef(false)
-  useEffect(() => {
-    let cancelled = false
-    fetch(`/api/server-health?imdbId=${encodeURIComponent(title.imdbId)}`, { cache: "no-store" })
-      .then((r) => r.json())
-      .then((data) => {
-        if (cancelled) return
-        const map: Record<
-          string,
-          { ok: boolean; latencyMs: number; status: "ok" | "dead" | "timeout" }
-        > = {}
-        for (const r of data.results ?? []) {
-          map[r.id] = {
-            ok: !!r.ok,
-            latencyMs: r.latencyMs ?? 0,
-            status: r.status ?? "dead",
-          }
-        }
-        setHealth(map)
-      })
-      .catch(() => {})
-    return () => { cancelled = true }
-  }, [title.imdbId])
-  // Auto-pick the fastest working server when health data first arrives
-  // (Enhancement B: "default server becomes the fastest working one, not a
-  // hardcoded tier"). Only fires once per title — once the user manually
-  // picks a server, clicks Next server, or reloads, auto-pick is disabled.
-  // No-op if no providers are working (falls back to the hardcoded default).
-  // The setState calls are deferred to a microtask to avoid cascading renders
-  // (matches the pattern used by the Arabic-stream effect below).
-  useEffect(() => {
-    if (autoPickAppliedRef.current) return
-    const working = VIDEO_SOURCES.filter((s) => health[s.id]?.ok && s.tier < 5)
-    if (working.length === 0) return
-    working.sort(
-      (a, b) => (health[a.id]?.latencyMs ?? 0) - (health[b.id]?.latencyMs ?? 0)
-    )
-    const fastest = working[0]
-    if (fastest && fastest.id !== sourceId) {
-      autoPickAppliedRef.current = true
-      Promise.resolve().then(() => {
-        setSourceId(fastest.id)
-        setLoaded(false)
-      })
-    }
-  }, [health, sourceId])
   // Auto-filled metadata from the local IMDb dataset (best 11k titles).
   const [meta, setMeta] = useState<{
     title: string
@@ -651,7 +586,6 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   }
 
   const handleSourceChange = (id: string) => {
-    autoPickAppliedRef.current = true
     setSourceId(id)
     setLoaded(false)
     // Remember this choice for next time the user opens this title.
@@ -662,91 +596,31 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     }
   }
 
-  // "Next server" — advance to the next WORKING server, skipping dead ones
-  // (Enhancement C). Uses health data to filter; falls back to tier<5 sources
-  // when health data isn't available. Resets the auto-fallback timer (so the
-  // new server gets a fresh 8s window) and disables future auto-pick.
-  const handleNextServer = useCallback(() => {
-    autoPickAppliedRef.current = true
-    fallbackIdxRef.current = 0
-    const healthKeys = Object.keys(health)
-    let chain: VideoSource[]
-    if (healthKeys.length > 0) {
-      // Health-aware: only working servers, sorted by latency asc
-      chain = VIDEO_SOURCES
-        .filter((s) => health[s.id]?.ok && s.tier < 5)
-        .sort(
-          (a, b) => (health[a.id]?.latencyMs ?? 0) - (health[b.id]?.latencyMs ?? 0)
-        )
-    } else {
-      // No health data — fall back to all alive (tier < 5) sources
-      chain = VIDEO_SOURCES.filter((s) => s.tier < 5)
-    }
-    if (chain.length === 0) return
-    const currentIdx = chain.findIndex((s) => s.id === sourceId)
-    const next = chain[(currentIdx + 1) % chain.length]
-    if (next && next.id !== sourceId) {
-      setSourceId(next.id)
-      lastProvider.set(title.imdbId, next.id)
-      setLoaded(false)
-      toast({
-        title: "Switched server",
-        description: `Now trying ${next.name}`,
-      })
-    }
-  }, [sourceId, health, title.imdbId, lastProvider, toast])
-
-  // Auto-fallback with timeout heuristic (Enhancement A):
-  //   - When a video source is selected, start an 8s timer.
-  //   - If the iframe doesn't fire onLoad within 8s, automatically advance to
-  //     the next WORKING server (skip dead ones when health data is available).
-  //   - Stop auto-advancing after 3 attempts (don't loop forever).
-  //   - "Trying server N of M…" toast on each advance.
-  //   - Reset by manual "Next server" click or "Reload" (see handlers below).
-  //   - Runs on ALL platforms (desktop + mobile). On mobile with no health
-  //     data, falls back to MOBILE_FALLBACK_CHAIN; on desktop, to all tier<5.
-  //   - Skipped for Arabic providers (they have their own search/extract flow
-  //     with its own loading states and shouldn't be auto-cycled).
+  // Mobile auto-fallback: if the iframe hasn't fired onLoad within 9s AND
+  // we're on mobile, automatically try the next mobile-friendly provider in
+  // the chain. Stops once we've tried 4 providers or one loads.
+  const fallbackIdxRef = useRef(0)
   useEffect(() => {
-    if (loaded) return
-    if (isArabicProvider) return
+    if (!isMobile || loaded) return
     const timer = setTimeout(() => {
       if (loaded) return
       fallbackIdxRef.current += 1
-      // Cap at 3 attempts so we don't cycle forever
-      if (fallbackIdxRef.current > 3) return
-      // Build the fallback chain. Prefer health-sorted working servers;
-      // fall back to MOBILE_FALLBACK_CHAIN (mobile) or all alive tier<5
-      // (desktop) when no health data is available yet.
-      const healthKeys = Object.keys(health)
-      let chain: VideoSource[]
-      if (healthKeys.length > 0) {
-        chain = VIDEO_SOURCES
-          .filter((s) => health[s.id]?.ok && s.tier < 5)
-          .sort(
-            (a, b) => (health[a.id]?.latencyMs ?? 0) - (health[b.id]?.latencyMs ?? 0)
-          )
-      } else if (isMobile) {
-        chain = MOBILE_FALLBACK_CHAIN
-      } else {
-        chain = VIDEO_SOURCES.filter((s) => s.tier < 5)
-      }
-      if (chain.length === 0) return
-      const currentIdx = chain.findIndex((s) => s.id === sourceId)
-      const nextIdx = (currentIdx + 1) % chain.length
-      const next = chain[nextIdx]
+      // Cap at 4 attempts so we don't cycle forever
+      if (fallbackIdxRef.current > 4) return
+      const chain = MOBILE_FALLBACK_CHAIN
+      const next = chain[fallbackIdxRef.current % chain.length]
       if (next && next.id !== sourceId) {
         setSourceId(next.id)
         lastProvider.set(title.imdbId, next.id)
         setReloads((r) => r + 1)
         toast({
-          title: `Trying server ${fallbackIdxRef.current + 1} of ${chain.length}…`,
-          description: next.name,
+          title: "Switching server",
+          description: `${next.name} (auto-fallback #${fallbackIdxRef.current})`,
         })
       }
-    }, 8000)
+    }, 9000)
     return () => clearTimeout(timer)
-  }, [sourceId, reloads, loaded, isMobile, isArabicProvider, title.imdbId, lastProvider, toast, health])
+  }, [sourceId, reloads, loaded, isMobile, title.imdbId, lastProvider, toast])
 
   // Report provider outcome (working/broken) when the user closes the player
   // or switches to a different server. Optimistic: if the iframe loaded, mark
@@ -793,16 +667,10 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     })
   }
 
-  const reload = useCallback(() => {
-    // Reset auto-fallback state so the user gets a fresh 8s window for this
-    // source (Enhancement A: "If the user manually clicks Next server or
-    // Reload, reset the timer"). Also disable future auto-pick — the user
-    // has now interacted with the player.
-    fallbackIdxRef.current = 0
-    autoPickAppliedRef.current = true
+  const reload = () => {
     setLoaded(false)
     setReloads((r) => r + 1)
-  }, [])
+  }
 
   // Keyboard shortcuts (enhancement D):
   //   R = reload stream
@@ -820,8 +688,11 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
       if (key === "r") { e.preventDefault(); reload() }
       else if (key === "n") {
         e.preventDefault()
-        // Advance to the next WORKING server (skip dead ones via health data)
-        handleNextServer()
+        // Cycle to the next alive (tier < 5) provider
+        const alive = VIDEO_SOURCES.filter((s) => s.tier < 5)
+        const idx = alive.findIndex((s) => s.id === sourceId)
+        const next = alive[(idx + 1) % alive.length]
+        if (next) handleSourceChange(next.id)
       }
       else if (key === "t") { e.preventDefault(); setServerCheckOpen(true) }
       else if (key === "f") {
@@ -831,7 +702,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
-  }, [sourceId, handleNextServer, reload])
+  }, [sourceId])
 
   const seasonList = useMemo(
     () => Array.from({ length: seasonCount }, (_, i) => i + 1),
@@ -1054,42 +925,17 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
                   </button>
                 ))}
               </div>
-              {/* Render the active tab's sources, health-sorted:
-                  working servers first (by latency asc), dead ones last.
-                  Falls back to tier-based ordering when no health data. */}
-              {(SOURCE_TABS.find((t) => t.id === activeTab)?.sources ?? [])
-                .slice()
-                .sort((a, b) => {
-                  const ah = health[a.id]
-                  const bh = health[b.id]
-                  // No health data → fall back to tier-based "alive" heuristic
-                  const aOk = ah ? ah.ok : a.tier < 5
-                  const bOk = bh ? bh.ok : b.tier < 5
-                  if (aOk !== bOk) return Number(bOk) - Number(aOk)
-                  if (aOk && ah && bh) return ah.latencyMs - bh.latencyMs
-                  return 0
-                })
-                .map((s) => {
+              {/* Render only the active tab's sources for fast scanning */}
+              {SOURCE_TABS.find((t) => t.id === activeTab)?.sources.map((s) => {
                 const stat = stats[s.id]
                 const lat = latency[s.id]
-                const h = health[s.id]
-                // "Dead" = health says dead OR (no health data AND tier === 5)
-                const isDead = h ? !h.ok : s.tier === 5
+                const isDead = s.tier === 5
                 return (
-                  <SelectItem key={s.id} value={s.id} className={cn("py-2", isDead && "opacity-50")}>
+                  <SelectItem key={s.id} value={s.id} className={cn("py-2", isDead && "opacity-60")}>
                     <div className="flex items-center gap-2">
                       <ProviderLogo source={s} size="sm" />
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-xs font-semibold">
-                          {/* Health indicator: green ✓ / red ✗ (only when we have health data) */}
-                          {h && (
-                            <span
-                              className={h.ok ? "text-emerald-400" : "text-red-400"}
-                              aria-label={h.ok ? "working" : "dead"}
-                            >
-                              {h.ok ? "✓ " : "✗ "}
-                            </span>
-                          )}
                           {s.name}
                           {s.mobile && <span className="ml-1 text-[9px]">📱</span>}
                           {s.region !== "Global" && (
@@ -1105,23 +951,19 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
                         </p>
                         <p className="text-[10px] text-white/40">
                           {s.quality}
-                          {/* Show health latency (preferred) or provider-latency data */}
-                          {h ? (
-                            <span className={h.ok ? " text-emerald-400/70" : " text-red-400/70"}>
-                              {" "}• {h.ok ? `${h.latencyMs}ms` : h.status === "timeout" ? "timeout" : "dead"}
-                            </span>
-                          ) : !isDead && lat ? (
-                            <span className={lat.ok ? " text-emerald-400/70" : " text-red-400/70"}>
-                              {" "}• {lat.ok ? `${lat.latencyMs}ms` : "timeout"}
-                            </span>
-                          ) : isDead && !stat ? (
-                            <span className=" text-yellow-500/70"> • unverified</span>
-                          ) : null}
                           {/* Show reliability stats if we have them */}
                           {stat ? (
                             <span className={stat.ok ? " text-emerald-400" : " text-red-400"}>
                               {" "}• {stat.ok ? "✓ working" : "✗ broken"} ({stat.reports})
                             </span>
+                          ) : null}
+                          {/* Show latency if we have it (and provider isn't dead) */}
+                          {!isDead && lat ? (
+                            <span className={lat.ok ? " text-emerald-400/70" : " text-red-400/70"}>
+                              {" "}• {lat.ok ? `${lat.latencyMs}ms` : "timeout"}
+                            </span>
+                          ) : isDead && !stat ? (
+                            <span className=" text-yellow-500/70"> • unverified</span>
                           ) : null}
                         </p>
                       </div>
@@ -1194,15 +1036,6 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
               title={`${t("reload")} (R)`}
             >
               <RotateCw className="h-3.5 w-3.5" />
-            </button>
-            <button
-              onClick={handleNextServer}
-              className="inline-flex items-center gap-1.5 rounded-md bg-white/10 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-white/20"
-              aria-label="Next server"
-              title="Next working server (N)"
-            >
-              <SkipForward className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">Next</span>
             </button>
             <button
               onClick={() => setServerCheckOpen(true)}

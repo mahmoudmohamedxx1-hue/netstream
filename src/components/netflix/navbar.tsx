@@ -1,15 +1,12 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Search, Languages, Home, Film, Tv, Bookmark } from "lucide-react"
+import { Search, Bell, Download, Languages, Home, Film, Tv, Bookmark, ShieldOff, Shield } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useLang } from "@/lib/lang-context"
 import { GooeyNav } from "@/components/react-bits/GooeyNav"
 
-// Ad-block toggle state — shared across the app via localStorage.
-// (Exported for use by player-modal.tsx; the navbar itself no longer exposes
-// the toggle button — it was cluttering the top bar. The user can still flip
-// this via the player-modal controls if needed.)
+// Ad-block toggle state — shared across the app via localStorage
 const AD_BLOCK_KEY = "netstream:adblock"
 export function getAdBlockEnabled(): boolean {
   if (typeof window === "undefined") return true
@@ -28,7 +25,20 @@ type Props = {
 
 export function Navbar({ onSearch, onProfile, active = "home", onNav }: Props) {
   const [scrolled, setScrolled] = useState(false)
+  // Start with default (true) to match SSR, read from localStorage after hydration
+  const [adBlock, setAdBlock] = useState(true)
   const { t, toggle, isArabic } = useLang()
+
+  const toggleAdBlock = () => {
+    const newVal = !adBlock
+    setAdBlock(newVal)
+    setAdBlockEnabled(newVal)
+  }
+
+  // After hydration: read saved ad-block setting from localStorage
+  useEffect(() => {
+    Promise.resolve().then(() => setAdBlock(getAdBlockEnabled()))
+  }, [])
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 24)
@@ -105,6 +115,35 @@ export function Navbar({ onSearch, onProfile, active = "home", onNav }: Props) {
             className="rounded-full p-2 text-white transition hover:bg-white/10"
           >
             <Search className="h-5 w-5" />
+          </button>
+          <button
+            aria-label="Notifications"
+            className="hidden rounded-full p-2 text-white transition hover:bg-white/10 sm:inline-flex"
+          >
+            <Bell className="h-5 w-5" />
+          </button>
+          <a
+            href="/NetStream.apk"
+            download
+            aria-label="Download App"
+            title="Download Android App"
+            className="rounded-full p-2 text-white transition hover:bg-white/10 sm:inline-flex"
+          >
+            <Download className="h-5 w-5" />
+          </a>
+          {/* Ad-block toggle — built-in ad blocker (like uBlock Origin Lite) */}
+          <button
+            onClick={toggleAdBlock}
+            aria-label="Toggle ad blocker"
+            title={adBlock ? "Ad blocker ON — click to disable" : "Ad blocker OFF — click to enable"}
+            className={cn(
+              "rounded-full p-2 transition sm:inline-flex",
+              adBlock
+                ? "text-emerald-400 hover:bg-emerald-500/10"
+                : "text-white/40 hover:bg-white/10"
+            )}
+          >
+            {adBlock ? <Shield className="h-5 w-5" /> : <ShieldOff className="h-5 w-5" />}
           </button>
           {/* Profile / Play by IMDB ID */}
           <button
