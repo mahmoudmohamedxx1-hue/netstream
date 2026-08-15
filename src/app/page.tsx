@@ -118,6 +118,13 @@ export default function Home() {
     [watchlist]
   )
 
+  // B12 — Keyboard / TV-style nav is only enabled on the home page when no
+  // dialog/player/search overlay is open. This prevents the arrow-key
+  // handler from interfering with the player's R/N/T/F shortcuts, the
+  // search overlay's arrow-key nav, or text input fields.
+  const keyboardNavEnabled =
+    nav === "home" && !player && !detail && !searchOpen && !imdbOpen
+
   return (
     <div className="flex min-h-screen flex-col bg-[#0a0a0a]">
       <Navbar
@@ -143,6 +150,7 @@ export default function Home() {
               continueWatching={continueWatching}
               myList={myListCards}
               onPlayHistory={openPlayer}
+              keyboardNavEnabled={keyboardNavEnabled}
             />
 
             {/* Library banner */}
