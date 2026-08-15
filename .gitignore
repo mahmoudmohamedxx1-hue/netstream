@@ -1,16 +1,113 @@
+```
+# Dependencies
 node_modules/
-.next/
-.git/
-data/
-skills/
-upload/
-examples/
-scripts/
-.zscripts/
-tool-results/
-apps/
+
+# Environment variables
+.env
+.env.local
+.env.*
+
+# Build artifacts
+dist/
+build/
+target/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Logs
 *.log
-*.db-shm
-*.db-wal
-dev.log
-server.log
+
+# Temporary files
+*.tmp
+*.temp
+
+# IDE files
+.vscode/
+.idea/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Coverage reports
+coverage/
+htmlcov/
+
+# Distribution / packaging
+*.tar.gz
+*.whl
+
+# Node.js
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Compiled CSS/JS
+*.min.js
+*.min.css
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Lock files
+package-lock.json
+yarn.lock
+
+# System files
+*.swp
+*.swo
+
+# Prisma
+prisma/migrations/
+*.prisma
+
+# TypeScript
+*.tsbuildinfo
+.next/
+.nuxt/
+.vercel/
+
+# Docker
+.docker/
+
+# Vercel
+.vercel/
+
+# Temporary build outputs
+.jest/
+
+# Git related
+.git/
+
+# Browser extensions
+*.crx
+
+# Backup files
+*~
+
+# Compression artifacts
+*.zip
+*.gz
+*.tar
+*.tgz
+*.bz2
+*.xz
+*.7z
+*.rar
+*.Z
+*.lz
+*.zst
+*.lz4
+*.lzh
+*.arj
+*.rpm
+*.deb
+*.cab
+
+```
