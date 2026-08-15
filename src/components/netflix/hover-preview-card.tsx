@@ -225,7 +225,7 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
   }
 
   const trailerSrc = showTrailer && trailerKey && !trailerFailed
-    ? `/api/youtube-embed?key=${trailerKey}&mute=${muted ? "1" : "0"}`
+    ? `https://www.youtube.com/embed/${trailerKey}?autoplay=1&mute=1&controls=0&loop=1&playlist=${trailerKey}&rel=0&playsinline=1`
     : null
 
   return (
@@ -354,7 +354,7 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
 // 5-second watchdog: if the trailer hasn't reached a playing state, fall back
 function TrailerWatchdog({ onTimeout }: { onTimeout: () => void }) {
   useEffect(() => {
-    const timer = setTimeout(onTimeout, 15000)
+    const timer = setTimeout(onTimeout, 30000)
     return () => clearTimeout(timer)
   }, [onTimeout])
   return null
