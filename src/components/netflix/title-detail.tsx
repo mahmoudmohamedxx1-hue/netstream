@@ -149,7 +149,7 @@ function TitleDetailInner({ title, open, onClose, onPlay }: Props) {
               {showDetailTrailer && tmdb?.trailerKey && !detailTrailerFailed && (
                 <iframe
                   key={tmdb.trailerKey}
-                  src={`/api/youtube-embed?key=${tmdb.trailerKey}&mute=1`}
+                  src={`https://www.youtube.com/embed/${tmdb.trailerKey}?autoplay=1&mute=1&controls=0&loop=1&playlist=${tmdb.trailerKey}&rel=0&playsinline=1`}
                   title={`${displayTitle} trailer`}
                   allow="autoplay; encrypted-media; picture-in-picture"
                   className="absolute inset-0 h-full w-full"
