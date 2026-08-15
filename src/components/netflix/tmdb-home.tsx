@@ -92,11 +92,11 @@ function fetchHeroPreview(title: TmdbTitle, lang: "en" | "ar"): Promise<HeroPrev
   return p
 }
 
-// Build YouTube embed URL via our proxy. The proxy fetches the YouTube
-// embed page server-side and strips the bot-check scripts, so the browser
-// loads it same-origin without triggering "Sign in to confirm you're not a bot".
+// Build YouTube embed URL. Uses youtube.com/embed directly — this worked
+// in the z.ai workspace browser without the bot check.
 function buildTrailerSrc(key: string, muted: boolean): string {
-  return `/api/youtube-embed?key=${key}&mute=${muted ? "1" : "0"}`
+  const muteParam = muted ? "mute=1&" : ""
+  return `https://www.youtube.com/embed/${key}?autoplay=1&${muteParam}controls=0&loop=1&playlist=${key}&rel=0&playsinline=1`
 }
 
 // Map the English row titles returned by /api/tmdb/home to translation keys.
@@ -264,7 +264,7 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
   useEffect(() => {
     if (heroTitles.length <= 1) return
     if (heroPaused) return
-    const id = setInterval(() => setHeroIdx((i) => (i + 1) % heroTitles.length), 15000)
+    const id = setInterval(() => setHeroIdx((i) => (i + 1) % heroTitles.length), 30000)
     return () => clearInterval(id)
   }, [heroTitles.length, heroPaused])
 
@@ -921,7 +921,7 @@ function LocalRow({ title, titles, onPlay, showProgress, rowIndex, focusedCard, 
 // on screen when YouTube's embed fails (bot check, embed-disabled, etc.).
 function HeroTrailerWatchdog({ onTimeout }: { onTimeout: () => void }) {
   useEffect(() => {
-    const timer = setTimeout(onTimeout, 15000)
+    const timer = setTimeout(onTimeout, 30000)
     return () => clearTimeout(timer)
   }, [onTimeout])
   return null
