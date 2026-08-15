@@ -1,16 +1,1 @@
-node_modules/
-.next/
-.git/
-data/
-skills/
-upload/
-examples/
-scripts/
-.zscripts/
-tool-results/
-apps/
-*.log
-*.db-shm
-*.db-wal
-dev.log
-server.log
+Nothing should be ignored based on the provided file changes. The added file `src/app/api/tmdb/[imdbId]/route.ts` is a TypeScript source file that should be tracked in version control. No build artifacts, dependencies, or temporary files are present in the changes.
