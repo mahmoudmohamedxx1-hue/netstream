@@ -41,7 +41,7 @@ type HealthEntry = {
 // serverless process. TTL: 1 hour.
 const CACHE = new Map<string, HealthEntry>()
 const TTL_MS = 60 * 60 * 1000 // 1 hour
-const TIMEOUT_MS = 5000 // 5 seconds per provider (per task spec)
+const TIMEOUT_MS = 8000 // 8 seconds per provider (was 5s — Cloudflare providers need more time)
 
 const USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
