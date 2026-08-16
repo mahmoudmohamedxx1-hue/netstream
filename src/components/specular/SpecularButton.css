@@ -1,0 +1,125 @@
+.specular-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+  margin: 0;
+  font-family: inherit;
+  font-weight: 700;
+  color: var(--sb-text-color, #f5f5f5);
+  border-radius: var(--sb-radius, 12px);
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  isolation: isolate;
+}
+
+.specular-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.specular-button--sm {
+  font-size: 0.8rem;
+}
+
+.specular-button--md {
+  font-size: 0.9rem;
+}
+
+.specular-button--lg {
+  font-size: 1rem;
+}
+
+.specular-button__fx {
+  position: absolute;
+  inset: -20px;
+  pointer-events: none;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.specular-button__fx canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.specular-button__label {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.75rem 2rem;
+  border-radius: var(--sb-radius, 12px);
+  background: var(--sb-tint, transparent);
+  backdrop-filter: blur(var(--sb-blur, 0px));
+  -webkit-backdrop-filter: blur(var(--sb-blur, 0px));
+  transition: background 0.3s ease, color 0.3s ease;
+  white-space: nowrap;
+}
+
+/* Red fill variant — fills with red on hover */
+.specular-button--red-fill .specular-button__label {
+  background: rgba(255, 255, 255, 0.9);
+  color: #000000;
+  transition: background 0.3s ease, color 0.3s ease;
+}
+
+.specular-button--red-fill:hover .specular-button__label {
+  background: #e50914;
+  color: #ffffff;
+}
+
+/* Card outline effect — CSS-based specular shine using gradient + animation */
+.specular-card-outline {
+  border-radius: 8px;
+  position: relative;
+}
+
+.specular-card-outline::before {
+  content: "";
+  position: absolute;
+  inset: -2px;
+  border-radius: 10px;
+  padding: 2px;
+  background: conic-gradient(
+    from var(--shine-angle, 0deg),
+    transparent 0deg,
+    transparent 270deg,
+    #e50914 320deg,
+    #ff4757 340deg,
+    #e50914 360deg
+  );
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+  z-index: 20;
+  animation: shine-rotate 3s linear infinite;
+}
+
+.specular-card-outline:hover::before {
+  opacity: 1;
+}
+
+@property --shine-angle {
+  syntax: "<angle>";
+  initial-value: 0deg;
+  inherits: false;
+}
+
+@keyframes shine-rotate {
+  to {
+    --shine-angle: 360deg;
+  }
+}

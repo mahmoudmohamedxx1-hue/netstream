@@ -1,0 +1,100 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Post {
+  id        String   @id @default(cuid())
+  title     String
+  content   String?
+  published Boolean  @default(false)
+  authorId  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// A title saved to the user's "My List"
+model Watchlist {
+  id        String   @id @default(cuid())
+  imdbId    String   @unique
+  title     String
+  type      String // "movie" | "series"
+  poster    String?
+  year      String?
+  overview  String?
+  rating    String?
+  createdAt DateTime @default(now())
+}
+
+// Continue watching / watch history (one record per imdb id, updated on play)
+model WatchHistory {
+  id        String   @id @default(cuid())
+  imdbId    String   @unique
+  title     String
+  type      String // "movie" | "series"
+  poster    String?
+  year      String?
+  overview  String?
+  rating    String?
+  season    Int?
+  episode   Int?
+  progress  Int?     // 0-100 percentage watched
+  position  Int?     // position in seconds (for resume)
+  duration  Int?     // total duration in seconds
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+}
+
+// Local IMDb dataset (from datasets.imdbws.com/title.basics.tsv.gz).
+// Populated by the import script; used for free ID lookups + search without
+// needing the paid IMDb API.
+model ImdbTitle {
+  tconst      String   @unique // e.g. "tt0111161"
+  titleType   String   // "movie" | "tvSeries" | "tvMiniSeries" | "tvMovie" | ...
+  primaryTitle String
+  originalTitle String
+  isAdult     Boolean
+  startYear   String?  // string because IMDb uses "\N" for unknown
+  endYear     String?
+  runtimeMinutes String?
+  genres      String?  // comma-separated
+  // JSON string: [{season: 1, episodes: 13}, {season: 2, episodes: 10}, ...]
+  // Only populated for series (from title.episode.tsv.gz).
+  seasonsData String?
+
+  @@index([titleType])
+  @@index([primaryTitle])
+}
+
+
+// Per-provider reliability stats, keyed by (imdbId, sourceId).
+// Updated whenever the user reports a working/broken stream.
+// Used to show "best match" badges in the server dropdown.
+model ProviderStat {
+  id        String   @id @default(cuid())
+  imdbId    String
+  sourceId  String
+  ok        Boolean  // true = last reported working, false = broken
+  reports   Int      @default(1)
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+
+  @@unique([imdbId, sourceId])
+  @@index([imdbId])
+  @@index([sourceId])
+}
