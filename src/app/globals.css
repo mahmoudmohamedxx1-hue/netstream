@@ -122,11 +122,11 @@
   body {
     @apply bg-background text-foreground;
     background-color: #0a0a0a;
-    /* Smooth page scrolling — applies to the main vertical scroll only.
-       Row scrollers keep `scroll-behavior: auto` so momentum isn't broken. */
-    scroll-behavior: smooth;
-    /* Improves scroll performance on Chrome/Safari — tells the browser the
-       page is likely to be scrolled, so it can optimize paint/composite. */
+    /* NOTE: scroll-behavior: smooth was removed from html/body because it
+       caused the page to smooth-scroll to the bottom on initial load (the
+       browser restores scroll position and the smooth animation made it
+       very visible). Programmatic smooth scrolling (scrollTo with
+       behavior:'smooth') still works — it's set per-call, not globally. */
     will-change: scroll-position;
   }
   /* Hide ALL scrollbars globally (page, rows, modals) while keeping

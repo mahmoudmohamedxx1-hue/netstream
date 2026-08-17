@@ -37,6 +37,13 @@ export default function Home() {
     load()
   }, [load])
 
+  // Scroll to top on page mount AND on nav change — prevents the browser
+  // from restoring the previous scroll position (which caused the page to
+  // load at the bottom instead of the header).
+  useEffect(() => {
+    window.scrollTo(0, 0)
+  }, [nav])
+
   // Open the title detail page (TMDB metadata, cast, trailer, similar)
   const openDetail = useCallback((t: CardTitle | Title | SavedTitle) => {
     setDetail({
