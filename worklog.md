@@ -1916,3 +1916,55 @@ Completely rewrote `src/components/netflix/episode-grid.tsx` with a Netflix-insp
 Files Changed:
 - `src/app/globals.css` (MODIFIED) — removed will-change from html/body to fix iframe playback lag
 - `src/components/netflix/episode-grid.tsx` (REWRITTEN) — Netflix-style horizontal episode cards with thumbnails, play overlays, and duration
+
+---
+Task ID: C10
+Agent: main (Z.ai Code)
+Task: Final version — all features implemented, push to GitHub, update worklog and architecture file.
+
+Work Log:
+
+## C10-A — Complete feature set implemented in this session
+
+This session implemented the following features (all committed and pushed):
+
+1. **Provider reordering** — vidfast.pro, vidcore.net, superembed, moviesapi.to, 2embed.cc are now the first 5 providers in the server dropdown and auto-switch fallback chain.
+
+2. **Favorite servers** — Click the star icon next to any provider in the dropdown to favorite/unfavorite. Favorites are saved in localStorage, sort to the top of the dropdown, and are tried first by the auto-switch logic.
+
+3. **Reliable auto-switching** — 6s timeout, fallback chain: favorites → preferred providers → tier 1. Caps at 3 attempts. Toast notification on each switch.
+
+4. **Netflix-style episode grid** — Real TMDB episode data (names, descriptions, thumbnails, runtime, air date, rating). Play button only on hover. Active episode shows check mark. New API endpoint /api/tmdb/season.
+
+5. **Episode list on title detail page** — Added EpisodeGrid with season selector to the title detail page (not just the player modal). Clicking an episode plays it immediately.
+
+6. **Mobile long-press** — Long-press (500ms) on any poster opens the hover preview popup. If the user moves their finger before 500ms, it's treated as a scroll.
+
+7. **Playback lag fixes** — Removed backdrop-blur from all components (26 instances). Hide home page behind modal (display:none). Removed will-change from html/body. Deferred/removed heavy API calls.
+
+8. **Trailer mute without restart** — postMessage approach instead of iframe reload. Mute buttons on hero, title detail, and hover popup.
+
+9. **Logo fix** — Fixed width (165px) + overflow:hidden so the DecryptedText animation doesn't shift the navbar.
+
+10. **Scroll fixes** — Removed scroll-snap, removed hover:scale-105, removed inline:"nearest" from scrollIntoView.
+
+11. **Page zoom** — zoom: 85% on html element.
+
+12. **Episode thumbnail** — Removed episode number overlay, play button only on hover.
+
+13. **7 audit fixes** — Meta description, reactStrictMode, duplicate providers, unused Prisma models, mobile search, dead Hero import, 15 TS errors, non-blocking API calls.
+
+14. **Architecture documentation** — Created ARCHITECTURE.md with full project structure, data flow, API routes, provider architecture, change log, and security notes.
+
+## C10-B — Architecture file update
+
+Updated ARCHITECTURE.md with all details of this version including:
+- Complete tech stack
+- Full project structure with file descriptions
+- Data flow diagrams
+- All 31 API routes
+- Provider architecture (tiers, health check, favorites, auto-switch)
+- Key design decisions
+- Complete change log
+- Planned future updates
+- Security notes
