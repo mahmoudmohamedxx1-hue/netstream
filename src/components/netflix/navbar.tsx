@@ -61,7 +61,7 @@ export function Navbar({ onSearch, active = "home", onNav }: Props) {
         <button
           onClick={() => onNav?.("home")}
           className="relative flex h-9 shrink-0 items-center overflow-hidden"
-          style={{ width: "130px" }}
+          style={{ width: "165px" }}
           aria-label="NetStream home"
         >
           <DecryptedText
