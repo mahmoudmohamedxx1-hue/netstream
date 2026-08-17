@@ -297,7 +297,7 @@ export function DownloadHelper({
     <AnimatePresence>
       {open && (
         <motion.div
-          className="fixed inset-0 z-[95] flex items-center justify-center bg-black/85 p-4 backdrop-blur-sm nf-scroll"
+          className="fixed inset-0 z-[95] flex items-center justify-center bg-black/85 p-4 nf-scroll"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}

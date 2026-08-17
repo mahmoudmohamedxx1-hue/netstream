@@ -282,7 +282,7 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
               {true ? (
                 <>
                   <Poster title={title.title} src={title.backdrop ?? title.poster} year={title.year} alt={title.title} className="h-full w-full" />
-                  {roundedRating && <span className="absolute left-2 top-2 inline-flex items-center gap-0.5 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-yellow-400 backdrop-blur-sm"><Star className="h-2.5 w-2.5 fill-yellow-400" />{roundedRating}</span>}
+                  {roundedRating && <span className="absolute left-2 top-2 inline-flex items-center gap-0.5 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-yellow-400"><Star className="h-2.5 w-2.5 fill-yellow-400" />{roundedRating}</span>}
                   <div className="absolute inset-x-0 bottom-0 flex flex-col justify-end bg-gradient-to-t from-black/90 via-black/40 to-transparent p-2 pt-8">
                     <p className="line-clamp-1 text-xs font-bold text-white drop-shadow">{title.title}</p>
                     {title.year && <p className="text-[10px] text-white/60">{title.year}</p>}
@@ -291,7 +291,7 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
               ) : (
                 <>
                   <Poster title={title.title} src={title.poster} year={title.year} alt={title.title} className="h-full w-full" />
-                  {roundedRating && <span className="absolute left-2 top-2 inline-flex items-center gap-0.5 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-yellow-400 backdrop-blur-sm"><Star className="h-2.5 w-2.5 fill-yellow-400" />{roundedRating}</span>}
+                  {roundedRating && <span className="absolute left-2 top-2 inline-flex items-center gap-0.5 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-yellow-400"><Star className="h-2.5 w-2.5 fill-yellow-400" />{roundedRating}</span>}
                   <div className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/90 via-black/30 to-transparent p-2 opacity-0 transition group-hover/card:opacity-100">
                     <p className="line-clamp-2 text-xs font-bold text-white">{title.title}</p>
                     <p className="text-[10px] text-white/60">{title.year}</p>
@@ -336,7 +336,7 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
               background
             />
             <div className="absolute inset-0 bg-gradient-to-t from-[#181818] via-transparent to-transparent" />
-            <span className="absolute right-2 top-2 inline-flex items-center gap-1 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold text-white backdrop-blur-sm">
+            <span className="absolute right-2 top-2 inline-flex items-center gap-1 rounded bg-black/70 px-1.5 py-0.5 text-[10px] font-semibold text-white">
               {title.type === "series" ? <Tv className="h-3 w-3" /> : <Film className="h-3 w-3" />}
               {title.type === "series" ? t("seriesShort") : t("movieShort")}
             </span>
@@ -344,7 +344,7 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
             {showTrailer && !trailerFailed && (
               <button
                 onClick={() => setMuted(m => !m)}
-                className="absolute bottom-2 right-2 grid h-7 w-7 place-items-center rounded-full border border-white/40 bg-black/60 text-white backdrop-blur-sm transition hover:bg-black/80"
+                className="absolute bottom-2 right-2 grid h-7 w-7 place-items-center rounded-full border border-white/40 bg-black/60 text-white transition hover:bg-black/80"
                 aria-label={muted ? "Unmute" : "Mute"}
               >
                 {muted ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}

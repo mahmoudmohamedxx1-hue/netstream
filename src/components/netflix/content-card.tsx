@@ -129,7 +129,7 @@ export function ContentCard({ title, onPlay, onInfo, rank }: Props) {
           {(() => {
             const r = roundRating(title.rating)
             return r ? (
-              <span className="absolute right-2 top-2 inline-flex items-center gap-0.5 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-yellow-400 backdrop-blur-sm">
+              <span className="absolute right-2 top-2 inline-flex items-center gap-0.5 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-yellow-400">
                 <Star className="h-2.5 w-2.5 fill-yellow-400" />{r}
               </span>
             ) : null

@@ -771,7 +771,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
 
   return (
     <motion.div
-      className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-black/95 backdrop-blur-sm nf-scroll"
+      className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-black nf-scroll"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
@@ -831,7 +831,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
                         onClick={() => s.status === "ready" && setActiveExtractedIdx(idx)}
                         disabled={s.status !== "ready"}
                         className={cn(
-                          "rounded-md px-2.5 py-1 text-[10px] font-bold backdrop-blur-sm transition",
+                          "rounded-md px-2.5 py-1 text-[10px] font-bold transition",
                           idx === activeExtractedIdx && s.status === "ready"
                             ? "bg-primary text-primary-foreground"
                             : s.status === "ready"
@@ -918,7 +918,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
                   target="_blank"
                   rel="noopener noreferrer"
                   referrerPolicy="no-referrer"
-                  className="pointer-events-auto inline-flex items-center gap-1.5 rounded-md bg-black/70 px-3 py-1.5 text-[11px] font-semibold text-white backdrop-blur-sm transition hover:bg-black/90"
+                  className="pointer-events-auto inline-flex items-center gap-1.5 rounded-md bg-black/70 px-3 py-1.5 text-[11px] font-semibold text-white transition hover:bg-black/90"
                   title={t("openInTab")}
                 >
                   <ExternalLink className="h-3 w-3" />

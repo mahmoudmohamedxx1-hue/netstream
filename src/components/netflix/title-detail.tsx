@@ -160,7 +160,7 @@ function TitleDetailInner({ title, open, onClose, onPlay }: Props) {
                 <button
                   onClick={() => setDetailMuted((m) => !m)}
                   aria-label={detailMuted ? "Unmute" : "Mute"}
-                  className="absolute right-16 top-4 z-20 grid h-9 w-9 place-items-center rounded-full border border-white/40 bg-black/60 text-white backdrop-blur-sm transition hover:bg-black/80"
+                  className="absolute right-16 top-4 z-20 grid h-9 w-9 place-items-center rounded-full border border-white/40 bg-black/60 text-white transition hover:bg-black/80"
                 >
                   {detailMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
                 </button>
@@ -193,7 +193,7 @@ function TitleDetailInner({ title, open, onClose, onPlay }: Props) {
                     <select
                       value={selectedSeason}
                       onChange={(e) => { setSelectedSeason(Number(e.target.value)); setSelectedEpisode(1) }}
-                      className="rounded-md border border-white/20 bg-black/70 px-3 py-1.5 text-sm font-semibold text-white backdrop-blur-sm"
+                      className="rounded-md border border-white/20 bg-black/70 px-3 py-1.5 text-sm font-semibold text-white"
                     >
                       {Array.from({ length: seasonCount }, (_, i) => i + 1).map((s) => {
                         const eps = seasons?.find((sd) => sd.season === s)?.episodes ?? 0
@@ -204,7 +204,7 @@ function TitleDetailInner({ title, open, onClose, onPlay }: Props) {
                       <select
                         value={selectedEpisode}
                         onChange={(e) => setSelectedEpisode(Number(e.target.value))}
-                        className="rounded-md border border-white/20 bg-black/70 px-3 py-1.5 text-sm font-semibold text-white backdrop-blur-sm"
+                        className="rounded-md border border-white/20 bg-black/70 px-3 py-1.5 text-sm font-semibold text-white"
                       >
                         {Array.from({ length: currentSeasonEpisodes }, (_, i) => i + 1).map((e) => (
                           <option key={e} value={e}>{t("episodes")} {e}</option>
@@ -220,7 +220,7 @@ function TitleDetailInner({ title, open, onClose, onPlay }: Props) {
                     {isSeries ? `${t("play")} S${selectedSeason} E${selectedEpisode}` : t("play")}
                   </button>
                   <button onClick={handleAddToList} className={cn(
-                    "inline-flex items-center gap-2 rounded-md px-6 py-3 text-sm font-bold backdrop-blur-sm transition",
+                    "inline-flex items-center gap-2 rounded-md px-6 py-3 text-sm font-bold transition",
                     inList ? "bg-white/20 text-white hover:bg-white/30" : "bg-white/10 text-white hover:bg-white/20"
                   )}>
                     {inList ? <Check className="h-5 w-5" /> : <Plus className="h-5 w-5" />}

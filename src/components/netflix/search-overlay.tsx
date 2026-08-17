@@ -374,7 +374,7 @@ export function SearchOverlay({ open, onClose, onPlay }: Props) {
           // B8: backdrop blur + slightly lighter overlay so the blur is
           // visible. Premium feel — the home page content is still partially
           // visible behind the frosted glass.
-          className="fixed inset-0 z-[90] overflow-y-auto bg-black/80 backdrop-blur-md nf-scroll"
+          className="fixed inset-0 z-[90] overflow-y-auto bg-black nf-scroll"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}

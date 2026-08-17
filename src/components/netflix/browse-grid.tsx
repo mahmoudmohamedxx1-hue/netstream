@@ -219,7 +219,7 @@ export function BrowseGrid({ type, onPlay }: Props) {
                   )}
                 </div>
                 {/* Type badge */}
-                <span className="absolute right-1 top-1 rounded bg-black/70 px-1 py-0.5 text-[8px] font-bold uppercase text-white/80 backdrop-blur-sm">
+                <span className="absolute right-1 top-1 rounded bg-black/70 px-1 py-0.5 text-[8px] font-bold uppercase text-white/80">
                   {t.type === "series" ? "TV" : "MV"}
                 </span>
               </button>

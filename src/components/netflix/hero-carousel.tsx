@@ -400,7 +400,7 @@ export function HeroCarousel({ titles, onPlay }: Props) {
                   </span>
                 )}
                 {current.year && <span>{current.year}</span>}
-                <span className="rounded border border-white/40 bg-black/40 px-1.5 py-0.5 text-[11px] font-bold text-white/90 backdrop-blur-sm">
+                <span className="rounded border border-white/40 bg-black/40 px-1.5 py-0.5 text-[11px] font-bold text-white/90">
                   {heroMaturity ?? "HD"}
                 </span>
               </motion.div>
@@ -417,7 +417,7 @@ export function HeroCarousel({ titles, onPlay }: Props) {
                 </button>
                 <button
                   onClick={() => onPlay(current)}
-                  className="inline-flex items-center gap-2 rounded-md bg-white/20 px-6 py-3 text-sm font-bold text-white backdrop-blur-sm transition hover:bg-white/30"
+                  className="inline-flex items-center gap-2 rounded-md bg-white/20 px-6 py-3 text-sm font-bold text-white transition hover:bg-white/30"
                 >
                   <Info className="h-5 w-5" />
                   {t("moreInfo")}
@@ -427,7 +427,7 @@ export function HeroCarousel({ titles, onPlay }: Props) {
                     href={`https://www.youtube.com/watch?v=${trailerKey}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-2 rounded-md border border-white/30 bg-black/40 px-4 py-3 text-sm font-bold text-white backdrop-blur-sm transition hover:border-white/60 hover:bg-black/60"
+                    className="inline-flex items-center gap-2 rounded-md border border-white/30 bg-black/40 px-4 py-3 text-sm font-bold text-white transition hover:border-white/60 hover:bg-black/60"
                   >
                     <Play className="h-4 w-4 fill-current" />
                     {isArabic ? "الإعلان" : "Trailer"}
@@ -437,7 +437,7 @@ export function HeroCarousel({ titles, onPlay }: Props) {
                   <button
                     onClick={() => setMuted((m) => !m)}
                     aria-label={muted ? "Unmute" : "Mute"}
-                    className="inline-flex h-12 w-12 items-center justify-center rounded-md border border-white/30 bg-black/40 text-white backdrop-blur-sm transition hover:border-white/60 hover:bg-black/60"
+                    className="inline-flex h-12 w-12 items-center justify-center rounded-md border border-white/30 bg-black/40 text-white transition hover:border-white/60 hover:bg-black/60"
                   >
                     {muted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
                   </button>
@@ -452,14 +452,14 @@ export function HeroCarousel({ titles, onPlay }: Props) {
           <>
             <button
               onClick={goToPrevious}
-              className="absolute left-2 top-1/2 z-20 hidden h-12 w-12 -translate-y-1/2 place-items-center rounded-full bg-black/40 text-white opacity-0 backdrop-blur-sm transition-all duration-300 hover:bg-black/70 group-hover/hero:opacity-100 sm:left-4 md:grid"
+              className="absolute left-2 top-1/2 z-20 hidden h-12 w-12 -translate-y-1/2 place-items-center rounded-full bg-black/40 text-white opacity-0 transition-all duration-300 hover:bg-black/70 group-hover/hero:opacity-100 sm:left-4 md:grid"
               aria-label="Previous"
             >
               <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
             </button>
             <button
               onClick={goToNext}
-              className="absolute right-2 top-1/2 z-20 hidden h-12 w-12 -translate-y-1/2 place-items-center rounded-full bg-black/40 text-white opacity-0 backdrop-blur-sm transition-all duration-300 hover:bg-black/70 group-hover/hero:opacity-100 sm:right-4 md:grid"
+              className="absolute right-2 top-1/2 z-20 hidden h-12 w-12 -translate-y-1/2 place-items-center rounded-full bg-black/40 text-white opacity-0 transition-all duration-300 hover:bg-black/70 group-hover/hero:opacity-100 sm:right-4 md:grid"
               aria-label="Next"
             >
               <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>

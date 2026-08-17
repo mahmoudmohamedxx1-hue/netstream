@@ -133,7 +133,7 @@ export function RowScrollButtons({ scrollerRef, className }: Props) {
             onClick={() => scrollRow(-1)}
             aria-label="Scroll left"
             className={cn(
-              "flex h-full w-full items-center justify-center rounded-r-md text-white backdrop-blur-sm transition-all duration-150",
+              "flex h-full w-full items-center justify-center rounded-r-md text-white transition-all duration-150",
               getButtonClass(leftHovered),
               className
             )}
@@ -157,7 +157,7 @@ export function RowScrollButtons({ scrollerRef, className }: Props) {
             onClick={() => scrollRow(1)}
             aria-label="Scroll right"
             className={cn(
-              "flex h-full w-full items-center justify-center rounded-l-md text-white backdrop-blur-sm transition-all duration-150",
+              "flex h-full w-full items-center justify-center rounded-l-md text-white transition-all duration-150",
               getButtonClass(rightHovered),
               className
             )}

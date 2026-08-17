@@ -898,7 +898,7 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
                     </span>
                   )}
                   {current.year && <span>{current.year}</span>}
-                  <span className="rounded border border-white/40 bg-black/40 px-1.5 py-0.5 text-[10px] font-bold text-white/90 backdrop-blur-sm sm:text-[11px]">
+                  <span className="rounded border border-white/40 bg-black/40 px-1.5 py-0.5 text-[10px] font-bold text-white/90 sm:text-[11px]">
                     {heroMaturity ?? "HD"}
                   </span>
                 </motion.div>
@@ -948,7 +948,7 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
                       href={`https://www.youtube.com/watch?v=${trailerKey}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex h-9 items-center gap-1.5 rounded-md border border-white/30 bg-black/40 px-3 text-xs font-bold text-white backdrop-blur-sm transition hover:border-white/60 hover:bg-black/60 sm:h-auto sm:px-4 sm:py-3 sm:text-sm"
+                      className="inline-flex h-9 items-center gap-1.5 rounded-md border border-white/30 bg-black/40 px-3 text-xs font-bold text-white transition hover:border-white/60 hover:bg-black/60 sm:h-auto sm:px-4 sm:py-3 sm:text-sm"
                     >
                       <Play className="h-3.5 w-3.5 fill-current sm:h-4 sm:w-4" />
                       {isArabic ? "الإعلان" : "Trailer"}
@@ -961,7 +961,7 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
                     <button
                       onClick={() => setMuted((m) => !m)}
                       aria-label={muted ? "Unmute" : "Mute"}
-                      className="inline-flex h-12 w-12 items-center justify-center rounded-md border border-white/30 bg-black/40 text-white backdrop-blur-sm transition hover:border-white/60 hover:bg-black/60"
+                      className="inline-flex h-12 w-12 items-center justify-center rounded-md border border-white/30 bg-black/40 text-white transition hover:border-white/60 hover:bg-black/60"
                     >
                       {muted ? <VolumeX className="h-5 w-5" /> : <Volume2 className="h-5 w-5" />}
                     </button>
@@ -978,14 +978,14 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
             <>
               <button
                 onClick={goToPrevious}
-                className="absolute left-2 top-1/2 z-20 hidden h-12 w-12 -translate-y-1/2 place-items-center rounded-full bg-black/40 text-white opacity-0 backdrop-blur-sm transition-all duration-300 hover:bg-black/70 group-hover/hero:opacity-100 sm:left-4 md:grid"
+                className="absolute left-2 top-1/2 z-20 hidden h-12 w-12 -translate-y-1/2 place-items-center rounded-full bg-black/40 text-white opacity-0 transition-all duration-300 hover:bg-black/70 group-hover/hero:opacity-100 sm:left-4 md:grid"
                 aria-label="Previous"
               >
                 <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" /></svg>
               </button>
               <button
                 onClick={goToNext}
-                className="absolute right-2 top-1/2 z-20 hidden h-12 w-12 -translate-y-1/2 place-items-center rounded-full bg-black/40 text-white opacity-0 backdrop-blur-sm transition-all duration-300 hover:bg-black/70 group-hover/hero:opacity-100 sm:right-4 md:grid"
+                className="absolute right-2 top-1/2 z-20 hidden h-12 w-12 -translate-y-1/2 place-items-center rounded-full bg-black/40 text-white opacity-0 transition-all duration-300 hover:bg-black/70 group-hover/hero:opacity-100 sm:right-4 md:grid"
                 aria-label="Next"
               >
                 <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" /></svg>
@@ -1201,7 +1201,7 @@ function LocalRow({ title, titles, onPlay, showProgress, rowIndex, focusedCard, 
               <div className="relative h-full overflow-hidden rounded-md bg-neutral-900">
                 <Poster title={tt.title} src={tt.poster} year={tt.year} alt={tt.title} className="h-full w-full transition duration-300 group-hover/card:opacity-90" />
                 {rating && (
-                  <span className="absolute left-2 top-2 inline-flex items-center gap-0.5 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-yellow-400 backdrop-blur-sm">
+                  <span className="absolute left-2 top-2 inline-flex items-center gap-0.5 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-yellow-400">
                     <Star className="h-2.5 w-2.5 fill-yellow-400" />{rating}
                   </span>
                 )}

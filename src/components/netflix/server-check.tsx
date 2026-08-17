@@ -76,7 +76,7 @@ export function ServerCheck({ open, onClose, imdbId, type, season, episode, onSe
     <AnimatePresence>
       {open && (
         <motion.div
-          className="fixed inset-0 z-[96] flex items-center justify-center bg-black/85 p-4 backdrop-blur-sm"
+          className="fixed inset-0 z-[96] flex items-center justify-center bg-black/85 p-4"
           initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
           onClick={close}
         >

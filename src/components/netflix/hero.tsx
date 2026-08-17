@@ -165,7 +165,7 @@ export function Hero({ titles, onPlay, onInfo }: Props) {
         <>
           <button
             onClick={prevSlide}
-            className="absolute left-4 top-1/2 z-20 -translate-y-1/2 rounded-full bg-black/40 p-3 text-white/80 opacity-0 backdrop-blur-sm transition-all duration-300 hover:bg-black/60 hover:text-white group-hover:opacity-100 hover:opacity-100 sm:left-8"
+            className="absolute left-4 top-1/2 z-20 -translate-y-1/2 rounded-full bg-black/40 p-3 text-white/80 opacity-0 transition-all duration-300 hover:bg-black/60 hover:text-white group-hover:opacity-100 hover:opacity-100 sm:left-8"
             aria-label="Previous slide"
             style={{ opacity: isPaused ? 1 : 0 }}
           >
@@ -173,7 +173,7 @@ export function Hero({ titles, onPlay, onInfo }: Props) {
           </button>
           <button
             onClick={nextSlide}
-            className="absolute right-4 top-1/2 z-20 -translate-y-1/2 rounded-full bg-black/40 p-3 text-white/80 opacity-0 backdrop-blur-sm transition-all duration-300 hover:bg-black/60 hover:text-white group-hover:opacity-100 hover:opacity-100 sm:right-8"
+            className="absolute right-4 top-1/2 z-20 -translate-y-1/2 rounded-full bg-black/40 p-3 text-white/80 opacity-0 transition-all duration-300 hover:bg-black/60 hover:text-white group-hover:opacity-100 hover:opacity-100 sm:right-8"
             aria-label="Next slide"
             style={{ opacity: isPaused ? 1 : 0 }}
           >
@@ -242,7 +242,7 @@ export function Hero({ titles, onPlay, onInfo }: Props) {
             {onInfo ? (
               <button
                 onClick={() => onInfo(current)}
-                className="group inline-flex items-center gap-2 rounded-md bg-white/20 px-6 py-2.5 text-sm font-bold text-white backdrop-blur-sm transition-all duration-300 hover:bg-white/30 hover:scale-105 active:scale-95 sm:px-8 sm:py-3 sm:text-base"
+                className="group inline-flex items-center gap-2 rounded-md bg-white/20 px-6 py-2.5 text-sm font-bold text-white transition-all duration-300 hover:bg-white/30 hover:scale-105 active:scale-95 sm:px-8 sm:py-3 sm:text-base"
               >
                 <Info className="h-5 w-5 transition-transform group-hover:scale-110" />
                 More Info
