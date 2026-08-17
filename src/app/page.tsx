@@ -131,7 +131,7 @@ export default function Home() {
         onNav={(k) => setNav(k as NavKey)}
       />
 
-      <main className="flex-1">
+      <main className="flex-1" style={{ display: player || detail ? "none" : undefined }}>
         {/* My List view */}
         {nav === "mylist" ? (
           <MyListView items={myListCards} onPlay={openDetail} onSearch={() => setSearchOpen(true)} />
@@ -160,9 +160,8 @@ export default function Home() {
       </main>
 
       {/* Backup site links — if this deployment is down, users can try mirrors */}
-      <BackupSites />
-
-      <Footer />
+      {(!player && !detail) && <BackupSites />}
+      {(!player && !detail) && <Footer />}
 
       {/* Title detail page (TMDB metadata, cast, trailer, similar) */}
       <TitleDetail
