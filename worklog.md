@@ -1883,3 +1883,36 @@ Work Log:
 
 Files Changed:
 - `src/components/netflix/trailer-iframe.tsx` (MODIFIED) — removed muted from iframe key, added enablejsapi=1, added postMessage mute/unmute effect, added iframeRef
+
+---
+Task ID: C9
+Agent: main (Z.ai Code)
+Task: Fix playback lag (videos playing at 0.75x speed) + redesign episode selector to Netflix style.
+
+Work Log:
+
+## C9-A — Fixed playback lag
+
+**Root cause:** `will-change: scroll-position` on `html, body` in `globals.css` was forcing the browser to create a compositing layer for the ENTIRE page. This caused iframes (the video player) to fall back to **software rendering** instead of hardware-accelerated rendering, making videos appear to play at ~0.75x speed with visible lag/stutter.
+
+**Fix:** Removed `will-change: scroll-position` from `html, body`. Kept it on `.netflix-row-scroller` only (row scrollers are lightweight elements that benefit from GPU compositing without affecting iframe performance).
+
+## C9-B — Redesigned episode selector to Netflix style
+
+Completely rewrote `src/components/netflix/episode-grid.tsx` with a Netflix-inspired design:
+
+**Old design:** Simple 3-column grid of small buttons with episode numbers.
+
+**New design:**
+- **Large horizontal cards** (full-width, not a grid) — matches Netflix's episode list layout
+- **Thumbnail placeholder** (h-16 w-28 mobile, h-20 w-36 desktop) with the episode number prominently displayed
+- **Play overlay** on hover — semi-transparent black with a white play icon
+- **Active episode** highlighted with red accent (bg-primary/30 thumbnail, red "▶ Playing" badge)
+- **Episode info section** with title, season/episode metadata, and duration (~45 min with Clock icon)
+- **Scrollable list** (max-h-60vh) so all episodes are accessible without page scroll
+- **Smooth transitions** on hover (border + background color changes)
+- **Responsive** — smaller cards on mobile, larger on desktop
+
+Files Changed:
+- `src/app/globals.css` (MODIFIED) — removed will-change from html/body to fix iframe playback lag
+- `src/components/netflix/episode-grid.tsx` (REWRITTEN) — Netflix-style horizontal episode cards with thumbnails, play overlays, and duration
