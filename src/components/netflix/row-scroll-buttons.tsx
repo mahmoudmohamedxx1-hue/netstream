@@ -91,7 +91,7 @@ export function RowScrollButtons({ scrollerRef, className }: Props) {
 
   return (
     <>
-      {/* Left scroll button — visible only when cursor is over it */}
+      {/* Left scroll button — semi-opaque by default, fully visible on hover */}
       <div
         className="absolute left-0 top-1/2 z-10 -translate-y-1/2"
         style={{ height: "calc(100% - 12px)", width: "40px", margin: "4px 0" }}
@@ -104,7 +104,7 @@ export function RowScrollButtons({ scrollerRef, className }: Props) {
             aria-label="Scroll left"
             className={cn(
               "flex h-full w-full items-center justify-center rounded-r-md text-white backdrop-blur-sm transition-all duration-150",
-              leftHovered ? "bg-[rgba(20,20,20,0.8)] opacity-100" : "bg-[rgba(20,20,20,0.3)] opacity-0",
+              leftHovered ? "bg-[rgba(20,20,20,0.8)] opacity-100" : "bg-[rgba(20,20,20,0.4)] opacity-50",
               className
             )}
           >
@@ -115,7 +115,7 @@ export function RowScrollButtons({ scrollerRef, className }: Props) {
         )}
       </div>
 
-      {/* Right scroll button — visible only when cursor is over it */}
+      {/* Right scroll button — semi-opaque by default, fully visible on hover */}
       <div
         className="absolute right-0 top-1/2 z-10 -translate-y-1/2"
         style={{ height: "calc(100% - 12px)", width: "40px", margin: "4px 0" }}
@@ -128,7 +128,7 @@ export function RowScrollButtons({ scrollerRef, className }: Props) {
             aria-label="Scroll right"
             className={cn(
               "flex h-full w-full items-center justify-center rounded-l-md text-white backdrop-blur-sm transition-all duration-150",
-              rightHovered ? "bg-[rgba(20,20,20,0.8)] opacity-100" : "bg-[rgba(20,20,20,0.3)] opacity-0",
+              rightHovered ? "bg-[rgba(20,20,20,0.8)] opacity-100" : "bg-[rgba(20,20,20,0.4)] opacity-50",
               className
             )}
           >
