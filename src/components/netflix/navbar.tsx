@@ -78,7 +78,7 @@ export function Navbar({ onSearch, active = "home", onNav }: Props) {
           />
         </button>
 
-        {/* GooeyNav — desktop */}
+        {/* GooeyNav — desktop (labeled, hidden on mobile/tablet) */}
         <div className="ml-2 hidden lg:block">
           <GooeyNav
             items={navItems}
@@ -87,8 +87,8 @@ export function Navbar({ onSearch, active = "home", onNav }: Props) {
           />
         </div>
 
-        {/* GooeyNav — mobile/tablet (compact, icon-only) */}
-        <div className="ml-1 lg:flex-none lg:ml-2">
+        {/* GooeyNav — mobile/tablet (icon-only, hidden on desktop) */}
+        <div className="ml-1 lg:hidden">
           <GooeyNav
             items={navItems.map((item) => ({ ...item, label: "" }))}
             active={active}
