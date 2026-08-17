@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState, useRef, useCallback } from "react"
-import { motion, AnimatePresence } from "framer-motion"
+import { motion, AnimatePresence, type Variants } from "framer-motion"
 import { Play, Info, Star, ChevronLeft, ChevronRight } from "lucide-react"
 import type { Title } from "@/lib/movies-data"
 import { Poster } from "./poster"
@@ -91,7 +91,7 @@ export function Hero({ titles, onPlay, onInfo }: Props) {
     }),
   }
 
-  const contentVariants = {
+  const contentVariants: Variants = {
     hidden: {
       opacity: 0,
       y: 24,
@@ -107,7 +107,7 @@ export function Hero({ titles, onPlay, onInfo }: Props) {
     },
   }
 
-  const childVariants = {
+  const childVariants: Variants = {
     hidden: { opacity: 0, y: 16 },
     visible: { 
       opacity: 1, 

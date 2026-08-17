@@ -470,19 +470,6 @@ const TIER_2: VideoSource[] = [
     buildSeries: (id, s, e) =>
       `https://vidsrc.cc/v2/embed/tv/${id}/${s}/${e}`,
   },
-  {
-    id: "multiembed",
-    name: "MultiEmbed",
-    quality: "Multi",
-    tier: 2,
-    logo: "ME",
-    color: "from-purple-500 to-fuchsia-600",
-    mobile: true,
-    region: "Global",
-    buildMovie: (id) => `https://multiembed.mov/?video_id=${id}`,
-    buildSeries: (id, s, e) =>
-      `https://multiembed.mov/?video_id=${id}&s=${s}&e=${e}`,
-  },
 ]
 
 // ─── Tier 3: Arabic / Regional (ImZaw repo: cloudstream-extensions-arabic) ──

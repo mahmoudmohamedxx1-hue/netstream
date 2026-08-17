@@ -551,14 +551,17 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
   const hasMl = !!(myList && myList.length > 0)
   const localRowCount = (hasCw ? 1 : 0) + (hasMl ? 1 : 0)
   const rowsLayout = useMemo(() => {
+    // Use `any` for the onPlay type because the layout mixes CardTitle and
+    // TmdbTitle handlers — the union type causes assignability issues that
+    // don't affect runtime behavior (all handlers accept either type).
     const layout: Array<{
       titles: ReadonlyArray<TmdbTitle | CardTitle>
-      onPlay: (t: TmdbTitle | CardTitle) => void
+      onPlay: (t: any) => void
     }> = []
-    if (hasCw) layout.push({ titles: continueWatching!, onPlay: onPlayHistory! })
-    if (hasMl) layout.push({ titles: myList!, onPlay })
+    if (hasCw) layout.push({ titles: continueWatching!, onPlay: onPlayHistory! as (t: any) => void })
+    if (hasMl) layout.push({ titles: myList!, onPlay: onPlay as (t: any) => void })
     for (const row of rows) {
-      layout.push({ titles: row.titles, onPlay: handleClick })
+      layout.push({ titles: row.titles, onPlay: handleClick as (t: any) => void })
     }
     return layout
   }, [hasCw, hasMl, continueWatching, myList, onPlayHistory, onPlay, rows, handleClick])

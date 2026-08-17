@@ -68,7 +68,9 @@ async function sendQuery<T>(query: string): Promise<T | null> {
       },
     })
     const res = await client().send(cmd)
-    const body = typeof res.Body === "string" ? res.Body : res.Body?.toString()
+    // res.Body can be a string, Buffer, or undefined depending on the SDK version.
+    // Cast to `any` to avoid the `never` type inference from the union.
+    const body = typeof res.Body === "string" ? res.Body : (res.Body as any)?.toString()
     if (!body) return null
     const parsed = JSON.parse(body)
     if (parsed.errors) {

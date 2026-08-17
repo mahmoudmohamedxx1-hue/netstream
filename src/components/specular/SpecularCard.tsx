@@ -172,7 +172,7 @@ export function SpecularCard({
       idleAngle += p.speed * dt
       const steer = pointerAngle != null && proximityT > 0
       const target = steer ? pointerAngle : idleAngle
-      const diff = ((target - angle + Math.PI * 3) % (Math.PI * 2)) - Math.PI
+      const diff = ((target! - angle + Math.PI * 3) % (Math.PI * 2)) - Math.PI
       angle += diff * (1 - Math.exp(-dt * 7))
 
       const brightTarget = proximityT

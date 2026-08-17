@@ -5,7 +5,7 @@ const nextConfig: NextConfig = {
   typescript: {
     ignoreBuildErrors: true,
   },
-  reactStrictMode: false,
+  reactStrictMode: true,
   // Disable source maps to reduce build memory usage
   productionBrowserSourceMaps: false,
   // Allow the preview proxy origin to access the dev server without warnings.

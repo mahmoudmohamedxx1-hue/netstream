@@ -39,8 +39,9 @@ async function fetchEmbedPage(url: string, referer: string): Promise<{ html: str
 function extractFromMixDrop(html: string): ExtractedVideo | null {
   // MixDrop uses eval(p,a,c,k,e,d) packed JavaScript
   // The sussy-code extractor unpacks it and finds MDCore.wurl="..."
-  // Fix: use /s flag and match the full eval(...) including the closing }))
-  const packedMatch = html.match(/eval\(function\(p,a,c,k,e,d\).*?\}\)\)/s)
+  // Fix: use [\s\S] (matches any char including newlines) instead of the /s flag
+  // to avoid TypeScript target compatibility issues.
+  const packedMatch = html.match(/eval\(function\(p,a,c,k,e,d\)[\s\S]*?\}\)\)/)
   if (!packedMatch) return null
 
   try {

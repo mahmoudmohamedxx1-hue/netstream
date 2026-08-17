@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { Navbar } from "@/components/netflix/navbar"
-import { Hero } from "@/components/netflix/hero"
 import { ContentRow } from "@/components/netflix/content-row"
 import { ContentCard, type CardTitle } from "@/components/netflix/content-card"
 import { PlayerModal, type PlayerTitle } from "@/components/netflix/player-modal"
@@ -17,7 +16,6 @@ import { Poster } from "@/components/netflix/poster"
 import {
   CATALOG,
   getRows,
-  getHeroTitles,
   type Title,
 } from "@/lib/movies-data"
 import { useLibrary, type SavedTitle } from "@/lib/library-store"
@@ -68,13 +66,6 @@ export default function Home() {
   }, [])
 
   const rows = useMemo(() => getRows(), [])
-  const heroTitles = useMemo(() => getHeroTitles(), [])
-
-  const heroForNav = useMemo(() => {
-    if (nav === "series") return CATALOG.filter((t) => t.type === "series").slice(0, 4)
-    if (nav === "movies") return CATALOG.filter((t) => t.type === "movie").slice(0, 4)
-    return heroTitles
-  }, [nav, heroTitles])
 
   const rowsForNav = useMemo(() => {
     if (nav === "series")

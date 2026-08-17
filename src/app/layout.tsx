@@ -15,16 +15,19 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "NetStream — Watch Movies & Series",
+  title: "NetStream — Watch Movies & Series Free in HD",
   description:
-    "Stream movies and series by IMDB ID through the vidsrc player. A Netflix-inspired streaming experience.",
+    "Watch movies and TV series free in HD. 24+ streaming sources, no registration required. Netflix-inspired streaming experience with trending titles, top IMDB picks, and Arabic content.",
   keywords: [
     "streaming",
     "movies",
     "series",
-    "vidsrc",
-    "imdb",
     "watch online",
+    "free movies",
+    "hd streaming",
+    "netstream",
+    "imdb",
+    "tv shows",
   ],
   authors: [{ name: "NetStream" }],
   icons: {
@@ -32,9 +35,9 @@ export const metadata: Metadata = {
     apple: "/favicon.png",
   },
   openGraph: {
-    title: "NetStream — Watch Movies & Series",
+    title: "NetStream — Watch Movies & Series Free in HD",
     description:
-      "Stream movies and series by IMDB ID through the vidsrc player.",
+      "Watch movies and TV series free in HD. 24+ streaming sources, no registration required.",
     siteName: "NetStream",
     type: "website",
   },

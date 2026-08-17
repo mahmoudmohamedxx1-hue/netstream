@@ -194,7 +194,7 @@ export function BrowseGrid({ type, onPlay }: Props) {
                     title: t.title,
                     type: t.type,
                     year: t.year,
-                    genres: t.genres,
+                    genre: t.genres,
                   })
                 }
                 className="group relative aspect-[2/3] overflow-hidden rounded-md bg-neutral-900 text-left transition hover:z-10 hover:scale-105 hover:ring-2 hover:ring-primary"

@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
       let videoReferer = referer
 
       // MixDrop: unpack eval(p,a,c,k,e,d) → MDCore.wurl
-      const packedMatch = html.match(/eval\(function\(p,a,c,k,e,d\).*?\}\)\)/s)
+      const packedMatch = html.match(/eval\(function\(p,a,c,k,e,d\)[\s\S]*?\}\)\)/)
       if (packedMatch) {
         try {
           const unpacked = unpack(packedMatch[0])

@@ -340,9 +340,14 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   }, [title.imdbId])
   // Fetch latency data once per title — shows response time in ms for every
   // provider so the user can see which are fast even without reliability stats.
+  // Non-blocking: fires in the background, updates state when done. Has a
+  // 10s client-side timeout so it never hangs the UI.
   useEffect(() => {
     let cancelled = false
-    fetch(`/api/provider-latency?imdbId=${encodeURIComponent(title.imdbId)}&type=${title.type}`, { cache: "no-store" })
+    fetch(`/api/provider-latency?imdbId=${encodeURIComponent(title.imdbId)}&type=${title.type}`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(10000),
+    })
       .then((r) => r.json())
       .then((data) => {
         if (cancelled) return
@@ -374,7 +379,13 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   const autoPickAppliedRef = useRef(false)
   useEffect(() => {
     let cancelled = false
-    fetch(`/api/server-health?imdbId=${encodeURIComponent(title.imdbId)}`, { cache: "no-store" })
+    // Non-blocking: fires in the background with a 10s client-side timeout.
+    // The player loads immediately with tier-based defaults; health data
+    // updates the dropdown + auto-pick when it arrives.
+    fetch(`/api/server-health?imdbId=${encodeURIComponent(title.imdbId)}`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(10000),
+    })
       .then((r) => r.json())
       .then((data) => {
         if (cancelled) return
