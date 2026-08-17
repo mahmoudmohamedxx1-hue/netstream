@@ -679,7 +679,7 @@ function BrowseRow({
           className="netflix-row-scroller flex touch-pan-x gap-3 overflow-x-auto overscroll-x-contain px-4 pb-6 pt-1 sm:px-6"
         >
           {items.map((t, i) => (
-            <div key={`${t.imdbId ?? t.tmdbId}-${i}`} data-row-card className="shrink-0">
+            <div key={`${t.imdbId ?? t.tmdbId}-${i}`} data-row-card className="shrink-0 snap-start">
               <HoverPreviewCard
                 title={t}
                 onPlay={onPlay}

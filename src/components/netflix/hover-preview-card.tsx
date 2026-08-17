@@ -167,18 +167,17 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
     setResolvedImdbId(title.imdbId)
   }
 
-  // On scroll, close the popup immediately — don't try to reposition.
-  // Repositioning on scroll caused the row to "scroll in place" because
-  // computePosition reads getBoundingClientRect which triggers layout
-  // recalculation on every scroll frame.
+  // Reposition on scroll — use a ref to avoid accessing handleClose before declaration
   const handleCloseRef = useRef<() => void>(() => {})
   useEffect(() => { handleCloseRef.current = handleClose })
+
   useEffect(() => {
     if (!expanded) return
-    const onScroll = () => { handleCloseRef.current() }
+    computePosition()
+    const onScroll = () => { computePosition(); if (!isHovering.current) handleCloseRef.current() }
     window.addEventListener("scroll", onScroll, true)
     return () => window.removeEventListener("scroll", onScroll, true)
-  }, [expanded])
+  }, [expanded, computePosition])
 
   const handleEnter = () => {
     isHovering.current = true
