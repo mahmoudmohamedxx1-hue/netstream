@@ -338,30 +338,32 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
       .catch(() => setStatsLoaded(true))
     return () => { cancelled = true }
   }, [title.imdbId])
-  // Fetch latency data once per title — shows response time in ms for every
-  // provider so the user can see which are fast even without reliability stats.
-  // Non-blocking: fires in the background, updates state when done. Has a
-  // 10s client-side timeout so it never hangs the UI.
+  // Fetch latency data once per title — DEFERRED by 3s so the iframe loads
+  // first without competing for network/CPU. Shows response time in ms for
+  // every provider so the user can see which are fast even without reliability
+  // stats. Non-blocking: fires in the background, updates state when done.
   useEffect(() => {
     let cancelled = false
-    fetch(`/api/provider-latency?imdbId=${encodeURIComponent(title.imdbId)}&type=${title.type}`, {
-      cache: "no-store",
-      signal: AbortSignal.timeout(10000),
-    })
-      .then((r) => r.json())
-      .then((data) => {
-        if (cancelled) return
-        const map: Record<string, { latencyMs: number; ok: boolean }> = {}
-        for (const r of data.results ?? []) map[r.id] = { latencyMs: r.latencyMs, ok: r.ok }
-        setLatency(map)
+    const timer = setTimeout(() => {
+      fetch(`/api/provider-latency?imdbId=${encodeURIComponent(title.imdbId)}&type=${title.type}`, {
+        cache: "no-store",
+        signal: AbortSignal.timeout(8000),
       })
-      .catch(() => {})
-    return () => { cancelled = true }
+        .then((r) => r.json())
+        .then((data) => {
+          if (cancelled) return
+          const map: Record<string, { latencyMs: number; ok: boolean }> = {}
+          for (const r of data.results ?? []) map[r.id] = { latencyMs: r.latencyMs, ok: r.ok }
+          setLatency(map)
+        })
+        .catch(() => {})
+    }, 3000) // 3s delay — lets the iframe start loading first
+    return () => { cancelled = true; clearTimeout(timer) }
   }, [title.imdbId, title.type])
-  // Live server-health data from /api/server-health — tests every provider's
-  // embed URL in parallel and records ok/dead/timeout + latency. Used to:
-  //   1. Auto-pick the fastest working provider on player open.
-  //   2. Sort the server dropdown (working first, dead last).
+  // Live server-health data from /api/server-health — DEFERRED by 5s so the
+  // iframe is already loading by the time this heavy request fires.
+  // Tests every provider's embed URL in parallel and records ok/dead/timeout
+  // + latency. Used to:
   //   3. Show ✓/✗ health indicators next to each provider.
   //   4. Skip dead providers when auto-advancing / clicking "Next server".
   // Falls back gracefully to the existing tier-based ordering if the health
@@ -379,31 +381,34 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   const autoPickAppliedRef = useRef(false)
   useEffect(() => {
     let cancelled = false
-    // Non-blocking: fires in the background with a 10s client-side timeout.
-    // The player loads immediately with tier-based defaults; health data
-    // updates the dropdown + auto-pick when it arrives.
-    fetch(`/api/server-health?imdbId=${encodeURIComponent(title.imdbId)}`, {
-      cache: "no-store",
-      signal: AbortSignal.timeout(10000),
-    })
-      .then((r) => r.json())
-      .then((data) => {
-        if (cancelled) return
-        const map: Record<
-          string,
-          { ok: boolean; latencyMs: number; status: "ok" | "dead" | "timeout" }
-        > = {}
-        for (const r of data.results ?? []) {
-          map[r.id] = {
-            ok: !!r.ok,
-            latencyMs: r.latencyMs ?? 0,
-            status: r.status ?? "dead",
-          }
-        }
-        setHealth(map)
+    // DEFERRED by 5s — the heaviest API call (tests 24 providers in parallel).
+    // Waiting 5s ensures the iframe is already loaded and playing before this
+    // request competes for network/CPU resources. The player loads immediately
+    // with tier-based defaults; health data updates the dropdown when it arrives.
+    const timer = setTimeout(() => {
+      fetch(`/api/server-health?imdbId=${encodeURIComponent(title.imdbId)}`, {
+        cache: "no-store",
+        signal: AbortSignal.timeout(8000),
       })
-      .catch(() => {})
-    return () => { cancelled = true }
+        .then((r) => r.json())
+        .then((data) => {
+          if (cancelled) return
+          const map: Record<
+            string,
+            { ok: boolean; latencyMs: number; status: "ok" | "dead" | "timeout" }
+          > = {}
+          for (const r of data.results ?? []) {
+            map[r.id] = {
+              ok: !!r.ok,
+              latencyMs: r.latencyMs ?? 0,
+              status: r.status ?? "dead",
+            }
+          }
+          setHealth(map)
+        })
+        .catch(() => {})
+    }, 5000) // 5s delay — lets the iframe load first
+    return () => { cancelled = true; clearTimeout(timer) }
   }, [title.imdbId])
   // Auto-pick the fastest working server when health data first arrives
   // (Enhancement B: "default server becomes the fastest working one, not a

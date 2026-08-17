@@ -34,8 +34,13 @@ export async function GET(req: NextRequest) {
     })
   }
 
+  // Only test PRIMARY providers (tier 1 + 2) — testing all 40+ providers
+  // (including 16 dead tier-5 ones) creates massive server load and causes
+  // lag. Tier 1+2 are the ones users actually see in the dropdown.
+  const testSources = VIDEO_SOURCES.filter((s) => s.tier <= 2)
+
   const results = await Promise.all(
-    VIDEO_SOURCES.map(async (source) => {
+    testSources.map(async (source) => {
       const playerUrl = buildPlayerUrl({
         imdbId, type, season, episode, sourceId: source.id,
       })
@@ -43,7 +48,7 @@ export async function GET(req: NextRequest) {
       try {
         const res = await fetch(playerUrl, {
           method: "GET",
-          signal: AbortSignal.timeout(6000),
+          signal: AbortSignal.timeout(3000), // 3s (was 6s — reduces lag)
           redirect: "follow",
           headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36" },
         })

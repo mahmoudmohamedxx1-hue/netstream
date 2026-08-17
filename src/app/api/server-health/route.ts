@@ -78,8 +78,13 @@ export async function GET(req: NextRequest) {
   // We use the movie embed URL (source.buildMovie) even for TMDB-keyed
   // providers — the host still responds even if the specific ID isn't
   // recognized, which is sufficient for a reachability test.
+  // Only test PRIMARY providers (tier 1 + 2) — testing all 40+ providers
+  // (including 16 dead tier-5 ones) creates massive server load and causes
+  // lag. Tier 1+2 are the ones users actually see in the dropdown.
+  const testSources = VIDEO_SOURCES.filter((s) => s.tier <= 2)
+
   const results: HealthResult[] = await Promise.all(
-    VIDEO_SOURCES.map(async (source): Promise<HealthResult> => {
+    testSources.map(async (source): Promise<HealthResult> => {
       const playerUrl = source.buildMovie(imdbId)
       const t0 = Date.now()
       try {
