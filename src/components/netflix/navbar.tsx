@@ -55,10 +55,13 @@ export function Navbar({ onSearch, active = "home", onNav }: Props) {
       )}
     >
       <nav className="flex h-16 items-center gap-1.5 px-2 sm:gap-4 sm:px-8">
-        {/* Logo with DecryptedText effect — hover to decrypt (slower, red) */}
+        {/* Logo with DecryptedText effect — hover to decrypt (slower, red).
+            Fixed width + overflow hidden so the character-shuffling animation
+            doesn't cause the navbar to shift horizontally. */}
         <button
           onClick={() => onNav?.("home")}
-          className="shrink-0"
+          className="relative flex h-9 shrink-0 items-center overflow-hidden"
+          style={{ width: "120px" }}
           aria-label="NetStream home"
         >
           <DecryptedText
