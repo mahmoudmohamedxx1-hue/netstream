@@ -868,7 +868,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
         {/* Close */}
         <button
           onClick={handleClose}
-          aria-label="Close player"
+          aria-label="Close player" data-testid="close-player"
           className="absolute right-3 top-3 z-20 rounded-full bg-black/60 p-2 text-white transition hover:bg-black/80"
         >
           <X className="h-5 w-5" />
@@ -879,7 +879,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
           onClick={toggleFullscreen}
           className="absolute right-14 top-3 z-20 rounded-full bg-black/60 p-2 text-white transition hover:bg-black/80"
           title={isFullscreen ? "Exit fullscreen (F)" : "Fullscreen (F)"}
-          aria-label="Fullscreen"
+          aria-label="Fullscreen" data-testid="fullscreen-toggle"
         >
           {isFullscreen ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
         </button>
@@ -1222,7 +1222,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
             <button
               onClick={reload}
               className="inline-flex items-center gap-1.5 rounded-md bg-white/10 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-white/20"
-              aria-label={t("reload")}
+              aria-label={t("reload")} data-testid="reload-button"
               title={`${t("reload")} (R)`}
             >
               <RotateCw className="h-3.5 w-3.5" />
@@ -1230,7 +1230,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
             <button
               onClick={handleNextServer}
               className="inline-flex items-center gap-1.5 rounded-md bg-white/10 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-white/20"
-              aria-label="Next server"
+              aria-label="Next server" data-testid="next-server"
               title="Next working server (N)"
             >
               <SkipForward className="h-3.5 w-3.5" />

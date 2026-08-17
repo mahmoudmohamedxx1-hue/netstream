@@ -403,7 +403,7 @@ export function SearchOverlay({ open, onClose, onPlay }: Props) {
               <button
                 onClick={close}
                 className="rounded-full bg-white/10 p-3 text-white transition hover:bg-white/20"
-                aria-label="Close search"
+                aria-label="Close search" data-testid="close-search"
               >
                 <X className="h-5 w-5" />
               </button>
@@ -445,7 +445,7 @@ export function SearchOverlay({ open, onClose, onPlay }: Props) {
                     }}
                     placeholder="tt0111161"
                     id="imdb-id-input"
-                    aria-label="IMDB ID"
+                    aria-label="IMDB ID" data-testid="imdb-input"
                     className="h-11 border-white/15 bg-white/10 font-mono text-white placeholder:text-white/30"
                   />
                   {imdb && normalizedImdb ? (

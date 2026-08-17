@@ -11,7 +11,14 @@
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:reset": "prisma migrate reset",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "test": "playwright test",
+    "test:mobile": "playwright test --project='iPhone 14 Pro' --project='Pixel 7'",
+    "test:ios": "playwright test --project='iPhone 14 Pro'",
+    "test:android": "playwright test --project='Pixel 7'",
+    "test:headed": "playwright test --headed",
+    "test:debug": "playwright test --debug",
+    "test:report": "playwright show-report tests/reports/html"
   },
   "dependencies": {
     "@aws-sdk/client-dataexchange": "^3.1085.0",
@@ -86,6 +93,7 @@
     "zustand": "^5.0.6"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@tailwindcss/postcss": "^4",
     "@types/react": "^19",
     "@types/react-dom": "^19",

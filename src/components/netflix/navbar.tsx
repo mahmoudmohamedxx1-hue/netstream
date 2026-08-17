@@ -62,7 +62,7 @@ export function Navbar({ onSearch, active = "home", onNav }: Props) {
           onClick={() => onNav?.("home")}
           className="relative flex h-9 shrink-0 items-center overflow-hidden"
           style={{ width: "165px" }}
-          aria-label="NetStream home"
+          aria-label="NetStream home" data-testid="logo"
         >
           <DecryptedText
             text="NETSTREAM"
@@ -101,7 +101,7 @@ export function Navbar({ onSearch, active = "home", onNav }: Props) {
           {/* Language toggle (EN ↔ AR with RTL flip) */}
           <button
             onClick={toggle}
-            aria-label="Toggle language"
+            aria-label="Toggle language" data-testid="language-toggle"
             title={isArabic ? "Switch to English" : "التبديل إلى العربية"}
             className="flex items-center gap-1 rounded-full px-2 py-1.5 text-xs font-semibold text-white/80 transition hover:bg-white/10 hover:text-white"
           >
@@ -110,7 +110,7 @@ export function Navbar({ onSearch, active = "home", onNav }: Props) {
           </button>
           <button
             onClick={onSearch}
-            aria-label={t("search")}
+            aria-label={t("search")} data-testid="search-button"
             className="rounded-full p-2 text-white transition hover:bg-white/10"
           >
             <Search className="h-5 w-5" />
