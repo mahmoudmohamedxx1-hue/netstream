@@ -1841,3 +1841,45 @@ This file makes the building architecture knowledge accessible to any developer 
 Files Changed:
 - `src/components/netflix/navbar.tsx` (MODIFIED) — logo button gets fixed width + overflow hidden
 - `ARCHITECTURE.md` (NEW) — comprehensive architecture + change log documentation
+
+---
+Task ID: C8
+Agent: main (Z.ai Code)
+Task: Fix trailer restart on mute/unmute toggle, push to GitHub, update worklog.
+
+Work Log:
+
+## C8-A — Fixed trailer restart on mute/unmute
+
+**Root cause:** In `src/components/netflix/trailer-iframe.tsx`, the iframe's `key` prop was set to `${trailerKey}-${muted ? "m" : "u"}`. Every time the user pressed the mute/unmute button, the `muted` state changed, which changed the key, which caused React to **unmount and remount the iframe from scratch** — restarting the trailer from the beginning.
+
+**Fix:** Three changes to `trailer-iframe.tsx`:
+
+1. **Removed the muted flag from the iframe key** — now `key={trailerKey}` only. React no longer remounts the iframe when mute state changes.
+
+2. **Added `enablejsapi=1`** to the YouTube embed URL — this enables the YouTube IFrame Player API, which allows external control of the player via `postMessage`.
+
+3. **Added a `useEffect` that sends `postMessage` to the iframe** when `muted` changes:
+   ```ts
+   useEffect(() => {
+     const iframe = iframeRef.current
+     if (!iframe?.contentWindow) return
+     const command = muted
+       ? '{"event":"command","func":"mute","args":""}'
+       : '{"event":"command","func":"unMute","args":""}'
+     iframe.contentWindow.postMessage(command, "*")
+   }, [muted, readyKey])
+   ```
+   This tells the YouTube player to mute/unmute **without reloading the video** — the trailer keeps playing, only the audio toggles.
+
+**Result:** Pressing mute/unmute now instantly toggles audio without restarting the trailer. The iframe stays mounted, the video position is preserved.
+
+**Verified:**
+- 0 lint errors, 0 TS errors
+- iframe key is `trailerKey` only (no muted flag)
+- `enablejsapi=1` present in src
+- postMessage effect sends mute/unMute commands
+- Committed as `633c7e8`, pushed to GitHub
+
+Files Changed:
+- `src/components/netflix/trailer-iframe.tsx` (MODIFIED) — removed muted from iframe key, added enablejsapi=1, added postMessage mute/unmute effect, added iframeRef
