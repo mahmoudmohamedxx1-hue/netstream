@@ -122,12 +122,12 @@
   body {
     @apply bg-background text-foreground;
     background-color: #0a0a0a;
-    /* NOTE: scroll-behavior: smooth was removed from html/body because it
-       caused the page to smooth-scroll to the bottom on initial load (the
-       browser restores scroll position and the smooth animation made it
-       very visible). Programmatic smooth scrolling (scrollTo with
-       behavior:'smooth') still works — it's set per-call, not globally. */
-    will-change: scroll-position;
+    /* NOTE: scroll-behavior: smooth and will-change were removed from
+       html/body because they caused:
+       1. Page loading at the bottom (smooth scroll restoration)
+       2. Playback lag in iframes (will-change forces software rendering,
+          making videos play at ~0.75x perceived speed)
+       Row scrollers keep will-change since they're lightweight elements. */
   }
   /* Hide ALL scrollbars globally (page, rows, modals) while keeping
      scroll functionality. Firefox: scrollbar-width:none. Chrome/Safari:
