@@ -664,7 +664,7 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
       // overflow scroller). `block: 'nearest'` avoids scrolling if the
       // card is already visible.
       const el = cardRefs.current[row]?.[card]
-      if (el) el.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" })
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "nearest" })
     }
     window.addEventListener("keydown", onKey)
     return () => window.removeEventListener("keydown", onKey)
@@ -672,10 +672,13 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
 
   // Defensive scrollIntoView when `focused` changes via any other path
   // (e.g. programmatic focus in a future enhancement). No-op for null.
+  // NOTE: inline is set to 'start' to avoid the row scrolling horizontally
+  // when hovering — 'nearest' caused the row to jump when the card was
+  // near the edge of the viewport.
   useEffect(() => {
     if (!focused) return
     const el = cardRefs.current[focused.row]?.[focused.card]
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "nearest", inline: "nearest" })
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "nearest" })
   }, [focused])
 
   if (loading) {
