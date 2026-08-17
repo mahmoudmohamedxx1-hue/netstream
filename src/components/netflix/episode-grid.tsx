@@ -87,10 +87,12 @@ export function EpisodeGrid({ season, episode, totalEpisodes, tmdbId, onChange }
                   : "border-white/10 bg-white/[0.03] hover:border-white/25 hover:bg-white/[0.06]"
               )}
             >
-              {/* Thumbnail — TMDB episode still or gradient placeholder */}
+              {/* Thumbnail — TMDB episode still or gradient placeholder.
+                  No episode number overlay — the thumbnail shows as-is.
+                  Play button only appears on hover (group-hover). */}
               <div
                 className={cn(
-                  "relative grid h-16 w-28 shrink-0 place-items-center overflow-hidden rounded-md sm:h-20 sm:w-36",
+                  "relative h-16 w-28 shrink-0 overflow-hidden rounded-md sm:h-20 sm:w-36",
                   active ? "bg-primary/30" : "bg-white/10"
                 )}
               >
@@ -102,16 +104,7 @@ export function EpisodeGrid({ season, episode, totalEpisodes, tmdbId, onChange }
                     className="absolute inset-0 h-full w-full object-cover"
                   />
                 ) : null}
-                {/* Episode number overlay (always visible on stills, shown when no still) */}
-                <span
-                  className={cn(
-                    "relative z-10 text-2xl font-black tabular-nums drop-shadow-lg sm:text-3xl",
-                    ep.still ? "text-white" : active ? "text-primary" : "text-white/70"
-                  )}
-                >
-                  {ep.episodeNumber}
-                </span>
-                {/* Play overlay on hover */}
+                {/* Play overlay — only appears on hover. Active episode shows check. */}
                 <div
                   className={cn(
                     "absolute inset-0 grid place-items-center transition-opacity",
