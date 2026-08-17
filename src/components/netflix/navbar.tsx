@@ -54,14 +54,11 @@ export function Navbar({ onSearch, active = "home", onNav }: Props) {
           : "bg-gradient-to-b from-black/80 via-black/40 to-transparent"
       )}
     >
-      <nav className="flex h-16 items-center gap-1.5 px-2 sm:gap-4 sm:px-8">
-        {/* Logo with DecryptedText effect — hover to decrypt (slower, red).
-            Fixed width + overflow hidden so the character-shuffling animation
-            doesn't cause the navbar to shift horizontally. */}
+      <nav className="flex h-16 items-center gap-4 px-4 sm:h-16 sm:px-8">
+        {/* Logo with DecryptedText effect — hover to decrypt (slower, red) */}
         <button
           onClick={() => onNav?.("home")}
-          className="relative flex h-9 shrink-0 items-center overflow-hidden"
-          style={{ width: "120px" }}
+          className="shrink-0"
           aria-label="NetStream home"
         >
           <DecryptedText
@@ -71,14 +68,14 @@ export function Navbar({ onSearch, active = "home", onNav }: Props) {
             animateOn="hover"
             sequential={true}
             revealDirection="start"
-            className="text-lg font-black tracking-tight text-primary sm:text-xl md:text-2xl"
-            parentClassName="text-lg font-black tracking-tight text-primary sm:text-xl md:text-2xl"
-            encryptedClassName="text-lg font-black tracking-tight text-primary/50 sm:text-xl md:text-2xl"
+            className="text-xl font-black tracking-tight text-primary sm:text-2xl"
+            parentClassName="text-xl font-black tracking-tight text-primary sm:text-2xl"
+            encryptedClassName="text-xl font-black tracking-tight text-primary/50 sm:text-2xl"
             style={{ letterSpacing: "-0.04em" }}
           />
         </button>
 
-        {/* GooeyNav — desktop (labeled, hidden on mobile/tablet) */}
+        {/* GooeyNav — desktop */}
         <div className="ml-2 hidden lg:block">
           <GooeyNav
             items={navItems}
@@ -87,32 +84,31 @@ export function Navbar({ onSearch, active = "home", onNav }: Props) {
           />
         </div>
 
-        {/* GooeyNav — mobile/tablet (icon-only, hidden on desktop) */}
+        {/* GooeyNav — mobile/tablet (compact) */}
         <div className="ml-1 lg:hidden">
           <GooeyNav
             items={navItems.map((item) => ({ ...item, label: "" }))}
             active={active}
             onChange={(key) => onNav?.(key)}
-            className="!gap-0 !p-0.5 sm:!gap-1"
+            className="!gap-0.5 !p-0.5"
           />
         </div>
 
-        {/* Right actions — search + language. Always visible, never pushed off-screen. */}
-        <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-3">
+        <div className="ml-auto flex items-center gap-2 sm:gap-3">
           {/* Language toggle (EN ↔ AR with RTL flip) */}
           <button
             onClick={toggle}
             aria-label="Toggle language"
             title={isArabic ? "Switch to English" : "التبديل إلى العربية"}
-            className="flex h-9 w-9 items-center justify-center rounded-full text-xs font-semibold text-white/80 transition hover:bg-white/10 hover:text-white sm:h-auto sm:w-auto sm:px-2 sm:py-1.5"
+            className="flex items-center gap-1 rounded-full px-2 py-1.5 text-xs font-semibold text-white/80 transition hover:bg-white/10 hover:text-white"
           >
             <Languages className="h-4 w-4" />
-            <span className="hidden sm:inline">{isArabic ? "EN" : "ع"}</span>
+            <span>{isArabic ? "EN" : "ع"}</span>
           </button>
           <button
             onClick={onSearch}
             aria-label={t("search")}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-full text-white transition hover:bg-white/10 sm:h-auto sm:w-auto sm:p-2"
+            className="rounded-full p-2 text-white transition hover:bg-white/10"
           >
             <Search className="h-5 w-5" />
           </button>
