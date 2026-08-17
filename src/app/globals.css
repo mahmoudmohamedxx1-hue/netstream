@@ -118,16 +118,14 @@
   * {
     @apply border-border outline-ring/50;
   }
+  html {
+    /* Scale the entire page to 85% — applies to all content uniformly */
+    zoom: 85%;
+  }
   html,
   body {
     @apply bg-background text-foreground;
     background-color: #0a0a0a;
-    /* NOTE: scroll-behavior: smooth and will-change were removed from
-       html/body because they caused:
-       1. Page loading at the bottom (smooth scroll restoration)
-       2. Playback lag in iframes (will-change forces software rendering,
-          making videos play at ~0.75x perceived speed)
-       Row scrollers keep will-change since they're lightweight elements. */
   }
   /* Hide ALL scrollbars globally (page, rows, modals) while keeping
      scroll functionality. Firefox: scrollbar-width:none. Chrome/Safari:
