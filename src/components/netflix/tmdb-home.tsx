@@ -1102,7 +1102,7 @@ function TmdbRow({ row, onPlay, numbered, landscape, rowIndex, focusedCard, setC
       </h3>
       <div ref={scrollerRef} className="netflix-row-scroller flex touch-pan-x gap-2 overflow-x-auto overflow-y-visible overscroll-x-contain px-4 pb-6 pt-1 sm:gap-3 sm:px-8">
         {row.titles.map((tt, i) => (
-          <div key={`${tt.tmdbId}-${i}`} data-row-card className="shrink-0 snap-start">
+          <div key={`${tt.tmdbId}-${i}`} data-row-card className="shrink-0">
             <HoverPreviewCard
               title={tt}
               onPlay={onPlay}
@@ -1192,7 +1192,7 @@ function LocalRow({ title, titles, onPlay, showProgress, rowIndex, focusedCard, 
               tabIndex={0}
               onClick={() => onPlay(tt)}
               className={cn(
-                "group/card relative aspect-video w-[68vw] shrink-0 snap-start rounded-md transition sm:w-[280px] md:w-[320px]",
+                "group/card relative aspect-video w-[68vw] shrink-0 rounded-md transition sm:w-[280px] md:w-[320px]",
                 isFocused
                   ? "z-20 scale-105 ring-2 ring-white ring-offset-2 ring-offset-black"
                   : "ring-0"

@@ -159,20 +159,14 @@
    scroll-behavior: auto — let the browser handle momentum natively (smooth
      interferes with momentum and causes jank during fast scrolls).
    overscroll-behavior-x: contain stops horizontal scroll chaining.
-   scroll-snap-type: x proximity — gentle snapping so cards align nicely
-     after a swipe, but doesn't fight the user mid-scroll.
    contain: layout + content for maximum scroll isolation. */
 .netflix-row-scroller {
   -webkit-overflow-scrolling: touch;
   scrollbar-width: none;
   scroll-behavior: auto;
   overscroll-behavior-x: contain;
-  /* Proximity snapping (not mandatory) — lets the browser gently align the
-     nearest card after the user stops scrolling, without trapping mid-scroll. */
-  scroll-snap-type: x proximity;
-  /* Hint the browser that this element scrolls horizontally so it can
-     optimize compositing. */
-  will-change: scroll-position;
+  /* No scroll-snap — it caused rows to "scroll in place" when the user
+     scrolled vertically past them (the browser tried to snap horizontally). */
   contain: layout style;
 }
 .netflix-row-scroller::-webkit-scrollbar {
