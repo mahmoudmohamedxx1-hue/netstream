@@ -290,7 +290,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   // callbacks (e.g. the stats fetch's .then) can compare against the current
   // sourceId without re-subscribing.
   const sourceIdRef = useRef(sourceId)
-  sourceIdRef.current = sourceId
+  useEffect(() => { sourceIdRef.current = sourceId }, [sourceId])
   // Fetch reliability stats once per title.
   useEffect(() => {
     let cancelled = false
@@ -302,137 +302,27 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
         for (const s of data.stats ?? []) map[s.sourceId] = { ok: s.ok, reports: s.reports }
         setStats(map)
         setStatsLoaded(true)
-        // A4 — Per-title server memory: if we have at least one ok=true
-        // stat for this title, auto-pick the best server (most reports
-        // among ok=true entries; ties broken by lower tier = more
-        // reliable). This takes precedence over the health-check-based
-        // auto-pick below — stats reflect real user watch outcomes, which
-        // are more trustworthy than a single live HTTP probe. Skipped
-        // once the user has manually interacted with the source picker.
-        if (!userInteractedRef.current) {
-          type StatRow = { sourceId: string; ok: boolean; reports: number }
-          const okEntries: StatRow[] = (data.stats ?? [])
-            .filter((s: StatRow) => s.ok && s.reports > 0)
-          if (okEntries.length > 0) {
-            // Prevent the health-based auto-pick from overriding this
-            // stats-based choice (it checks `autoPickAppliedRef`).
-            // eslint-disable-next-line react-hooks/immutability
-            autoPickAppliedRef.current = true
-            okEntries.sort((a, b) => {
-              if (b.reports !== a.reports) return b.reports - a.reports
-              const aTier = VIDEO_SOURCES.find((s) => s.id === a.sourceId)?.tier ?? 99
-              const bTier = VIDEO_SOURCES.find((s) => s.id === b.sourceId)?.tier ?? 99
-              return aTier - bTier
-            })
-            const best = okEntries[0]
-            if (best && best.sourceId !== sourceIdRef.current) {
-              Promise.resolve().then(() => {
-                if (cancelled) return
-                setSourceId(best.sourceId)
-                setLoaded(false)
-              })
-            }
-          }
-        }
+        // Auto-pick DISABLED — server switching is now fully manual.
+        // The user picks servers via the dropdown or "Next server" button.
       })
       .catch(() => setStatsLoaded(true))
     return () => { cancelled = true }
   }, [title.imdbId])
-  // Fetch latency data once per title — DEFERRED by 3s so the iframe loads
-  // first without competing for network/CPU. Shows response time in ms for
-  // every provider so the user can see which are fast even without reliability
-  // stats. Non-blocking: fires in the background, updates state when done.
-  useEffect(() => {
-    let cancelled = false
-    const timer = setTimeout(() => {
-      fetch(`/api/provider-latency?imdbId=${encodeURIComponent(title.imdbId)}&type=${title.type}`, {
-        cache: "no-store",
-        signal: AbortSignal.timeout(8000),
-      })
-        .then((r) => r.json())
-        .then((data) => {
-          if (cancelled) return
-          const map: Record<string, { latencyMs: number; ok: boolean }> = {}
-          for (const r of data.results ?? []) map[r.id] = { latencyMs: r.latencyMs, ok: r.ok }
-          setLatency(map)
-        })
-        .catch(() => {})
-    }, 3000) // 3s delay — lets the iframe start loading first
-    return () => { cancelled = true; clearTimeout(timer) }
-  }, [title.imdbId, title.type])
-  // Live server-health data from /api/server-health — DEFERRED by 5s so the
-  // iframe is already loading by the time this heavy request fires.
-  // Tests every provider's embed URL in parallel and records ok/dead/timeout
-  // + latency. Used to:
-  //   3. Show ✓/✗ health indicators next to each provider.
-  //   4. Skip dead providers when auto-advancing / clicking "Next server".
-  // Falls back gracefully to the existing tier-based ordering if the health
-  // check fails (no providers get marked ok/dead → defaults preserved).
+  // provider-latency and server-health calls REMOVED — they were the main
+  // source of lag (each tests 24+ external providers in parallel). Since
+  // server switching is now fully manual, the user doesn't need health
+  // indicators — they just try a server and move on if it doesn't work.
+  // The latency/health state stays as empty objects (no data = no lag).
   const [health, setHealth] = useState<
     Record<string, { ok: boolean; latencyMs: number; status: "ok" | "dead" | "timeout" }>
   >({})
-  // Auto-fallback attempt counter (Enhancement A). Reset by manual "Next
-  // server" / "Reload" clicks. Caps at 3 attempts so we don't loop forever.
   const fallbackIdxRef = useRef(0)
-  // Tracks whether the auto-pick (fastest-working-default) has already fired
-  // OR the user has manually interacted with the source. Once true, auto-pick
-  // is disabled for the rest of this title's session (component remounts on
-  // title change, so the ref resets per-title).
   const autoPickAppliedRef = useRef(false)
+  // Auto-pick DISABLED — server switching is now fully manual.
+  // The user picks servers via the dropdown or "Next server" button.
+  // This effect is kept as a no-op to avoid breaking the dependency chain.
   useEffect(() => {
-    let cancelled = false
-    // DEFERRED by 5s — the heaviest API call (tests 24 providers in parallel).
-    // Waiting 5s ensures the iframe is already loaded and playing before this
-    // request competes for network/CPU resources. The player loads immediately
-    // with tier-based defaults; health data updates the dropdown when it arrives.
-    const timer = setTimeout(() => {
-      fetch(`/api/server-health?imdbId=${encodeURIComponent(title.imdbId)}`, {
-        cache: "no-store",
-        signal: AbortSignal.timeout(8000),
-      })
-        .then((r) => r.json())
-        .then((data) => {
-          if (cancelled) return
-          const map: Record<
-            string,
-            { ok: boolean; latencyMs: number; status: "ok" | "dead" | "timeout" }
-          > = {}
-          for (const r of data.results ?? []) {
-            map[r.id] = {
-              ok: !!r.ok,
-              latencyMs: r.latencyMs ?? 0,
-              status: r.status ?? "dead",
-            }
-          }
-          setHealth(map)
-        })
-        .catch(() => {})
-    }, 5000) // 5s delay — lets the iframe load first
-    return () => { cancelled = true; clearTimeout(timer) }
-  }, [title.imdbId])
-  // Auto-pick the fastest working server when health data first arrives
-  // (Enhancement B: "default server becomes the fastest working one, not a
-  // hardcoded tier"). Only fires once per title — once the user manually
-  // picks a server, clicks Next server, or reloads, auto-pick is disabled.
-  // No-op if no providers are working (falls back to the hardcoded default).
-  // The setState calls are deferred to a microtask to avoid cascading renders
-  // (matches the pattern used by the Arabic-stream effect below).
-  useEffect(() => {
-    if (autoPickAppliedRef.current) return
-    const working = VIDEO_SOURCES.filter((s) => health[s.id]?.ok && s.tier < 5)
-    if (working.length === 0) return
-    working.sort(
-      (a, b) => (health[a.id]?.latencyMs ?? 0) - (health[b.id]?.latencyMs ?? 0)
-    )
-    const fastest = working[0]
-    if (fastest && fastest.id !== sourceId) {
-      // eslint-disable-next-line react-hooks/immutability
-      autoPickAppliedRef.current = true
-      Promise.resolve().then(() => {
-        setSourceId(fastest.id)
-        setLoaded(false)
-      })
-    }
+    // No-op — manual server switching only
   }, [health, sourceId])
   // Auto-filled metadata from the local IMDb dataset (best 11k titles).
   const [meta, setMeta] = useState<{
@@ -787,57 +677,13 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     }
   }, [sourceId, health, title.imdbId, lastProvider, toast, reportProvider])
 
-  // Auto-fallback with timeout heuristic (Enhancement A):
-  //   - When a video source is selected, start an 8s timer.
-  //   - If the iframe doesn't fire onLoad within 8s, automatically advance to
-  //     the next WORKING server (skip dead ones when health data is available).
-  //   - Stop auto-advancing after 3 attempts (don't loop forever).
-  //   - "Trying server N of M…" toast on each advance.
-  //   - Reset by manual "Next server" click or "Reload" (see handlers below).
-  //   - Runs on ALL platforms (desktop + mobile). On mobile with no health
-  //     data, falls back to MOBILE_FALLBACK_CHAIN; on desktop, to all tier<5.
-  //   - Skipped for Arabic providers (they have their own search/extract flow
-  //     with its own loading states and shouldn't be auto-cycled).
+  // Auto-fallback DISABLED — too many providers aren't working and the
+  // automatic switching was causing lag and confusion. The user now
+  // manually picks servers via the dropdown or "Next server" button.
+  // The 8s auto-advance timer is removed entirely.
   useEffect(() => {
-    if (loaded) return
-    if (isArabicProvider) return
-    const timer = setTimeout(() => {
-      if (loaded) return
-      fallbackIdxRef.current += 1
-      // Cap at 3 attempts so we don't cycle forever
-      if (fallbackIdxRef.current > 3) return
-      // Build the fallback chain. Prefer health-sorted working servers;
-      // fall back to MOBILE_FALLBACK_CHAIN (mobile) or all alive tier<5
-      // (desktop) when no health data is available yet.
-      const healthKeys = Object.keys(health)
-      let chain: VideoSource[]
-      if (healthKeys.length > 0) {
-        chain = VIDEO_SOURCES
-          .filter((s) => health[s.id]?.ok && s.tier < 5)
-          .sort(
-            (a, b) => (health[a.id]?.latencyMs ?? 0) - (health[b.id]?.latencyMs ?? 0)
-          )
-      } else if (isMobile) {
-        chain = MOBILE_FALLBACK_CHAIN
-      } else {
-        chain = VIDEO_SOURCES.filter((s) => s.tier < 5)
-      }
-      if (chain.length === 0) return
-      const currentIdx = chain.findIndex((s) => s.id === sourceId)
-      const nextIdx = (currentIdx + 1) % chain.length
-      const next = chain[nextIdx]
-      if (next && next.id !== sourceId) {
-        setSourceId(next.id)
-        lastProvider.set(title.imdbId, next.id)
-        setReloads((r) => r + 1)
-        toast({
-          title: `Trying server ${fallbackIdxRef.current + 1} of ${chain.length}…`,
-          description: next.name,
-        })
-      }
-    }, 8000)
-    return () => clearTimeout(timer)
-  }, [sourceId, reloads, loaded, isMobile, isArabicProvider, title.imdbId, lastProvider, toast, health])
+    // No-op — auto-fallback disabled for manual server switching
+  }, [sourceId, reloads, loaded, isArabicProvider, title.imdbId])
   // A4 — 30-second watch-success reporter.
   const reportedOkRef = useRef<Set<string>>(new Set())
   useEffect(() => {
