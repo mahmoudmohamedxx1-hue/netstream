@@ -46,6 +46,26 @@ import { useLastProvider } from "@/hooks/use-last-provider"
 import { usePlaybackProgress } from "@/hooks/use-playback-progress"
 import { useLang } from "@/lib/lang-context"
 import { getAdBlockEnabled } from "@/components/netflix/navbar"
+
+// ── Favorite servers — saved in localStorage ────────────────────────────────
+const FAVORITES_KEY = "netstream:favorites"
+function getFavorites(): string[] {
+  if (typeof window === "undefined") return []
+  try {
+    const raw = localStorage.getItem(FAVORITES_KEY)
+    return raw ? JSON.parse(raw) : []
+  } catch { return [] }
+}
+function toggleFavorite(id: string): string[] {
+  const favs = getFavorites()
+  const next = favs.includes(id) ? favs.filter(f => f !== id) : [...favs, id]
+  try { localStorage.setItem(FAVORITES_KEY, JSON.stringify(next)) } catch {}
+  return next
+}
+
+// ── Preferred providers (user-specified top 5) ──────────────────────────────
+// These are tried first by the auto-switch logic, in this order.
+const PREFERRED_PROVIDERS = ["vidfast.pro", "vidcore.net", "superembed", "moviesapi.to", "2embed.cc"]
 import {
   Select,
   SelectContent,
@@ -84,27 +104,29 @@ const QUALITY_OPTIONS = [
 // Mobile defaults: MoviesHub (vidsrc.me) and SmashyStream
 // PC defaults: 2Embed.cc and AnyEmbed
 function sourceForQuality(quality: string, isMobile: boolean): string {
+  // User-specified top providers: vidfast, vidcore, superembed, moviesapi, 2embed
+  // These are the first providers to try on both mobile and desktop.
   if (isMobile) {
     switch (quality) {
       case "1080p":
-        return "smashystream"
+        return "vidfast.pro"
       case "720p":
-        return "vidsrc.me"
+        return "vidfast.pro"
       case "480p":
-        return "vidsrc.me"
+        return "moviesapi.to"
       default:
-        return "vidsrc.me" // auto → MoviesHub on mobile
+        return "vidfast.pro" // auto → VidFast on mobile
     }
   }
   switch (quality) {
     case "1080p":
-      return "2embed.cc"
+      return "vidfast.pro"
     case "720p":
-      return "anyembed"
+      return "vidcore.net"
     case "480p":
-      return "anyembed"
+      return "moviesapi.to"
     default:
-      return "2embed.cc" // auto → 2Embed on desktop
+      return "vidfast.pro" // auto → VidFast on desktop
   }
 }
 
@@ -234,7 +256,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   // Default provider: MoviesHub (vidsrc.me) on mobile, 2Embed.cc on desktop.
   // Both reliably return 200 in browser iframes. MoviesHub is mobile-friendly.
   const [quality, setQuality] = useState<string>("auto")
-  const defaultSource = isMobile ? "vidsrc.me" : "2embed.cc"
+  const defaultSource = isMobile ? "vidfast.pro" : "vidfast.pro"
   const [sourceId, setSourceId] = useState<string>(defaultSource)
   const [season, setSeason] = useState<number>(title.season ?? 1)
   const [episode, setEpisode] = useState<number>(title.episode ?? 1)
@@ -246,7 +268,18 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   const [serverCheckOpen, setServerCheckOpen] = useState(false)
   const [activeTab, setActiveTab] = useState<string>("primary")
   const [isFullscreen, setIsFullscreen] = useState(false)
+  const [favorites, setFavorites] = useState<string[]>([])
   const playerContainerRef = useRef<HTMLDivElement>(null)
+
+  // Load favorites from localStorage on mount
+  useEffect(() => {
+    Promise.resolve().then(() => setFavorites(getFavorites()))
+  }, [])
+
+  const handleToggleFavorite = useCallback((id: string) => {
+    const next = toggleFavorite(id)
+    setFavorites(next)
+  }, [])
 
   // Fullscreen toggle — works on the player CONTAINER (not the iframe directly,
   // because cross-origin iframes block requestFullscreen). The container
@@ -677,13 +710,48 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     }
   }, [sourceId, health, title.imdbId, lastProvider, toast, reportProvider])
 
-  // Auto-fallback DISABLED — too many providers aren't working and the
-  // automatic switching was causing lag and confusion. The user now
-  // manually picks servers via the dropdown or "Next server" button.
-  // The 8s auto-advance timer is removed entirely.
+  // ── Reliable auto-fallback ──────────────────────────────────────────────
+  // When the iframe doesn't fire onLoad within 6s, try the next preferred
+  // provider. The fallback chain is:
+  //   1. User's favorite servers (if any) — sorted by tier
+  //   2. PREFERRED_PROVIDERS (vidfast, vidcore, superembed, moviesapi, 2embed)
+  //   3. All tier 1 providers
+  // Caps at 3 attempts. Reset by manual "Next server" / "Reload".
+  // Skipped for Arabic providers (they have their own flow).
   useEffect(() => {
-    // No-op — auto-fallback disabled for manual server switching
-  }, [sourceId, reloads, loaded, isArabicProvider, title.imdbId])
+    if (loaded) return
+    if (isArabicProvider) return
+    const timer = setTimeout(() => {
+      if (loaded) return
+      fallbackIdxRef.current += 1
+      if (fallbackIdxRef.current > 3) return
+      // Build the fallback chain: favorites first, then preferred, then tier 1
+      const favSources = favorites
+        .map(id => VIDEO_SOURCES.find(s => s.id === id))
+        .filter((s): s is VideoSource => !!s && s.tier < 5)
+      const preferredSources = PREFERRED_PROVIDERS
+        .map(id => VIDEO_SOURCES.find(s => s.id === id))
+        .filter((s): s is VideoSource => !!s)
+      const tier1Sources = VIDEO_SOURCES.filter(s => s.tier === 1)
+      // Combine, deduplicate
+      const chain = [...favSources, ...preferredSources, ...tier1Sources]
+        .filter((s, i, arr) => arr.findIndex(x => x.id === s.id) === i)
+      if (chain.length === 0) return
+      const currentIdx = chain.findIndex(s => s.id === sourceId)
+      const nextIdx = (currentIdx + 1) % chain.length
+      const next = chain[nextIdx]
+      if (next && next.id !== sourceId) {
+        setSourceId(next.id)
+        lastProvider.set(title.imdbId, next.id)
+        setReloads(r => r + 1)
+        toast({
+          title: `Trying ${next.name}…`,
+          description: `Server ${fallbackIdxRef.current + 1} of ${chain.length}`,
+        })
+      }
+    }, 6000)
+    return () => clearTimeout(timer)
+  }, [sourceId, reloads, loaded, isArabicProvider, title.imdbId, favorites, lastProvider, toast])
   // A4 — 30-second watch-success reporter.
   const reportedOkRef = useRef<Set<string>>(new Set())
   useEffect(() => {
@@ -991,9 +1059,13 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
               {(SOURCE_TABS.find((t) => t.id === activeTab)?.sources ?? [])
                 .slice()
                 .sort((a, b) => {
+                  // Favorites always sort to the top
+                  const aFav = favorites.includes(a.id) ? 0 : 1
+                  const bFav = favorites.includes(b.id) ? 0 : 1
+                  if (aFav !== bFav) return aFav - bFav
+                  // Then by health
                   const ah = health[a.id]
                   const bh = health[b.id]
-                  // No health data → fall back to tier-based "alive" heuristic
                   const aOk = ah ? ah.ok : a.tier < 5
                   const bOk = bh ? bh.ok : b.tier < 5
                   if (aOk !== bOk) return Number(bOk) - Number(aOk)
@@ -1056,6 +1128,24 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
                           ) : null}
                         </p>
                       </div>
+                      {/* Favorite star — click to toggle, saved in localStorage */}
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          handleToggleFavorite(s.id)
+                        }}
+                        className="shrink-0 p-1 transition hover:scale-110"
+                        title={favorites.includes(s.id) ? "Remove from favorites" : "Add to favorites"}
+                        aria-label={favorites.includes(s.id) ? "Remove from favorites" : "Add to favorites"}
+                      >
+                        <Star className={cn(
+                          "h-3.5 w-3.5 transition",
+                          favorites.includes(s.id)
+                            ? "fill-yellow-400 text-yellow-400"
+                            : "text-white/30 hover:text-white/60"
+                        )} />
+                      </button>
                     </div>
                   </SelectItem>
                 )
