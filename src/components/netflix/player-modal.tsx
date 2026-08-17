@@ -364,6 +364,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     genres: string[]
     runtimeMinutes: number | null
     seasons: { season: number; episodes: number }[] | null
+    tmdbId: number | null
   } | null>(null)
   const { toggleWatchlist, isInWatchlist, recordPlay, updateProgress } = useLibrary()
   const { toast } = useToast()
@@ -388,7 +389,8 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
 
   // Auto-fill: when the player opens, fetch real metadata from the backend
   // (local 11k-title dataset). This populates title/year/genres AND the real
-  // season/episode counts for series.
+  // season/episode counts for series. Also fetches the TMDB ID for episode
+  // thumbnails/descriptions.
   useEffect(() => {
     let cancelled = false
     fetch(`/api/titles/${encodeURIComponent(title.imdbId)}`, {
@@ -404,7 +406,16 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
           genres: t.genres ?? [],
           runtimeMinutes: t.runtimeMinutes ?? null,
           seasons: t.seasons ?? null,
+          tmdbId: t.tmdbId ?? null,
         })
+      })
+      .catch(() => {})
+    // Also fetch TMDB ID via /api/tmdb/[imdbId] for episode data
+    fetch(`/api/tmdb/${encodeURIComponent(title.imdbId)}`, { cache: "force-cache" })
+      .then((r) => r.json())
+      .then((data) => {
+        if (cancelled || !data?.tmdbId) return
+        setMeta((prev) => prev ? { ...prev, tmdbId: data.tmdbId } : null)
       })
       .catch(() => {})
     return () => {
@@ -1367,6 +1378,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
             season={season}
             episode={episode}
             totalEpisodes={currentSeasonEpisodes}
+            tmdbId={meta?.tmdbId ?? undefined}
             onChange={(ep) => {
               setEpisode(ep)
               setLoaded(false)

@@ -645,7 +645,12 @@ const TIER_5: VideoSource[] = [
   },
 ]
 
-export const VIDEO_SOURCES: VideoSource[] = [
+// ── Preferred providers (user-specified top 5) ──────────────────────────────
+// These are moved to the front of VIDEO_SOURCES so they appear first in the
+// server dropdown and are tried first by the auto-switch logic.
+const PREFERRED_IDS = ["vidfast.pro", "vidcore.net", "superembed", "moviesapi.to", "2embed.cc"]
+
+const ALL_SOURCES = [
   ...TIER_1,
   ...TIER_1B,
   ...TIER_1C,
@@ -653,6 +658,13 @@ export const VIDEO_SOURCES: VideoSource[] = [
   ...TIER_2,
   ...TIER_3,
   ...TIER_5,
+]
+
+export const VIDEO_SOURCES: VideoSource[] = [
+  // Preferred providers first (in user-specified order)
+  ...PREFERRED_IDS.map(id => ALL_SOURCES.find(s => s.id === id)).filter((s): s is VideoSource => !!s),
+  // Then all the rest (excluding preferred to avoid duplicates)
+  ...ALL_SOURCES.filter(s => !PREFERRED_IDS.includes(s.id)),
 ]
 
 // Primary servers shown by default in the dropdown (tiers 1 + 2).

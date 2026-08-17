@@ -123,6 +123,8 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const trailerTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const touchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const touchMoved = useRef(false)
   const cardRefInternal = useRef<HTMLButtonElement | null>(null)
   const isHovering = useRef(false) // shared hover state for card + popup
 
@@ -151,6 +153,7 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
     if (hoverTimer.current) { clearTimeout(hoverTimer.current); hoverTimer.current = null }
     if (trailerTimer.current) { clearTimeout(trailerTimer.current); trailerTimer.current = null }
     if (closeTimer.current) { clearTimeout(closeTimer.current); closeTimer.current = null }
+    if (touchTimer.current) { clearTimeout(touchTimer.current); touchTimer.current = null }
   }
 
   const handleClose = () => {
@@ -212,6 +215,35 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
     closeTimer.current = setTimeout(() => handleClose(), 200)
   }
 
+  // ── Touch handlers for mobile long-press ──────────────────────────────────
+  // On mobile, hover doesn't work. Long-press (500ms) opens the hover card.
+  // If the user moves their finger before 500ms, it's treated as a scroll
+  // attempt — the timer is cancelled and the card doesn't open.
+  const handleTouchStart = () => {
+    touchMoved.current = false
+    if (touchTimer.current) clearTimeout(touchTimer.current)
+    touchTimer.current = setTimeout(() => {
+      if (!touchMoved.current) {
+        handleEnter()
+      }
+    }, 500)
+  }
+
+  const handleTouchMove = () => {
+    touchMoved.current = true
+    if (touchTimer.current) {
+      clearTimeout(touchTimer.current)
+      touchTimer.current = null
+    }
+  }
+
+  const handleTouchEnd = () => {
+    if (touchTimer.current) {
+      clearTimeout(touchTimer.current)
+      touchTimer.current = null
+    }
+  }
+
   const handlePopupEnter = () => {
     isHovering.current = true
     if (closeTimer.current) { clearTimeout(closeTimer.current); closeTimer.current = null }
@@ -249,6 +281,9 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
       )}
       onMouseEnter={handleEnter}
       onMouseLeave={handleLeave}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
     >
         {rank && (
           /* Large outlined number BEHIND the poster (Netflix style).

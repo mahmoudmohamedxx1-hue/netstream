@@ -8,6 +8,7 @@ import {
 } from "lucide-react"
 import { Poster } from "./poster"
 import { TrailerIframe } from "./trailer-iframe"
+import { EpisodeGrid } from "./episode-grid"
 import { useTmdbTitle } from "@/hooks/use-tmdb"
 import { useLibrary, type SavedTitle } from "@/lib/library-store"
 import { useToast } from "@/hooks/use-toast"
@@ -278,6 +279,35 @@ function TitleDetailInner({ title, open, onClose, onPlay }: Props) {
                       </div>
                     ))}
                   </div>
+                </div>
+              )}
+
+              {/* Episodes — Netflix-style episode list for series */}
+              {isSeries && seasonCount > 0 && (
+                <div className="mt-6">
+                  {/* Season selector */}
+                  <div className="mb-3 flex items-center gap-2">
+                    <label className="text-sm font-semibold text-white/60">{t("season")}:</label>
+                    <select
+                      value={selectedSeason}
+                      onChange={(e) => { setSelectedSeason(Number(e.target.value)); setSelectedEpisode(1) }}
+                      className="rounded-md border border-white/20 bg-white/10 px-3 py-1.5 text-sm text-white focus:outline-none"
+                    >
+                      {Array.from({ length: seasonCount }, (_, i) => i + 1).map((s) => (
+                        <option key={s} value={s} className="bg-[#181818]">Season {s}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <EpisodeGrid
+                    season={selectedSeason}
+                    episode={selectedEpisode}
+                    totalEpisodes={currentSeasonEpisodes}
+                    tmdbId={tmdb?.tmdbId}
+                    onChange={(ep) => {
+                      setSelectedEpisode(ep)
+                      onPlay({ ...title, season: selectedSeason, episode: ep })
+                    }}
+                  />
                 </div>
               )}
 
