@@ -66,6 +66,25 @@ function toggleFavorite(id: string): string[] {
 // ── Preferred providers (user-specified top 5) ──────────────────────────────
 // These are tried first by the auto-switch logic, in this order.
 const PREFERRED_PROVIDERS = ["vidfast.pro", "vidcore.net", "superembed", "moviesapi.to", "2embed.cc"]
+
+// ── Watched episodes — saved in localStorage per imdbId+season ──────────────
+const WATCHED_KEY = "netstream:watched"
+function getWatchedEpisodes(imdbId: string, season: number): Set<number> {
+  if (typeof window === "undefined") return new Set()
+  try {
+    const raw = localStorage.getItem(`${WATCHED_KEY}:${imdbId}:${season}`)
+    return raw ? new Set(JSON.parse(raw)) : new Set()
+  } catch { return new Set() }
+}
+function markEpisodeWatched(imdbId: string, season: number, episode: number) {
+  if (typeof window === "undefined") return
+  try {
+    const key = `${WATCHED_KEY}:${imdbId}:${season}`
+    const set = getWatchedEpisodes(imdbId, season)
+    set.add(episode)
+    localStorage.setItem(key, JSON.stringify([...set]))
+  } catch {}
+}
 import {
   Select,
   SelectContent,
@@ -270,6 +289,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [favorites, setFavorites] = useState<string[]>([])
   const playerContainerRef = useRef<HTMLDivElement>(null)
+  const toastRef = useRef<((opts: { title: string; description?: string }) => void) | null>(null)
 
   // Load favorites from localStorage on mount
   useEffect(() => {
@@ -279,6 +299,15 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   const handleToggleFavorite = useCallback((id: string) => {
     const next = toggleFavorite(id)
     setFavorites(next)
+    const source = VIDEO_SOURCES.find(s => s.id === id)
+    const isFav = next.includes(id)
+    // Defer toast to avoid using it before declaration
+    Promise.resolve().then(() => {
+      toastRef.current?.({
+        title: isFav ? "Added to favorites" : "Removed from favorites",
+        description: source?.name ?? id,
+      })
+    })
   }, [])
 
   // Fullscreen toggle — works on the player CONTAINER (not the iframe directly,
@@ -368,6 +397,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   } | null>(null)
   const { toggleWatchlist, isInWatchlist, recordPlay, updateProgress } = useLibrary()
   const { toast } = useToast()
+  useEffect(() => { toastRef.current = toast }, [toast])
   const pip = usePictureInPicture()
 
   const isSeries = title.type === "series"
@@ -1404,8 +1434,10 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
               episode={episode}
               totalEpisodes={currentSeasonEpisodes}
               tmdbId={meta?.tmdbId ?? undefined}
+              watchedEpisodes={getWatchedEpisodes(title.imdbId, season)}
               onChange={(ep) => {
                 setEpisode(ep)
+                markEpisodeWatched(title.imdbId, season, ep)
                 setLoaded(false)
               }}
             />

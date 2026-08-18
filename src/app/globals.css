@@ -126,6 +126,9 @@
   body {
     @apply bg-background text-foreground;
     background-color: #0a0a0a;
+    /* Enable native pull-to-refresh on mobile (overscroll-behavior-y: contain
+       allows the browser's built-in pull-to-refresh when at scroll top) */
+    overscroll-behavior-y: contain;
   }
   /* Hide ALL scrollbars globally (page, rows, modals) while keeping
      scroll functionality. Firefox: scrollbar-width:none. Chrome/Safari:
@@ -273,4 +276,50 @@
   background: linear-gradient(90deg, rgba(255,255,255,0.03) 0%, rgba(255,255,255,0.08) 50%, rgba(255,255,255,0.03) 100%);
   background-size: 1000px 100%;
   animation: shimmer 2s infinite linear;
+}
+
+/* ── High contrast mode ─────────────────────────────────────────────────────
+   When the user has "prefers-contrast: high" enabled (Windows High Contrast
+   mode, macOS Increase Contrast), boost text visibility and borders. */
+@media (prefers-contrast: high) {
+  body {
+    background-color: #000000 !important;
+  }
+  /* Boost all text to full white */
+  * {
+    color: #ffffff !important;
+    border-color: #ffffff !important;
+  }
+  /* Keep primary (red) accents visible */
+  [class*="text-primary"],
+  [class*="bg-primary"] {
+    color: #ff4444 !important;
+    background-color: #ff4444 !important;
+  }
+  /* Make borders thicker for better visibility */
+  [class*="border-white\/"] {
+    border-width: 2px !important;
+    border-color: #ffffff !important;
+  }
+  /* Remove subtle shadows that disappear in high contrast */
+  [class*="shadow"] {
+    box-shadow: none !important;
+  }
+}
+
+/* ── Reduced motion ─────────────────────────────────────────────────────────
+   Respect the user's preference for reduced motion. Disables all animations
+   and transitions for users who are sensitive to motion. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .skeleton-shimmer {
+    animation: none !important;
+  }
 }

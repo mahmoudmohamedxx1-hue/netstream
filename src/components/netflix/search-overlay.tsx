@@ -397,6 +397,8 @@ export function SearchOverlay({ open, onClose, onPlay }: Props) {
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder="Search titles, people, or paste an IMDB id…"
+                  enterKeyHint="search"
+                  inputMode="search"
                   className="h-14 rounded-full border-white/15 bg-white/10 pl-12 pr-4 text-base text-white placeholder:text-white/40"
                 />
               </div>
@@ -446,6 +448,11 @@ export function SearchOverlay({ open, onClose, onPlay }: Props) {
                     placeholder="tt0111161"
                     id="imdb-id-input"
                     aria-label="IMDB ID" data-testid="imdb-input"
+                    inputMode="text"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    enterKeyHint="go"
                     className="h-11 border-white/15 bg-white/10 font-mono text-white placeholder:text-white/30"
                   />
                   {imdb && normalizedImdb ? (

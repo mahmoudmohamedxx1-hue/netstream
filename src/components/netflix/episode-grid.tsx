@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Play, Check, Clock, Calendar } from "lucide-react"
+import { Play, Check, Clock, Calendar, Eye } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 type Props = {
@@ -9,6 +9,8 @@ type Props = {
   episode: number
   totalEpisodes: number
   tmdbId?: number
+  /** Set of watched episode numbers (shows a checkmark) */
+  watchedEpisodes?: Set<number>
   onChange: (episode: number) => void
 }
 
@@ -25,7 +27,7 @@ type Episode = {
 // Netflix-style episode list with real thumbnails, names, descriptions.
 // Fetches episode data from /api/tmdb/season when tmdbId is available.
 // Falls back to simple numbered cards when no TMDB data.
-export function EpisodeGrid({ season, episode, totalEpisodes, tmdbId, onChange }: Props) {
+export function EpisodeGrid({ season, episode, totalEpisodes, tmdbId, watchedEpisodes, onChange }: Props) {
   const [episodes, setEpisodes] = useState<Episode[]>([])
   const [loading, setLoading] = useState(false)
 
@@ -76,6 +78,7 @@ export function EpisodeGrid({ season, episode, totalEpisodes, tmdbId, onChange }
         )}
         {!loading && epList.map((ep) => {
           const active = ep.episodeNumber === episode
+          const watched = watchedEpisodes?.has(ep.episodeNumber) ?? false
           return (
             <button
               key={ep.episodeNumber}
@@ -84,7 +87,9 @@ export function EpisodeGrid({ season, episode, totalEpisodes, tmdbId, onChange }
                 "group flex w-full items-start gap-4 overflow-hidden rounded-lg border p-3 text-left transition-all duration-200",
                 active
                   ? "border-primary/60 bg-primary/10"
-                  : "border-white/10 bg-white/[0.03] hover:border-white/25 hover:bg-white/[0.06]"
+                  : watched
+                    ? "border-emerald-500/30 bg-emerald-500/5"
+                    : "border-white/10 bg-white/[0.03] hover:border-white/25 hover:bg-white/[0.06]"
               )}
             >
               {/* Thumbnail — TMDB episode still or gradient placeholder.
@@ -133,6 +138,11 @@ export function EpisodeGrid({ season, episode, totalEpisodes, tmdbId, onChange }
                   {active && (
                     <span className="ml-auto shrink-0 rounded bg-primary px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-primary-foreground">
                       ▶ Playing
+                    </span>
+                  )}
+                  {!active && watched && (
+                    <span className="ml-auto inline-flex shrink-0 items-center gap-1 rounded bg-emerald-500/20 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-400">
+                      <Eye className="h-3 w-3" /> Watched
                     </span>
                   )}
                 </div>

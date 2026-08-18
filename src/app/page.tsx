@@ -12,6 +12,8 @@ import { TmdbBrowseGrid } from "@/components/netflix/tmdb-browse-grid"
 import { TmdbHome } from "@/components/netflix/tmdb-home"
 import { TitleDetail } from "@/components/netflix/title-detail"
 import { Footer } from "@/components/netflix/footer"
+import { PullToRefresh } from "@/components/netflix/pull-to-refresh"
+import { OfflineIndicator } from "@/components/netflix/offline-indicator"
 import { Poster } from "@/components/netflix/poster"
 import {
   CATALOG,
@@ -125,6 +127,7 @@ export default function Home() {
 
   return (
     <div className="flex min-h-screen flex-col bg-[#0a0a0a]">
+      <PullToRefresh />
       <Navbar
         onSearch={() => setSearchOpen(true)}
         active={nav}
@@ -172,6 +175,7 @@ export default function Home() {
       />
 
       <PlayerModal title={player} onClose={() => setPlayer(null)} />
+      <OfflineIndicator />
       <SearchOverlay
         open={searchOpen}
         onClose={() => setSearchOpen(false)}
