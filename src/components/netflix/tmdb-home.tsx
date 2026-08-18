@@ -1209,22 +1209,39 @@ function LocalRow({ title, titles, onPlay, showProgress, rowIndex, focusedCard, 
                   </span>
                 )}
                 {/* Progress bar — red Netflix-style bar at the bottom of each
-                    Continue Watching card. Track is white/20 so the unfilled
-                    portion is visible against the poster; fill is primary. */}
+                    Continue Watching card. Shows the watched percentage as a
+                    red fill, plus the remaining time as a label. */}
                 {showProgress && tt.progress != null && tt.progress > 0 && (
-                  <div className="absolute bottom-0 left-0 right-0 z-10">
-                    <div className="h-1 w-full bg-white/20">
-                      <div className="h-full bg-primary" style={{ width: `${Math.min(tt.progress, 100)}%` }} />
+                  <>
+                    <div className="absolute bottom-0 left-0 right-0 z-10">
+                      <div className="h-1 w-full bg-white/20">
+                        <div className="h-full bg-primary transition-[width] duration-500" style={{ width: `${Math.min(tt.progress, 100)}%` }} />
+                      </div>
                     </div>
-                  </div>
+                    {/* Time remaining label — shows "12:34 left" or position */}
+                    {tt.position && tt.duration && tt.duration > 0 && (
+                      <div className="absolute bottom-1.5 left-2 z-10 rounded bg-black/70 px-1.5 py-0.5 text-[9px] font-bold text-white/90">
+                        {Math.floor(tt.position / 60)}:{String(Math.floor(tt.position % 60)).padStart(2, "0")} / {Math.floor(tt.duration / 60)}:{String(Math.floor(tt.duration % 60)).padStart(2, "0")}
+                      </div>
+                    )}
+                  </>
                 )}
                 {/* Hover overlay */}
-                <div className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/90 via-black/30 to-transparent p-2 opacity-0 transition group-hover/card:opacity-100">
+                <div className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/90 via-black/30 to-transparent p-2 opacity-100 transition group-hover/card:opacity-100 sm:opacity-0">
                   <p className="line-clamp-2 text-xs font-bold text-white">{tt.title}</p>
-                  <p className="text-[10px] text-white/60">{tt.year}</p>
-                  <span className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-primary">
-                    <Play className="h-3 w-3 fill-current" /> {showProgress ? t("resume") : t("play")}
-                  </span>
+                  <p className="text-[10px] text-white/60">
+                    {tt.year}
+                    {tt.season && tt.episode ? ` · S${tt.season} E${tt.episode}` : ""}
+                  </p>
+                  {showProgress && tt.progress != null && tt.progress > 0 ? (
+                    <span className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-primary">
+                      <Play className="h-3 w-3 fill-current" /> {t("resume")}
+                    </span>
+                  ) : (
+                    <span className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-primary">
+                      <Play className="h-3 w-3 fill-current" /> {t("play")}
+                    </span>
+                  )}
                 </div>
               </div>
             </button>
