@@ -635,9 +635,12 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   const directVideoType = null // iframe mode, not native video
 
   // Record to "Continue Watching" on mount and whenever season/episode changes.
-  // Uses auto-filled metadata when available so history shows real titles.
+  // Only records when displayTitle is NOT just the IMDB ID (i.e., metadata has
+  // loaded). This prevents saving "IMDB tt22084616" as the title in history.
   // Also saves the current sourceId (server) so reopening resumes on the same server.
   useEffect(() => {
+    // Skip if the title hasn't resolved yet (still showing "IMDB xxx" or empty)
+    if (!displayTitle || displayTitle.startsWith("IMDB ")) return
     recordPlay({
       imdbId: title.imdbId,
       title: displayTitle,
@@ -831,11 +834,13 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     const pct = result.progress
     const dur = result.duration
     if (pos > 5) {
+      // Use displayTitle if available, otherwise the original title
+      const titleToSave = displayTitle && !displayTitle.startsWith("IMDB ") ? displayTitle : title.title
       updateProgress(title.imdbId, pct, pos, dur, sourceId)
     }
     if (!loaded && isMobile) reportProvider(sourceId, false)
     onClose()
-  }, [stopProgress, loaded, isMobile, reportProvider, sourceId, onClose, title.imdbId])
+  }, [stopProgress, loaded, isMobile, reportProvider, sourceId, onClose, title.imdbId, displayTitle, title.title])
 
   const openPiP = () => {
     pip.open(playerUrl, title.title)

@@ -95,10 +95,21 @@ export const useLibrary = create<LibraryState>((set, get) => ({
   },
 
   updateProgress: async (imdbId, progress, position, duration, sourceId) => {
+    // Don't overwrite the title — only update progress/position/duration/sourceId.
+    // The title is set by recordPlay (which has the real title).
+    // We send a PATCH-like update via POST with only the fields we want to change.
+    // The API upserts, but since the record already exists (from recordPlay),
+    // it will update only the fields we send. We DON'T send 'title' so it's preserved.
     await fetch("/api/history", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ imdbId, title: imdbId, type: "movie", progress, position, duration, sourceId }),
+      // Send the existing title from the store to avoid overwriting it
+      body: JSON.stringify({
+        imdbId,
+        title: get().history.find((x) => x.imdbId === imdbId)?.title ?? imdbId,
+        type: get().history.find((x) => x.imdbId === imdbId)?.type ?? "movie",
+        progress, position, duration, sourceId,
+      }),
     })
     set((s) => ({
       history: s.history.map((x) =>
