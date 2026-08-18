@@ -49,7 +49,20 @@ export const useLibrary = create<LibraryState>((set, get) => ({
       const h = hRes.ok ? ((await hRes.json()) as { items: SavedTitle[] }) : { items: [] }
       set({ watchlist: w.items ?? [], history: h.items ?? [], loaded: true })
     } catch {
-      set({ loaded: true })
+      // Retry once after 1s if the first attempt fails (server might still be compiling)
+      setTimeout(async () => {
+        try {
+          const [wRes, hRes] = await Promise.all([
+            fetch("/api/watchlist", { cache: "no-store" }),
+            fetch("/api/history", { cache: "no-store" }),
+          ])
+          const w = wRes.ok ? ((await wRes.json()) as { items: SavedTitle[] }) : { items: [] }
+          const h = hRes.ok ? ((await hRes.json()) as { items: SavedTitle[] }) : { items: [] }
+          set({ watchlist: w.items ?? [], history: h.items ?? [], loaded: true })
+        } catch {
+          set({ loaded: true })
+        }
+      }, 1000)
     }
   },
 

@@ -33,7 +33,7 @@ export default function Home() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [imdbOpen, setImdbOpen] = useState(false)
   const [nav, setNav] = useState<NavKey>("home")
-  const { watchlist, history, load } = useLibrary()
+  const { watchlist, history, load, loaded } = useLibrary()
 
   useEffect(() => {
     load()

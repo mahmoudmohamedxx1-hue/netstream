@@ -708,11 +708,20 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
           </div>
         </section>
 
-        {/* Skeleton content rows — 4 rows: 3 landscape + 1 portrait (to
-            match the real layout where most rows are landscape backdrop
-            cards and the IMDB Top rows are portrait posters). Each row
-            has a skeleton title bar + 8 skeleton cards sized to match
-            the real card dimensions. */}
+        {/* Continue Watching row — rendered even during TMDB loading so it
+            appears immediately on page refresh (before TMDB content loads) */}
+        {continueWatching && continueWatching.length > 0 && onPlayHistory && (
+          <div className="relative z-20 -mt-16 sm:-mt-24">
+            <LocalRow
+              title="Continue Watching"
+              titles={continueWatching}
+              onPlay={onPlayHistory}
+              showProgress
+            />
+          </div>
+        )}
+
+        {/* Skeleton content rows — shown while TMDB content loads */}
         <div className="relative z-20 -mt-16 sm:-mt-24">
           <SkeletonRow landscape />
           <SkeletonRow landscape />
@@ -1031,6 +1040,7 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
         onMouseEnter={() => setHeroPaused(true)}
         onMouseLeave={() => setHeroPaused(false)}
       >
+        {/* Continue Watching — shows even during TMDB loading if history exists */}
         {continueWatching && continueWatching.length > 0 && onPlayHistory && (
           <LocalRow
             title="Continue Watching"
