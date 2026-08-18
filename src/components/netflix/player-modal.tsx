@@ -411,11 +411,16 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
       })
       .catch(() => {})
     // Also fetch TMDB ID via /api/tmdb/[imdbId] for episode data
+    // The endpoint returns { title: { tmdbId: 123, ... } }
     fetch(`/api/tmdb/${encodeURIComponent(title.imdbId)}`, { cache: "force-cache" })
       .then((r) => r.json())
       .then((data) => {
-        if (cancelled || !data?.tmdbId) return
-        setMeta((prev) => prev ? { ...prev, tmdbId: data.tmdbId } : null)
+        if (cancelled) return
+        // The endpoint returns { title: {...} } — extract tmdbId from there
+        const tmdbId = data?.tmdbId ?? data?.title?.tmdbId ?? null
+        if (tmdbId) {
+          setMeta((prev) => prev ? { ...prev, tmdbId } : { title: title.title, year: "", genres: [], runtimeMinutes: null, seasons: null, tmdbId })
+        }
       })
       .catch(() => {})
     return () => {
@@ -1372,18 +1377,39 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
           </div>
         </div>
 
-        {/* Netflix-style episode grid for series */}
+        {/* Netflix-style episode grid for series — with season selector */}
         {isSeries && (
-          <EpisodeGrid
-            season={season}
-            episode={episode}
-            totalEpisodes={currentSeasonEpisodes}
-            tmdbId={meta?.tmdbId ?? undefined}
-            onChange={(ep) => {
-              setEpisode(ep)
-              setLoaded(false)
-            }}
-          />
+          <div className="border-t border-white/10">
+            {/* Season selector — same style as title-detail page */}
+            <div className="px-4 pt-5 sm:px-6">
+              <div className="mb-3 flex items-center gap-2">
+                <label className="text-sm font-semibold text-white/60">Season:</label>
+                <select
+                  value={season}
+                  onChange={(e) => {
+                    setSeason(Number(e.target.value))
+                    setEpisode(1)
+                    setLoaded(false)
+                  }}
+                  className="rounded-md border border-white/20 bg-white/10 px-3 py-1.5 text-sm text-white focus:outline-none"
+                >
+                  {seasonList.map((s) => (
+                    <option key={s} value={s} className="bg-[#181818]">Season {s}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <EpisodeGrid
+              season={season}
+              episode={episode}
+              totalEpisodes={currentSeasonEpisodes}
+              tmdbId={meta?.tmdbId ?? undefined}
+              onChange={(ep) => {
+                setEpisode(ep)
+                setLoaded(false)
+              }}
+            />
+          </div>
         )}
       </motion.div>
 
