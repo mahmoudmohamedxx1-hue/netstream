@@ -38,6 +38,7 @@ model WatchHistory {
   progress  Int?     // 0-100 percentage watched
   position  Int?     // position in seconds (for resume)
   duration  Int?     // total duration in seconds
+  sourceId  String?  // last used streaming provider (for resume on same server)
   updatedAt DateTime @updatedAt
   createdAt DateTime @default(now())
 }

@@ -36,6 +36,7 @@ export type CardTitle = {
   progress?: number | null
   position?: number | null
   duration?: number | null
+  sourceId?: string | null  // last used streaming provider (for resume)
 }
 
 type Props = {

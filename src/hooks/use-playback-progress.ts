@@ -40,7 +40,8 @@ export function usePlaybackProgress({ imdbId, runtimeMinutes, onProgress }: Opts
     }
   }, [imdbId])
 
-  // Stop the timer (e.g. when the player closes) and report final progress
+  // Stop the timer (e.g. when the player closes) and report final progress.
+  // Returns the final position/progress/duration so callers can persist them.
   const stop = useCallback(() => {
     if (tickRef.current) {
       clearInterval(tickRef.current)
@@ -49,6 +50,7 @@ export function usePlaybackProgress({ imdbId, runtimeMinutes, onProgress }: Opts
     const elapsed = Math.floor((Date.now() - startRef.current) / 1000)
     const progress = Math.min(100, Math.round((elapsed / duration) * 100))
     onProgressRef.current?.({ position: elapsed, progress, duration })
+    return { position: elapsed, progress, duration }
   }, [duration])
 
   // Pause/resume when the tab is hidden/visible — avoids over-counting
@@ -72,5 +74,5 @@ export function usePlaybackProgress({ imdbId, runtimeMinutes, onProgress }: Opts
 
   const progress = Math.min(100, Math.round((position / duration) * 100))
 
-  return { position, progress, duration, stop }
+  return { position, progress, duration, stop: stop as () => { position: number; progress: number; duration: number } }
 }

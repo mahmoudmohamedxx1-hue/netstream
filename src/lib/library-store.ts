@@ -15,6 +15,7 @@ export type SavedTitle = {
   progress?: number | null
   position?: number | null
   duration?: number | null
+  sourceId?: string | null  // last used streaming provider
   updatedAt?: string
 }
 
@@ -28,7 +29,7 @@ type LibraryState = {
   removeWatchlist: (imdbId: string) => Promise<void>
   isInWatchlist: (imdbId: string) => boolean
   recordPlay: (t: SavedTitle) => Promise<void>
-  updateProgress: (imdbId: string, progress: number, position: number, duration: number) => Promise<void>
+  updateProgress: (imdbId: string, progress: number, position: number, duration: number, sourceId?: string) => Promise<void>
   removeHistory: (imdbId: string) => Promise<void>
   clearHistory: () => Promise<void>
 }
@@ -93,15 +94,15 @@ export const useLibrary = create<LibraryState>((set, get) => ({
     })
   },
 
-  updateProgress: async (imdbId, progress, position, duration) => {
+  updateProgress: async (imdbId, progress, position, duration, sourceId) => {
     await fetch("/api/history", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ imdbId, title: imdbId, type: "movie", progress, position, duration }),
+      body: JSON.stringify({ imdbId, title: imdbId, type: "movie", progress, position, duration, sourceId }),
     })
     set((s) => ({
       history: s.history.map((x) =>
-        x.imdbId === imdbId ? { ...x, progress, position, duration } : x
+        x.imdbId === imdbId ? { ...x, progress, position, duration, sourceId: sourceId ?? x.sourceId } : x
       ),
     }))
   },

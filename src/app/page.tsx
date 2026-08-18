@@ -100,6 +100,7 @@ export default function Home() {
         progress: h.progress ?? null,
         position: h.position ?? null,
         duration: h.duration ?? null,
+        sourceId: h.sourceId ?? null,
       })),
     [history]
   )

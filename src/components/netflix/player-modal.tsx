@@ -105,6 +105,8 @@ export type PlayerTitle = {
   rating?: string | null
   season?: number | null
   episode?: number | null
+  position?: number | null   // saved playback position in seconds (for resume)
+  sourceId?: string | null   // last used streaming provider (for resume on same server)
 }
 
 type Props = {
@@ -272,10 +274,11 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   const isMobile = useIsMobile()
   const lastProvider = useLastProvider()
   const { t } = useLang()
-  // Default provider: MoviesHub (vidsrc.me) on mobile, 2Embed.cc on desktop.
-  // Both reliably return 200 in browser iframes. MoviesHub is mobile-friendly.
+  // Default provider: vidfast.pro on both mobile and desktop.
+  // If the user has a saved sourceId from watch history (resume), use that.
   const [quality, setQuality] = useState<string>("auto")
-  const defaultSource = isMobile ? "vidfast.pro" : "vidfast.pro"
+  const savedSourceId = title.sourceId ?? undefined
+  const defaultSource = savedSourceId || lastProvider.get(title.imdbId) || "vidfast.pro"
   const [sourceId, setSourceId] = useState<string>(defaultSource)
   const [season, setSeason] = useState<number>(title.season ?? 1)
   const [episode, setEpisode] = useState<number>(title.episode ?? 1)
@@ -411,8 +414,9 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     runtimeMinutes: meta?.runtimeMinutes ?? null,
     onProgress: ({ position, progress: pct, duration }) => {
       // Only persist every 30s to avoid hammering the DB.
+      // Include sourceId so reopening resumes on the same server.
       if (position > 0 && position % 30 === 0) {
-        updateProgress(title.imdbId, pct, position, duration)
+        updateProgress(title.imdbId, pct, position, duration, sourceId)
       }
     },
   })
@@ -632,6 +636,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
 
   // Record to "Continue Watching" on mount and whenever season/episode changes.
   // Uses auto-filled metadata when available so history shows real titles.
+  // Also saves the current sourceId (server) so reopening resumes on the same server.
   useEffect(() => {
     recordPlay({
       imdbId: title.imdbId,
@@ -643,8 +648,9 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
       rating: title.rating ?? null,
       season: isSeries ? season : null,
       episode: isSeries ? episode : null,
+      sourceId: sourceId,
     })
-  }, [season, episode, displayTitle, displayYear])
+  }, [season, episode, displayTitle, displayYear, sourceId])
 
   const inList = isInWatchlist(title.imdbId)
 
@@ -816,13 +822,20 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   }
 
   // When the player closes, stop the progress timer and persist the final
-  // position to WatchHistory. Also if the iframe never loaded on mobile,
-  // report the current provider as broken so future users see a warning.
+  // position + sourceId to WatchHistory. This enables resume-from-exact-second
+  // on the same server when the user reopens the title.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const handleClose = useCallback(() => {
-    stopProgress()
+    const result = stopProgress()
+    const pos = result.position
+    const pct = result.progress
+    const dur = result.duration
+    if (pos > 5) {
+      updateProgress(title.imdbId, pct, pos, dur, sourceId)
+    }
     if (!loaded && isMobile) reportProvider(sourceId, false)
     onClose()
-  }, [stopProgress, loaded, isMobile, reportProvider, sourceId, onClose])
+  }, [stopProgress, loaded, isMobile, reportProvider, sourceId, onClose, title.imdbId])
 
   const openPiP = () => {
     pip.open(playerUrl, title.title)
@@ -918,6 +931,16 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
         >
           {isFullscreen ? <Minimize className="h-4 w-4" /> : <Maximize className="h-4 w-4" />}
         </button>
+
+        {/* Resume banner — shows the saved position and server when reopening */}
+        {title.position && title.position > 10 && title.sourceId && (
+          <div className="flex items-center justify-between border-b border-emerald-500/20 bg-emerald-500/5 px-4 py-2 text-xs">
+            <span className="text-emerald-400">
+              ▶ Resuming from {Math.floor(title.position / 60)}:{String(Math.floor(title.position % 60)).padStart(2, "0")}
+              {source && ` · ${source.name}`}
+            </span>
+          </div>
+        )}
 
         {/* Video frame — Arabic providers extract DIRECT video URLs (MP4/M3U8)
             using the sussy-code/providers extractor logic, then play them in a

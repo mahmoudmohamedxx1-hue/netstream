@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     const {
       imdbId, title, type, poster, year, overview, rating,
-      season, episode, progress, position, duration,
+      season, episode, progress, position, duration, sourceId,
     } = body ?? {}
     if (!imdbId || !title || !type) {
       return NextResponse.json(
@@ -36,6 +36,7 @@ export async function POST(req: NextRequest) {
         season: season ?? null, episode: episode ?? null,
         progress: progress ?? null, position: position ?? null,
         duration: duration ?? null,
+        sourceId: sourceId ?? null,
         updatedAt: new Date(),
       },
       create: {
@@ -43,6 +44,7 @@ export async function POST(req: NextRequest) {
         season: season ?? null, episode: episode ?? null,
         progress: progress ?? null, position: position ?? null,
         duration: duration ?? null,
+        sourceId: sourceId ?? null,
       },
     })
     return NextResponse.json({ item })
