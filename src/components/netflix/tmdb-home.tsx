@@ -708,19 +708,6 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
           </div>
         </section>
 
-        {/* Continue Watching row — rendered even during TMDB loading so it
-            appears immediately on page refresh (before TMDB content loads) */}
-        {continueWatching && continueWatching.length > 0 && onPlayHistory && (
-          <div className="relative z-20 -mt-16 sm:-mt-24">
-            <LocalRow
-              title="Continue Watching"
-              titles={continueWatching}
-              onPlay={onPlayHistory}
-              showProgress
-            />
-          </div>
-        )}
-
         {/* Skeleton content rows — shown while TMDB content loads */}
         <div className="relative z-20 -mt-16 sm:-mt-24">
           <SkeletonRow landscape />
@@ -1033,25 +1020,15 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
         </section>
       )}
 
-      {/* Content rows — Continue Watching and My List appear first, right below hero.
+      {/* Content rows — My List appears first (Continue Watching is rendered
+          separately in page.tsx), then TMDB rows.
           onMouseEnter pauses hero rotation so the user can interact with cards. */}
       <div
         className="relative z-20 -mt-16 sm:-mt-24"
         onMouseEnter={() => setHeroPaused(true)}
         onMouseLeave={() => setHeroPaused(false)}
       >
-        {/* Continue Watching — shows even during TMDB loading if history exists */}
-        {continueWatching && continueWatching.length > 0 && onPlayHistory && (
-          <LocalRow
-            title="Continue Watching"
-            titles={continueWatching}
-            onPlay={onPlayHistory}
-            showProgress
-            rowIndex={0}
-            focusedCard={focused?.row === 0 ? focused.card : null}
-            setCardRef={setCardRef}
-          />
-        )}
+        {/* My List */}
         {myList && myList.length > 0 && (
           <LocalRow
             title="My List"
