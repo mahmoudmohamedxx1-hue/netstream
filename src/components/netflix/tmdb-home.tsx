@@ -708,8 +708,22 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
           </div>
         </section>
 
-        {/* Skeleton content rows — shown while TMDB content loads */}
+        {/* Content rows area — starts with Continue Watching (if available),
+            then skeleton rows while TMDB content loads */}
         <div className="relative z-20 -mt-16 sm:-mt-24">
+          {/* Continue Watching — rendered even during TMDB loading.
+              Position: BELOW the hero, ABOVE content rows.
+              Data comes from the Zustand store (page.tsx passes it as a prop). */}
+          {continueWatching && continueWatching.length > 0 && onPlayHistory && (
+            <LocalRow
+              title="Continue Watching"
+              titles={continueWatching}
+              onPlay={onPlayHistory}
+              showProgress
+            />
+          )}
+
+          {/* Skeleton content rows */}
           <SkeletonRow landscape />
           <SkeletonRow landscape />
           <SkeletonRow />
@@ -1020,14 +1034,25 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
         </section>
       )}
 
-      {/* Content rows — My List appears first (Continue Watching is rendered
-          separately in page.tsx), then TMDB rows.
+      {/* Content rows — Continue Watching first, then My List, then TMDB rows.
           onMouseEnter pauses hero rotation so the user can interact with cards. */}
       <div
         className="relative z-20 -mt-16 sm:-mt-24"
         onMouseEnter={() => setHeroPaused(true)}
         onMouseLeave={() => setHeroPaused(false)}
       >
+        {/* Continue Watching — BELOW the hero, ABOVE My List and TMDB rows */}
+        {continueWatching && continueWatching.length > 0 && onPlayHistory && (
+          <LocalRow
+            title="Continue Watching"
+            titles={continueWatching}
+            onPlay={onPlayHistory}
+            showProgress
+            rowIndex={0}
+            focusedCard={focused?.row === 0 ? focused.card : null}
+            setCardRef={setCardRef}
+          />
+        )}
         {/* My List */}
         {myList && myList.length > 0 && (
           <LocalRow

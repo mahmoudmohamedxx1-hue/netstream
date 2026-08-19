@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { Navbar } from "@/components/netflix/navbar"
 import { ContentRow } from "@/components/netflix/content-row"
 import { ContentCard, type CardTitle } from "@/components/netflix/content-card"
@@ -155,15 +155,10 @@ export default function Home() {
           <TmdbBrowseGrid type="series" onPlay={openDetail} />
         ) : (
           <>
-            {/* Continue Watching row — rendered DIRECTLY in page.tsx, NOT inside
-                TmdbHome. This ensures it appears on refresh regardless of
-                TmdbHome's loading state. The data comes from the Zustand store
-                which loads from /api/history on mount. */}
-            {continueWatching.length > 0 && (
-              <ContinueWatchingRow items={continueWatching} onPlay={openPlayer} />
-            )}
-
-            {/* TMDB-powered home page (real posters, trending content) */}
+            {/* TMDB-powered home page (real posters, trending content).
+                Continue Watching is rendered INSIDE TmdbHome (below the hero,
+                above content rows) so it's positioned correctly and survives
+                the loading → content transition. */}
             <TmdbHome
               onPlay={openDetail}
               continueWatching={continueWatching}
@@ -421,69 +416,3 @@ function BackupSites() {
   )
 }
 
-// ── ContinueWatchingRow — standalone Continue Watching row ──────────────────
-// Rendered DIRECTLY in page.tsx (not inside TmdbHome) so it appears on
-// refresh regardless of TmdbHome's loading state. Uses the same card layout
-// as the LocalRow in tmdb-home.tsx but is self-contained.
-function ContinueWatchingRow({ items, onPlay }: { items: CardTitle[]; onPlay: (t: CardTitle) => void }) {
-  const { t } = useLang()
-  const scrollerRef = useRef<HTMLDivElement>(null)
-  if (items.length === 0) return null
-
-  return (
-    <section className="group/row relative py-3">
-      <h3 className="mb-2 px-4 text-base font-semibold text-white/90 sm:px-8 md:text-lg">
-        {t("continueWatching")}
-      </h3>
-      <div ref={scrollerRef} className="netflix-row-scroller flex touch-pan-x gap-2 overflow-x-auto overflow-y-visible overscroll-x-contain px-4 pb-6 pt-1 sm:gap-3 sm:px-8">
-        {items.map((tt, i) => {
-          const progress = tt.progress ?? 0
-          return (
-            <button
-              key={tt.imdbId + i}
-              data-row-card
-              onClick={() => onPlay(tt)}
-              className="group/card relative aspect-video w-[68vw] shrink-0 rounded-md transition sm:w-[280px] md:w-[320px]"
-            >
-              <div className="relative h-full overflow-hidden rounded-md bg-neutral-900">
-                <Poster title={tt.title} src={tt.poster} year={tt.year} alt={tt.title} className="h-full w-full" />
-                {/* Progress bar */}
-                {progress > 0 && (
-                  <>
-                    <div className="absolute bottom-0 left-0 right-0 z-10">
-                      <div className="h-1 w-full bg-white/20">
-                        <div className="h-full bg-primary" style={{ width: `${Math.min(progress, 100)}%` }} />
-                      </div>
-                    </div>
-                    {tt.position && tt.duration && tt.duration > 0 && (
-                      <div className="absolute bottom-1.5 left-2 z-10 rounded bg-black/70 px-1.5 py-0.5 text-[9px] font-bold text-white/90">
-                        {Math.floor(tt.position / 60)}:{String(Math.floor(tt.position % 60)).padStart(2, "0")} / {Math.floor(tt.duration / 60)}:{String(Math.floor(tt.duration % 60)).padStart(2, "0")}
-                      </div>
-                    )}
-                  </>
-                )}
-                {/* Overlay — always visible on mobile, hover on desktop */}
-                <div className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/90 via-black/30 to-transparent p-2 opacity-100 transition group-hover/card:opacity-100 sm:opacity-0">
-                  <p className="line-clamp-2 text-xs font-bold text-white">{tt.title}</p>
-                  <p className="text-[10px] text-white/60">
-                    {tt.year}
-                    {tt.season && tt.episode ? ` · S${tt.season} E${tt.episode}` : ""}
-                  </p>
-                  {progress > 0 ? (
-                    <span className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-primary">
-                      <Play className="h-3 w-3 fill-current" /> {t("resume")}
-                    </span>
-                  ) : (
-                    <span className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-primary">
-                      <Play className="h-3 w-3 fill-current" /> {t("play")}
-                    </span>
-                  )}
-                </div>
-              </div>
-            </button>
-          )
-        })}
-      </div>
-    </section>
-  )
-}
