@@ -46,6 +46,7 @@ import { useLastProvider } from "@/hooks/use-last-provider"
 import { usePlaybackProgress } from "@/hooks/use-playback-progress"
 import { useLang } from "@/lib/lang-context"
 import { getAdBlockEnabled } from "@/components/netflix/navbar"
+import { saveWatchProgress, getWatchItem, type WatchHistoryItem } from "@/lib/client-history"
 
 // ── Favorite servers — saved in localStorage ────────────────────────────────
 const FAVORITES_KEY = "netstream:favorites"
@@ -413,10 +414,19 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     imdbId: title.imdbId,
     runtimeMinutes: meta?.runtimeMinutes ?? null,
     onProgress: ({ position, progress: pct, duration }) => {
-      // Only persist every 30s to avoid hammering the DB.
-      // Include sourceId so reopening resumes on the same server.
+      // Only persist every 30s to avoid hammering IndexedDB.
       if (position > 0 && position % 30 === 0) {
-        updateProgress(title.imdbId, pct, position, duration, sourceId)
+        saveWatchProgress({
+          imdbId: title.imdbId,
+          title: (displayTitle && !displayTitle.startsWith("IMDB ")) ? displayTitle : title.title,
+          type: title.type,
+          position,
+          progress: pct,
+          duration,
+          sourceId,
+          season: isSeries ? season : null,
+          episode: isSeries ? episode : null,
+        }).catch(() => {})
       }
     },
   })
@@ -634,14 +644,13 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     : null
   const directVideoType = null // iframe mode, not native video
 
-  // Record to "Continue Watching" on mount and whenever season/episode changes.
-  // Only records when displayTitle is NOT just the IMDB ID (i.e., metadata has
-  // loaded). This prevents saving "IMDB tt22084616" as the title in history.
+  // Record to Continue Watching via IndexedDB on mount and whenever season/episode changes.
+  // Saves the full title metadata so Continue Watching has real titles.
   // Also saves the current sourceId (server) so reopening resumes on the same server.
   useEffect(() => {
     // Skip if the title hasn't resolved yet (still showing "IMDB xxx" or empty)
     if (!displayTitle || displayTitle.startsWith("IMDB ")) return
-    recordPlay({
+    saveWatchProgress({
       imdbId: title.imdbId,
       title: displayTitle,
       type: title.type,
@@ -652,7 +661,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
       season: isSeries ? season : null,
       episode: isSeries ? episode : null,
       sourceId: sourceId,
-    })
+    }).catch(() => {})
   }, [season, episode, displayTitle, displayYear, sourceId])
 
   const inList = isInWatchlist(title.imdbId)
@@ -825,24 +834,19 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   }
 
   // When the player closes, stop the progress timer and persist the final
-  // position + sourceId + full title info to WatchHistory.
-  // This is the GUARANTEED save — even if recordPlay never fired (e.g.,
-  // displayTitle was "IMDB xxx"), this saves the real title + position.
+  // position + sourceId + full title info to IndexedDB.
+  // This is the GUARANTEED save — even if recordPlay never fired.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const handleClose = useCallback(() => {
     const result = stopProgress()
     const pos = result.position
     const pct = result.progress
     const dur = result.duration
-    // ALWAYS save on close if position > 5s — include the full title info
-    // so Continue Watching shows the real title, not just the IMDB ID.
     if (pos > 5) {
       const titleToSave = (displayTitle && !displayTitle.startsWith("IMDB "))
         ? displayTitle
         : title.title
-      // Use recordPlay for the full save (title, poster, etc.)
-      // then updateProgress for the position
-      recordPlay({
+      saveWatchProgress({
         imdbId: title.imdbId,
         title: titleToSave,
         type: title.type,
@@ -856,11 +860,31 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
         position: pos,
         progress: pct,
         duration: dur,
-      })
+      }).catch(() => {})
     }
     if (!loaded && isMobile) reportProvider(sourceId, false)
     onClose()
-  }, [stopProgress, loaded, isMobile, reportProvider, sourceId, onClose, title.imdbId, title.title, title.type, title.poster, title.year, title.overview, title.rating, displayTitle, displayYear, isSeries, season, episode, recordPlay])
+  }, [stopProgress, loaded, isMobile, reportProvider, sourceId, onClose, title.imdbId, title.title, title.type, title.poster, title.year, title.overview, title.rating, displayTitle, displayYear, isSeries, season, episode])
+
+  // Save progress on unmount (e.g., when navigating away or closing browser tab)
+  useEffect(() => {
+    return () => {
+      const result = stopProgress()
+      if (result.position > 5) {
+        saveWatchProgress({
+          imdbId: title.imdbId,
+          title: (displayTitle && !displayTitle.startsWith("IMDB ")) ? displayTitle : title.title,
+          type: title.type,
+          position: result.position,
+          progress: result.progress,
+          duration: result.duration,
+          sourceId,
+          season: isSeries ? season : null,
+          episode: isSeries ? episode : null,
+        }).catch(() => {})
+      }
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const openPiP = () => {
     pip.open(playerUrl, title.title)

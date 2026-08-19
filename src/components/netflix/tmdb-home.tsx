@@ -10,6 +10,7 @@ import { HoverPreviewCard } from "./hover-preview-card"
 import { TrailerIframe } from "./trailer-iframe"
 import { RowScrollButtons } from "./row-scroll-buttons"
 import { useLang } from "@/lib/lang-context"
+import { useClientWatchHistory } from "@/hooks/use-client-watch-history"
 import { cn } from "@/lib/utils"
 
 // Round a TMDB rating string (e.g. "8.034") to 1 decimal place ("8.0").
@@ -149,6 +150,29 @@ type Props = {
 
 export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyboardNavEnabled }: Props) {
   const { t, isArabic } = useLang()
+  // IndexedDB-backed Continue Watching — loads from browser storage, no API needed
+  const { items: cwItems, isLoading: cwLoading, error: cwError } = useClientWatchHistory()
+
+  // Map IndexedDB items to CardTitle shape for the LocalRow component
+  const cwCards: CardTitle[] = (continueWatching && continueWatching.length > 0)
+    ? continueWatching // If parent passes items, use those (for backward compat)
+    : cwItems.map((h) => ({
+        imdbId: h.imdbId,
+        title: h.title,
+        type: h.type,
+        poster: h.poster ?? null,
+        year: h.year ?? null,
+        overview: h.overview ?? null,
+        rating: h.rating ?? null,
+        season: h.season ?? null,
+        episode: h.episode ?? null,
+        progress: h.progress ?? null,
+        position: h.position ?? null,
+        duration: h.duration ?? null,
+        sourceId: h.sourceId ?? null,
+      }))
+
+  const hasCw = cwCards.length > 0 && !!onPlayHistory
   const [rows, setRows] = useState<TmdbRow[]>([])
   const [loading, setLoading] = useState(true)
   const [heroIdx, setHeroIdx] = useState(0)
@@ -547,7 +571,6 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
   // Compute the row layout (used by the keyboard handler to know how many
   // cards are in each row and which onPlay to call on Enter). This mirrors
   // the rendered rows exactly: Continue Watching → My List → TMDB rows.
-  const hasCw = !!(continueWatching && continueWatching.length > 0 && onPlayHistory)
   const hasMl = !!(myList && myList.length > 0)
   const localRowCount = (hasCw ? 1 : 0) + (hasMl ? 1 : 0)
   const rowsLayout = useMemo(() => {
@@ -558,13 +581,13 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
       titles: ReadonlyArray<TmdbTitle | CardTitle>
       onPlay: (t: any) => void
     }> = []
-    if (hasCw) layout.push({ titles: continueWatching!, onPlay: onPlayHistory! as (t: any) => void })
+    if (hasCw) layout.push({ titles: cwCards, onPlay: onPlayHistory! as (t: any) => void })
     if (hasMl) layout.push({ titles: myList!, onPlay: onPlay as (t: any) => void })
     for (const row of rows) {
       layout.push({ titles: row.titles, onPlay: handleClick as (t: any) => void })
     }
     return layout
-  }, [hasCw, hasMl, continueWatching, myList, onPlayHistory, onPlay, rows, handleClick])
+  }, [hasCw, hasMl, cwCards, myList, onPlayHistory, onPlay, rows, handleClick])
 
   // Keep a ref to the layout so the keydown handler (which subscribes once)
   // always sees the latest rows without re-subscribing on every render.
@@ -714,10 +737,10 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
           {/* Continue Watching — rendered even during TMDB loading.
               Position: BELOW the hero, ABOVE content rows.
               Data comes from the Zustand store (page.tsx passes it as a prop). */}
-          {continueWatching && continueWatching.length > 0 && onPlayHistory && (
+          {cwCards.length > 0 && onPlayHistory && (
             <LocalRow
               title="Continue Watching"
-              titles={continueWatching}
+              titles={cwCards}
               onPlay={onPlayHistory}
               showProgress
             />
@@ -1042,10 +1065,10 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
         onMouseLeave={() => setHeroPaused(false)}
       >
         {/* Continue Watching — BELOW the hero, ABOVE My List and TMDB rows */}
-        {continueWatching && continueWatching.length > 0 && onPlayHistory && (
+        {cwCards.length > 0 && onPlayHistory && (
           <LocalRow
             title="Continue Watching"
-            titles={continueWatching}
+            titles={cwCards}
             onPlay={onPlayHistory}
             showProgress
             rowIndex={0}
