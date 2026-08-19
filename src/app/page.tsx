@@ -38,16 +38,17 @@ export default function Home() {
   // Force a re-render when history changes by tracking its length + last updatedAt
   const historyKey = history.length > 0 ? `${history.length}-${history[0]?.updatedAt ?? ""}` : "empty"
 
-  // Load history from API on mount. Use [] deps so it only fires once.
+  // Load history from API on mount AND retry every 2s until it loads.
+  // This handles: dev server compilation delay, connection refused, etc.
   useEffect(() => {
     load()
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // If history is still empty after 2s, retry (handles dev server compilation delay)
-  useEffect(() => {
+    // Only set up retry if history is empty
     if (history.length === 0) {
-      const timer = setTimeout(() => load(), 2000)
-      return () => clearTimeout(timer)
+      const interval = setInterval(() => {
+        load()
+      }, 2000)
+      // Clear interval when history loads or component unmounts
+      return () => clearInterval(interval)
     }
   }, [history.length]) // eslint-disable-line react-hooks/exhaustive-deps
 
