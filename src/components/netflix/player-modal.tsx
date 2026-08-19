@@ -46,7 +46,7 @@ import { useLastProvider } from "@/hooks/use-last-provider"
 import { usePlaybackProgress } from "@/hooks/use-playback-progress"
 import { useLang } from "@/lib/lang-context"
 import { getAdBlockEnabled } from "@/components/netflix/navbar"
-import { saveWatchProgress, getWatchItem, type WatchHistoryItem } from "@/lib/client-history"
+import { upsertWatchItem } from "@/lib/client-history"
 
 // ── Favorite servers — saved in localStorage ────────────────────────────────
 const FAVORITES_KEY = "netstream:favorites"
@@ -401,7 +401,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     poster: string | null
     backdrop: string | null
   } | null>(null)
-  const { toggleWatchlist, isInWatchlist, recordPlay, updateProgress } = useLibrary()
+  const { toggleWatchlist, isInWatchlist } = useLibrary()
   const { toast } = useToast()
   useEffect(() => { toastRef.current = toast }, [toast])
   const pip = usePictureInPicture()
@@ -418,7 +418,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     onProgress: ({ position, progress: pct, duration }) => {
       // Only persist every 30s to avoid hammering IndexedDB.
       if (position > 0 && position % 30 === 0) {
-        saveWatchProgress({
+        upsertWatchItem({
           imdbId: title.imdbId,
           title: (displayTitle && !displayTitle.startsWith("IMDB ")) ? displayTitle : title.title,
           type: title.type,
@@ -667,7 +667,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   useEffect(() => {
     // Skip if the title hasn't resolved yet (still showing "IMDB xxx" or empty)
     if (!displayTitle || displayTitle.startsWith("IMDB ")) return
-    saveWatchProgress({
+    upsertWatchItem({
       imdbId: title.imdbId,
       title: displayTitle,
       type: title.type,
@@ -863,7 +863,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
       const titleToSave = (displayTitle && !displayTitle.startsWith("IMDB "))
         ? displayTitle
         : title.title
-      saveWatchProgress({
+      upsertWatchItem({
         imdbId: title.imdbId,
         title: titleToSave,
         type: title.type,
@@ -888,7 +888,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     return () => {
       const result = stopProgress()
       if (result.position > 5) {
-        saveWatchProgress({
+        upsertWatchItem({
           imdbId: title.imdbId,
           title: (displayTitle && !displayTitle.startsWith("IMDB ")) ? displayTitle : title.title,
           type: title.type,

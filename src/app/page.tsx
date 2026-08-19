@@ -33,25 +33,14 @@ export default function Home() {
   const [searchOpen, setSearchOpen] = useState(false)
   const [imdbOpen, setImdbOpen] = useState(false)
   const [nav, setNav] = useState<NavKey>("home")
-  const { watchlist, history, load, loaded } = useLibrary()
+  const { watchlist, load } = useLibrary()
 
-  // Load history from API on mount AND retry every 1.5s until it loads.
+  // Load watchlist from API on mount (history is now IndexedDB-based)
   useEffect(() => {
     load()
-    const interval = setInterval(() => {
-      const state = useLibrary.getState()
-      if (state.history.length === 0) {
-        state.load()
-      } else {
-        clearInterval(interval)
-      }
-    }, 1500)
-    return () => clearInterval(interval)
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [load])
 
-  // Scroll to top on page mount AND on nav change — prevents the browser
-  // from restoring the previous scroll position (which caused the page to
-  // load at the bottom instead of the header).
+  // Scroll to top on page mount AND on nav change
   useEffect(() => {
     window.scrollTo(0, 0)
   }, [nav])
@@ -94,26 +83,8 @@ export default function Home() {
     return rows
   }, [nav, rows])
 
-  // Continue watching as CardTitle[]
-  // Continue watching as CardTitle[] — computed directly (no useMemo) so it
-  // ALWAYS recomputes when history changes. This was the root cause of
-  // Continue Watching not appearing on refresh: useMemo was not recomputing
-  // because the history array reference didn't change in some edge cases.
-  const continueWatching: CardTitle[] = history.map((h) => ({
-    imdbId: h.imdbId,
-    title: h.title,
-    type: h.type,
-    poster: h.poster ?? null,
-    year: h.year ?? null,
-    overview: h.overview ?? null,
-    rating: h.rating ?? null,
-    season: h.season ?? null,
-    episode: h.episode ?? null,
-    progress: h.progress ?? null,
-    position: h.position ?? null,
-    duration: h.duration ?? null,
-    sourceId: h.sourceId ?? null,
-  }))
+  // Continue Watching is now handled entirely by IndexedDB inside TmdbHome
+  // via the useClientWatchHistory hook. No need to pass it as a prop.
 
   const myListCards: CardTitle[] = useMemo(
     () =>
@@ -161,7 +132,6 @@ export default function Home() {
                 the loading → content transition. */}
             <TmdbHome
               onPlay={openDetail}
-              continueWatching={continueWatching}
               myList={myListCards}
               onPlayHistory={openPlayer}
               keyboardNavEnabled={keyboardNavEnabled}

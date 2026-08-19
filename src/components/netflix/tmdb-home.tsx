@@ -151,26 +151,25 @@ type Props = {
 export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyboardNavEnabled }: Props) {
   const { t, isArabic } = useLang()
   // IndexedDB-backed Continue Watching — loads from browser storage, no API needed
-  const { items: cwItems, isLoading: cwLoading, error: cwError } = useClientWatchHistory()
+  const { items: cwItems, loaded: cwLoaded, error: cwError } = useClientWatchHistory()
 
   // Map IndexedDB items to CardTitle shape for the LocalRow component
-  const cwCards: CardTitle[] = (continueWatching && continueWatching.length > 0)
-    ? continueWatching // If parent passes items, use those (for backward compat)
-    : cwItems.map((h) => ({
-        imdbId: h.imdbId,
-        title: h.title,
-        type: h.type,
-        poster: h.poster ?? null,
-        year: h.year ?? null,
-        overview: h.overview ?? null,
-        rating: h.rating ?? null,
-        season: h.season ?? null,
-        episode: h.episode ?? null,
-        progress: h.progress ?? null,
-        position: h.position ?? null,
-        duration: h.duration ?? null,
-        sourceId: h.sourceId ?? null,
-      }))
+  const cwCards: CardTitle[] = cwItems.map((h) => ({
+    imdbId: h.imdbId,
+    title: h.title,
+    type: h.type,
+    poster: h.poster ?? h.backdrop ?? null,
+    backdrop: h.backdrop ?? null,
+    year: h.year ?? null,
+    overview: h.overview ?? null,
+    rating: h.rating ?? null,
+    season: h.season ?? null,
+    episode: h.episode ?? null,
+    progress: h.progress ?? null,
+    position: h.position ?? null,
+    duration: h.duration ?? null,
+    sourceId: h.sourceId ?? null,
+  }))
 
   const hasCw = cwCards.length > 0 && !!onPlayHistory
   const [rows, setRows] = useState<TmdbRow[]>([])
@@ -736,15 +735,23 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
         <div className="relative z-20 -mt-16 sm:-mt-24">
           {/* Continue Watching — rendered even during TMDB loading.
               Position: BELOW the hero, ABOVE content rows.
-              Data comes from the Zustand store (page.tsx passes it as a prop). */}
-          {cwCards.length > 0 && onPlayHistory && (
+              Data comes from IndexedDB (no API call needed).
+              States: loading → spinner, error → message, empty → no row, has items → row */}
+          {cwError ? (
+            <div className="px-4 py-3 text-sm text-red-400/70">⚠ {cwError}</div>
+          ) : !cwLoaded ? (
+            <div className="flex items-center gap-2 px-4 py-3 text-sm text-white/40">
+              <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/20 border-t-primary" />
+              Loading Continue Watching…
+            </div>
+          ) : cwCards.length > 0 && onPlayHistory ? (
             <LocalRow
               title="Continue Watching"
               titles={cwCards}
               onPlay={onPlayHistory}
               showProgress
             />
-          )}
+          ) : null}
 
           {/* Skeleton content rows */}
           <SkeletonRow landscape />
@@ -1064,8 +1071,9 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
         onMouseEnter={() => setHeroPaused(true)}
         onMouseLeave={() => setHeroPaused(false)}
       >
-        {/* Continue Watching — BELOW the hero, ABOVE My List and TMDB rows */}
-        {cwCards.length > 0 && onPlayHistory && (
+        {/* Continue Watching — BELOW the hero, ABOVE My List and TMDB rows.
+            Only shown when IndexedDB has loaded and has items. */}
+        {cwLoaded && !cwError && cwCards.length > 0 && onPlayHistory && (
           <LocalRow
             title="Continue Watching"
             titles={cwCards}
