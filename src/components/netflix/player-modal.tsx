@@ -825,22 +825,42 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   }
 
   // When the player closes, stop the progress timer and persist the final
-  // position + sourceId to WatchHistory. This enables resume-from-exact-second
-  // on the same server when the user reopens the title.
+  // position + sourceId + full title info to WatchHistory.
+  // This is the GUARANTEED save — even if recordPlay never fired (e.g.,
+  // displayTitle was "IMDB xxx"), this saves the real title + position.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const handleClose = useCallback(() => {
     const result = stopProgress()
     const pos = result.position
     const pct = result.progress
     const dur = result.duration
+    // ALWAYS save on close if position > 5s — include the full title info
+    // so Continue Watching shows the real title, not just the IMDB ID.
     if (pos > 5) {
-      // Use displayTitle if available, otherwise the original title
-      const titleToSave = displayTitle && !displayTitle.startsWith("IMDB ") ? displayTitle : title.title
-      updateProgress(title.imdbId, pct, pos, dur, sourceId)
+      const titleToSave = (displayTitle && !displayTitle.startsWith("IMDB "))
+        ? displayTitle
+        : title.title
+      // Use recordPlay for the full save (title, poster, etc.)
+      // then updateProgress for the position
+      recordPlay({
+        imdbId: title.imdbId,
+        title: titleToSave,
+        type: title.type,
+        poster: title.poster ?? null,
+        year: displayYear || title.year || null,
+        overview: title.overview ?? null,
+        rating: title.rating ?? null,
+        season: isSeries ? season : null,
+        episode: isSeries ? episode : null,
+        sourceId: sourceId,
+        position: pos,
+        progress: pct,
+        duration: dur,
+      })
     }
     if (!loaded && isMobile) reportProvider(sourceId, false)
     onClose()
-  }, [stopProgress, loaded, isMobile, reportProvider, sourceId, onClose, title.imdbId, displayTitle, title.title])
+  }, [stopProgress, loaded, isMobile, reportProvider, sourceId, onClose, title.imdbId, title.title, title.type, title.poster, title.year, title.overview, title.rating, displayTitle, displayYear, isSeries, season, episode, recordPlay])
 
   const openPiP = () => {
     pip.open(playerUrl, title.title)

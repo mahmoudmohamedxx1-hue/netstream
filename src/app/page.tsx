@@ -101,26 +101,25 @@ export default function Home() {
   }, [nav, rows])
 
   // Continue watching as CardTitle[]
-  const continueWatching: CardTitle[] = useMemo(
-    () =>
-      history.map((h) => ({
-        imdbId: h.imdbId,
-        title: h.title,
-        type: h.type,
-        poster: h.poster ?? null,
-        year: h.year ?? null,
-        overview: h.overview ?? null,
-        rating: h.rating ?? null,
-        season: h.season ?? null,
-        episode: h.episode ?? null,
-        progress: h.progress ?? null,
-        position: h.position ?? null,
-        duration: h.duration ?? null,
-        sourceId: h.sourceId ?? null,
-      })),
-    // Include historyKey in deps to force recomputation when history changes
-    [history, historyKey]
-  )
+  // Continue watching as CardTitle[] — computed directly (no useMemo) so it
+  // ALWAYS recomputes when history changes. This was the root cause of
+  // Continue Watching not appearing on refresh: useMemo was not recomputing
+  // because the history array reference didn't change in some edge cases.
+  const continueWatching: CardTitle[] = history.map((h) => ({
+    imdbId: h.imdbId,
+    title: h.title,
+    type: h.type,
+    poster: h.poster ?? null,
+    year: h.year ?? null,
+    overview: h.overview ?? null,
+    rating: h.rating ?? null,
+    season: h.season ?? null,
+    episode: h.episode ?? null,
+    progress: h.progress ?? null,
+    position: h.position ?? null,
+    duration: h.duration ?? null,
+    sourceId: h.sourceId ?? null,
+  }))
 
   const myListCards: CardTitle[] = useMemo(
     () =>
@@ -164,6 +163,7 @@ export default function Home() {
           <>
             {/* TMDB-powered home page (real posters, trending content) */}
             <TmdbHome
+              key={historyKey}
               onPlay={openDetail}
               continueWatching={continueWatching}
               myList={myListCards}
