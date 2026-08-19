@@ -3,117 +3,83 @@
 import { useEffect, useState, useCallback, useRef } from "react"
 import {
   getWatchHistory,
-  saveWatchProgress,
-  removeWatchItem,
+  upsertWatchItem,
+  deleteWatchItem,
   clearWatchHistory,
   isIndexedDBAvailable,
   type WatchHistoryItem,
 } from "@/lib/client-history"
 
-// ═══════════════════════════════════════════════════════════════════════════
-// useClientWatchHistory — React hook for IndexedDB-backed Continue Watching.
-//
-// Loads history from IndexedDB on mount. Exposes:
-//   items: WatchHistoryItem[] (sorted by updatedAt desc, max 20)
-//   isLoading: boolean (true while IndexedDB is opening/loading)
-//   error: string | null (if IndexedDB fails)
-//   refresh(): re-load from IndexedDB
-//   saveProgress(item): save to IndexedDB + update React state immediately
-//   removeItem(imdbId): remove from IndexedDB + update React state
-//   clearAll(): clear all history from IndexedDB + React state
-// ═══════════════════════════════════════════════════════════════════════════
-
 export function useClientWatchHistory() {
   const [items, setItems] = useState<WatchHistoryItem[]>([])
-  const [isLoading, setIsLoading] = useState(true)
+  const [loaded, setLoaded] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const mountedRef = useRef(true)
+  const mounted = useRef(true)
 
   const refresh = useCallback(async () => {
     if (!isIndexedDBAvailable()) {
-      setError("IndexedDB is not available in this browser")
-      setIsLoading(false)
+      setError("IndexedDB is not available in this browser.")
+      setLoaded(true)
       return
     }
     try {
       const history = await getWatchHistory()
-      if (!mountedRef.current) return
+      if (!mounted.current) return
       setItems(history)
       setError(null)
     } catch (e: any) {
-      if (!mountedRef.current) return
-      setError(e?.message ?? "Failed to load watch history")
+      if (!mounted.current) return
+      setError(e?.message ?? "Failed to load watch history from IndexedDB.")
     } finally {
-      if (mountedRef.current) setIsLoading(false)
+      if (mounted.current) setLoaded(true)
     }
   }, [])
 
-  // Load on mount
   useEffect(() => {
-    mountedRef.current = true
+    mounted.current = true
     refresh()
-    return () => { mountedRef.current = false }
+    return () => { mounted.current = false }
   }, [refresh])
 
-  // Save progress to IndexedDB + update React state immediately
-  const saveProgress = useCallback(async (item: WatchHistoryItem) => {
-    // Update React state immediately (optimistic update)
-    setItems((prev) => {
-      const rest = prev.filter((x) => x.imdbId !== item.imdbId)
-      // If progress >= 95%, remove instead of adding
-      if (item.progress != null && item.progress >= 95) {
-        return rest
+  const saveProgress = useCallback(async (item: Partial<WatchHistoryItem>) => {
+    // Optimistic state update
+    setItems(prev => {
+      const rest = prev.filter(x => x.imdbId !== item.imdbId)
+      if (item.progress != null && item.progress >= 95) return rest
+      const now = new Date().toISOString()
+      const existing = prev.find(x => x.imdbId === item.imdbId)
+      const merged: WatchHistoryItem = {
+        imdbId: item.imdbId!,
+        title: item.title ?? existing?.title ?? item.imdbId!,
+        type: item.type ?? existing?.type ?? "movie",
+        poster: item.poster ?? existing?.poster ?? null,
+        backdrop: item.backdrop ?? existing?.backdrop ?? null,
+        year: item.year ?? existing?.year ?? null,
+        overview: item.overview ?? existing?.overview ?? null,
+        rating: item.rating ?? existing?.rating ?? null,
+        season: item.season ?? existing?.season ?? null,
+        episode: item.episode ?? existing?.episode ?? null,
+        position: item.position ?? existing?.position ?? null,
+        duration: item.duration ?? existing?.duration ?? null,
+        progress: item.progress ?? existing?.progress ?? null,
+        sourceId: item.sourceId ?? existing?.sourceId ?? null,
+        createdAt: existing?.createdAt ?? now,
+        updatedAt: now,
       }
-      return [{ ...item, updatedAt: new Date().toISOString() }, ...rest].slice(0, 20)
+      return [merged, ...rest].slice(0, 20)
     })
-
-    // Save to IndexedDB (deduplicated internally)
-    try {
-      await saveWatchProgress(item)
-    } catch (e) {
-      console.error("[useClientWatchHistory] saveProgress error:", e)
-    }
+    try { await upsertWatchItem(item) } catch (e) { console.error("[useClientWatchHistory] save:", e) }
   }, [])
 
-  // Remove a single item
   const removeItem = useCallback(async (imdbId: string) => {
-    setItems((prev) => prev.filter((x) => x.imdbId !== imdbId))
-    try {
-      await removeWatchItem(imdbId)
-    } catch (e) {
-      console.error("[useClientWatchHistory] removeItem error:", e)
-    }
+    setItems(prev => prev.filter(x => x.imdbId !== imdbId))
+    try { await deleteWatchItem(imdbId) } catch (e) { console.error("[useClientWatchHistory] remove:", e) }
   }, [])
 
-  // Clear all history
   const clearAll = useCallback(async () => {
     setItems([])
-    try {
-      await clearWatchHistory()
-    } catch (e) {
-      console.error("[useClientWatchHistory] clearAll error:", e)
-    }
+    try { await clearWatchHistory() } catch (e) { console.error("[useClientWatchHistory] clear:", e) }
   }, [])
 
-  // Save when the page becomes hidden (user switches tabs / minimizes)
-  useEffect(() => {
-    const onVisibilityChange = () => {
-      if (document.visibilityState === "hidden") {
-        // Force flush any pending writes
-        getWatchHistory().catch(() => {})
-      }
-    }
-    document.addEventListener("visibilitychange", onVisibilityChange)
-    return () => document.removeEventListener("visibilitychange", onVisibilityChange)
-  }, [])
-
-  return {
-    items,
-    isLoading,
-    error,
-    refresh,
-    saveProgress,
-    removeItem,
-    clearAll,
-  }
+  return { items, loaded, error, refresh, saveProgress, removeItem, clearAll }
 }
