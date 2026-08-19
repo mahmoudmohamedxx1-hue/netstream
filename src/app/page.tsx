@@ -35,22 +35,25 @@ export default function Home() {
   const [nav, setNav] = useState<NavKey>("home")
   const { watchlist, history, load, loaded } = useLibrary()
 
-  // Force a re-render when history changes by tracking its length + last updatedAt
-  const historyKey = history.length > 0 ? `${history.length}-${history[0]?.updatedAt ?? ""}` : "empty"
+  // Force a re-render when history changes
+  const historyKey = `${history.length}-${history[0]?.updatedAt ?? ""}`
 
-  // Load history from API on mount AND retry every 2s until it loads.
-  // This handles: dev server compilation delay, connection refused, etc.
+  // Load history from API on mount AND retry every 1.5s until it loads.
+  // This handles: dev server compilation delay (3-5s for first API request),
+  // connection refused, and any other transient failures.
+  // The interval is cleared when history.length > 0.
   useEffect(() => {
     load()
-    // Only set up retry if history is empty
-    if (history.length === 0) {
-      const interval = setInterval(() => {
-        load()
-      }, 2000)
-      // Clear interval when history loads or component unmounts
-      return () => clearInterval(interval)
-    }
-  }, [history.length]) // eslint-disable-line react-hooks/exhaustive-deps
+    const interval = setInterval(() => {
+      const state = useLibrary.getState()
+      if (state.history.length === 0) {
+        state.load()
+      } else {
+        clearInterval(interval)
+      }
+    }, 1500)
+    return () => clearInterval(interval)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Scroll to top on page mount AND on nav change — prevents the browser
   // from restoring the previous scroll position (which caused the page to

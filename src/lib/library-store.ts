@@ -41,17 +41,17 @@ export const useLibrary = create<LibraryState>((set, get) => ({
 
   load: async () => {
     try {
+      // Use a 15s timeout — the dev server may need to compile the API route
+      // on first request (takes 3-5s). Without this, the fetch fails silently.
       const [wRes, hRes] = await Promise.all([
-        fetch("/api/watchlist", { cache: "no-store" }),
-        fetch("/api/history", { cache: "no-store" }),
+        fetch("/api/watchlist", { cache: "no-store", signal: AbortSignal.timeout(15000) }),
+        fetch("/api/history", { cache: "no-store", signal: AbortSignal.timeout(15000) }),
       ])
       const w = wRes.ok ? ((await wRes.json()) as { items: SavedTitle[] }) : { items: [] }
       const h = hRes.ok ? ((await hRes.json()) as { items: SavedTitle[] }) : { items: [] }
       set({ watchlist: w.items ?? [], history: h.items ?? [], loaded: true })
     } catch {
-      // Don't set loaded: true on error — let the retry mechanism try again.
-      // Only set loaded: true if we've tried 3 times (prevents infinite loading).
-      // The retry is handled by the useEffect in page.tsx.
+      // Don't set loaded:true on error — the retry in page.tsx will try again.
     }
   },
 
@@ -61,18 +61,16 @@ export const useLibrary = create<LibraryState>((set, get) => ({
       await fetch(`/api/watchlist?imdbId=${encodeURIComponent(t.imdbId)}`, {
         method: "DELETE",
       })
-      set((s) => ({
-        watchlist: s.watchlist.filter((x) => x.imdbId !== t.imdbId),
-      }))
-      return false
+      set((s) => ({ watchlist: s.watchlist.filter((x) => x.imdbId !== t.imdbId) }))
+    } else {
+      await fetch("/api/watchlist", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(t),
+      })
+      set((s) => ({ watchlist: [t, ...s.watchlist] }))
     }
-    await fetch("/api/watchlist", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(t),
-    })
-    set((s) => ({ watchlist: [t, ...s.watchlist] }))
-    return true
+    return !exists
   },
 
   removeWatchlist: async (imdbId) => {
@@ -98,18 +96,17 @@ export const useLibrary = create<LibraryState>((set, get) => ({
 
   updateProgress: async (imdbId, progress, position, duration, sourceId) => {
     // Don't overwrite the title — only update progress/position/duration/sourceId.
-    // The title is set by recordPlay (which has the real title).
-    // We send a PATCH-like update via POST with only the fields we want to change.
-    // The API upserts, but since the record already exists (from recordPlay),
-    // it will update only the fields we send. We DON'T send 'title' so it's preserved.
+    // Send the existing title from the store to avoid overwriting it.
+    const existing = get().history.find((x) => x.imdbId === imdbId)
+    const titleToSend = existing?.title ?? imdbId
+    const typeToSend = existing?.type ?? "movie"
     await fetch("/api/history", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      // Send the existing title from the store to avoid overwriting it
       body: JSON.stringify({
         imdbId,
-        title: get().history.find((x) => x.imdbId === imdbId)?.title ?? imdbId,
-        type: get().history.find((x) => x.imdbId === imdbId)?.type ?? "movie",
+        title: titleToSend,
+        type: typeToSend,
         progress, position, duration, sourceId,
       }),
     })
