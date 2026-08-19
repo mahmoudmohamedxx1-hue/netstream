@@ -35,9 +35,21 @@ export default function Home() {
   const [nav, setNav] = useState<NavKey>("home")
   const { watchlist, history, load, loaded } = useLibrary()
 
+  // Force a re-render when history changes by tracking its length + last updatedAt
+  const historyKey = history.length > 0 ? `${history.length}-${history[0]?.updatedAt ?? ""}` : "empty"
+
+  // Load history from API on mount. Use [] deps so it only fires once.
   useEffect(() => {
     load()
-  }, [load])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // If history is still empty after 2s, retry (handles dev server compilation delay)
+  useEffect(() => {
+    if (history.length === 0) {
+      const timer = setTimeout(() => load(), 2000)
+      return () => clearTimeout(timer)
+    }
+  }, [history.length]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Scroll to top on page mount AND on nav change — prevents the browser
   // from restoring the previous scroll position (which caused the page to
@@ -102,7 +114,8 @@ export default function Home() {
         duration: h.duration ?? null,
         sourceId: h.sourceId ?? null,
       })),
-    [history]
+    // Include historyKey in deps to force recomputation when history changes
+    [history, historyKey]
   )
 
   const myListCards: CardTitle[] = useMemo(
