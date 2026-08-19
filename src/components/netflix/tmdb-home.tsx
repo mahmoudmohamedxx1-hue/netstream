@@ -1237,30 +1237,36 @@ function LocalRow({ title, titles, onPlay, showProgress, rowIndex, focusedCard, 
               )}
             >
               <div className="relative h-full overflow-hidden rounded-md bg-neutral-900">
-                <Poster title={tt.title} src={tt.poster} year={tt.year} alt={tt.title} className="h-full w-full transition duration-300 group-hover/card:opacity-90" />
+                <Poster title={tt.title} src={tt.poster ?? tt.backdrop ?? null} year={tt.year} alt={tt.title} className="h-full w-full transition duration-300 group-hover/card:opacity-90" />
                 {rating && (
                   <span className="absolute left-2 top-2 inline-flex items-center gap-0.5 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-yellow-400">
                     <Star className="h-2.5 w-2.5 fill-yellow-400" />{rating}
                   </span>
                 )}
-                {/* Progress bar — red Netflix-style bar at the bottom of each
-                    Continue Watching card. Shows the watched percentage as a
-                    red fill, plus the remaining time as a label. */}
-                {showProgress && tt.progress != null && tt.progress > 0 && (
-                  <>
-                    <div className="absolute bottom-0 left-0 right-0 z-10">
-                      <div className="h-1 w-full bg-white/20">
-                        <div className="h-full bg-primary transition-[width] duration-500" style={{ width: `${Math.min(tt.progress, 100)}%` }} />
+                {/* Progress bar — calculated from position / duration, not from a stored percentage */}
+                {showProgress && (() => {
+                  // Calculate displayProgress from the latest valid position and duration
+                  const displayProgress =
+                    tt.duration != null && tt.duration > 0 && tt.position != null
+                      ? Math.min(100, Math.max(0, Math.round((Math.min(tt.position, tt.duration) / tt.duration) * 100)))
+                      : tt.progress ?? 0
+                  if (displayProgress <= 0) return null
+                  return (
+                    <>
+                      <div className="absolute bottom-0 left-0 right-0 z-10">
+                        <div className="h-1 w-full bg-white/20">
+                          <div className="h-full bg-primary transition-[width] duration-500" style={{ width: `${displayProgress}%` }} />
+                        </div>
                       </div>
-                    </div>
-                    {/* Time remaining label — shows "12:34 left" or position */}
-                    {tt.position && tt.duration && tt.duration > 0 && (
-                      <div className="absolute bottom-1.5 left-2 z-10 rounded bg-black/70 px-1.5 py-0.5 text-[9px] font-bold text-white/90">
-                        {Math.floor(tt.position / 60)}:{String(Math.floor(tt.position % 60)).padStart(2, "0")} / {Math.floor(tt.duration / 60)}:{String(Math.floor(tt.duration % 60)).padStart(2, "0")}
-                      </div>
-                    )}
-                  </>
-                )}
+                      {/* Time label — shows position / duration */}
+                      {tt.position != null && tt.duration != null && tt.duration > 0 && (
+                        <div className="absolute bottom-1.5 left-2 z-10 rounded bg-black/70 px-1.5 py-0.5 text-[9px] font-bold text-white/90">
+                          {Math.floor(tt.position / 60)}:{String(Math.floor(tt.position % 60)).padStart(2, "0")} / {Math.floor(tt.duration / 60)}:{String(Math.floor(tt.duration % 60)).padStart(2, "0")}
+                        </div>
+                      )}
+                    </>
+                  )
+                })()}
                 {/* Hover overlay */}
                 <div className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/90 via-black/30 to-transparent p-2 opacity-100 transition group-hover/card:opacity-100 sm:opacity-0">
                   <p className="line-clamp-2 text-xs font-bold text-white">{tt.title}</p>

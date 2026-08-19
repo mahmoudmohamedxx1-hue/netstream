@@ -2,12 +2,10 @@
 
 // Tracks playback "progress" for a title by measuring elapsed wall-clock time
 // the player is open. We can't read the iframe's video.currentTime (cross-origin),
-// so we use elapsed-time-vs-runtime as a proxy. The `progress` (0-100) and
-// `position` (seconds) are written to WatchHistory on close, and a Netflix-style
-// red progress bar is rendered on Continue Watching cards.
+// so we use elapsed-time-vs-runtime as a proxy.
 //
-// If `runtimeMinutes` is provided, progress is capped at 100% and scaled to
-// runtime. If not, we treat 90 minutes as the default and show a softer bar.
+// Stores position (seconds), duration (seconds), and progress (0-100) separately.
+// Progress is always calculated as: (position / duration) * 100
 
 import { useCallback, useEffect, useRef, useState } from "react"
 
@@ -24,7 +22,15 @@ export function usePlaybackProgress({ imdbId, runtimeMinutes, onProgress }: Opts
   const onProgressRef = useRef(onProgress)
   onProgressRef.current = onProgress
 
+  // Duration in seconds — from runtimeMinutes, or default 90 min
   const duration = (runtimeMinutes && runtimeMinutes > 0 ? runtimeMinutes : 90) * 60
+
+  // Calculate progress from position and duration
+  const calcProgress = (pos: number, dur: number): number => {
+    if (!dur || dur <= 0 || !pos || pos <= 0) return 0
+    const clampedPos = Math.min(pos, dur) // clamp position to duration
+    return Math.min(100, Math.max(0, Math.round((clampedPos / dur) * 100)))
+  }
 
   // (Re)start the timer whenever the title changes
   useEffect(() => {
@@ -40,17 +46,18 @@ export function usePlaybackProgress({ imdbId, runtimeMinutes, onProgress }: Opts
     }
   }, [imdbId])
 
-  // Stop the timer (e.g. when the player closes) and report final progress.
-  // Returns the final position/progress/duration so callers can persist them.
+  // Stop the timer and report final progress.
+  // Returns the FINAL position (not the last interval position).
   const stop = useCallback(() => {
     if (tickRef.current) {
       clearInterval(tickRef.current)
       tickRef.current = null
     }
-    const elapsed = Math.floor((Date.now() - startRef.current) / 1000)
-    const progress = Math.min(100, Math.round((elapsed / duration) * 100))
-    onProgressRef.current?.({ position: elapsed, progress, duration })
-    return { position: elapsed, progress, duration }
+    // Calculate the FINAL position at the moment of stopping
+    const finalPosition = Math.floor((Date.now() - startRef.current) / 1000)
+    const finalProgress = calcProgress(finalPosition, duration)
+    onProgressRef.current?.({ position: finalPosition, progress: finalProgress, duration })
+    return { position: finalPosition, progress: finalProgress, duration }
   }, [duration])
 
   // Pause/resume when the tab is hidden/visible — avoids over-counting
@@ -72,7 +79,13 @@ export function usePlaybackProgress({ imdbId, runtimeMinutes, onProgress }: Opts
     return () => document.removeEventListener("visibilitychange", onHide)
   }, [position])
 
-  const progress = Math.min(100, Math.round((position / duration) * 100))
+  // Progress is always calculated from position / duration
+  const progress = calcProgress(position, duration)
 
-  return { position, progress, duration, stop: stop as () => { position: number; progress: number; duration: number } }
+  return {
+    position,
+    progress,
+    duration,
+    stop: stop as () => { position: number; progress: number; duration: number }
+  }
 }

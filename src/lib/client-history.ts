@@ -11,6 +11,7 @@
 const DB_NAME = "netstream-client"
 const DB_VERSION = 1
 const STORE_NAME = "watch-history"
+const TMDB_IMG = "https://image.tmdb.org/t/p/w500"
 
 export type WatchHistoryItem = {
   imdbId: string
@@ -23,9 +24,9 @@ export type WatchHistoryItem = {
   rating?: string | null
   season?: number | null
   episode?: number | null
-  position?: number | null   // seconds
-  duration?: number | null   // seconds
-  progress?: number | null   // 0-100
+  position?: number | null   // seconds (actual playback position)
+  duration?: number | null   // seconds (total duration)
+  progress?: number | null   // 0-100 (calculated from position / duration)
   sourceId?: string | null   // streaming provider
   updatedAt?: string
   createdAt?: string
@@ -58,14 +59,6 @@ function getDB(): Promise<IDBDatabase> {
   return dbPromise
 }
 
-// ── Promisify a single IDBRequest ───────────────────────────────────────────
-function promisifyReq<T>(req: IDBRequest<T>): Promise<T> {
-  return new Promise((resolve, reject) => {
-    req.onsuccess = () => resolve(req.result)
-    req.onerror = () => reject(req.error)
-  })
-}
-
 // ── Run a transaction and return a promise ──────────────────────────────────
 function tx<T>(
   mode: IDBTransactionMode,
@@ -82,18 +75,79 @@ function tx<T>(
   })
 }
 
+// ── Normalize poster URL ────────────────────────────────────────────────────
+// If the poster is a relative TMDB path (e.g. "/abc.jpg"), prepend the TMDB image URL.
+// If it's already a full URL, return as-is. If null/empty, return null.
+function normalizePoster(url: string | null | undefined): string | null {
+  if (!url || typeof url !== "string" || url.trim() === "") return null
+  if (url.startsWith("http")) return url
+  if (url.startsWith("/")) return `${TMDB_IMG}${url}`
+  return url
+}
+
+// ── Calculate progress from position and duration ───────────────────────────
+function calcProgress(position: number | null | undefined, duration: number | null | undefined): number {
+  if (!duration || duration <= 0 || !position || position <= 0) return 0
+  const pos = Math.min(position, duration) // clamp position to duration
+  return Math.min(100, Math.max(0, Math.round((pos / duration) * 100)))
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Public API
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
  * Get all watch history items, sorted by updatedAt descending.
- * Returns at most 20 items.
+ * Returns at most 20 items. Also repairs stale records (missing poster, bad progress).
  */
 export async function getWatchHistory(): Promise<WatchHistoryItem[]> {
   if (typeof window === "undefined") return []
   try {
     const items = await tx<WatchHistoryItem[]>("readonly", (store) => store.getAll())
+    if (!items) return []
+
+    // Repair stale records
+    let needsRewrite = false
+    for (const item of items) {
+      let repaired = false
+
+      // Fix poster: normalize if it's a relative path
+      const normalizedPoster = normalizePoster(item.poster)
+      if (normalizedPoster !== item.poster) {
+        item.poster = normalizedPoster
+        repaired = true
+      }
+
+      // Fix progress: recalculate from position/duration if they exist
+      if (item.position != null && item.duration != null && item.duration > 0) {
+        const correctProgress = calcProgress(item.position, item.duration)
+        if (item.progress !== correctProgress) {
+          item.progress = correctProgress
+          repaired = true
+        }
+      }
+
+      // Clamp position to duration
+      if (item.position != null && item.duration != null && item.position > item.duration) {
+        item.position = item.duration
+        item.progress = 100
+        repaired = true
+      }
+
+      if (repaired) {
+        needsRewrite = true
+        try {
+          await tx<void>("readwrite", (store) => store.put(item))
+        } catch {}
+      }
+    }
+
+    if (needsRewrite) {
+      // Re-fetch after repairs
+      const repaired = await tx<WatchHistoryItem[]>("readonly", (store) => store.getAll())
+      if (repaired) items.splice(0, items.length, ...repaired)
+    }
+
     // Sort by updatedAt descending
     items.sort((a, b) => {
       const ta = a.updatedAt ? new Date(a.updatedAt).getTime() : 0
@@ -122,29 +176,44 @@ export async function getWatchItem(imdbId: string): Promise<WatchHistoryItem | u
 }
 
 /**
- * Save (upsert) a watch history item.
- * If the item already exists (by imdbId), it is updated.
- * Merges with existing data so partial updates don't lose fields.
+ * Save (upsert) a watch history item with proper merge.
  *
- * Deduplicates writes: if the same imdbId is saved within 500ms,
+ * Merges with existing data so partial updates (e.g. progress-only) don't
+ * lose fields like poster, title, type, etc.
+ *
+ * Deduplicates writes: if the same imdbId is saved within 300ms,
  * only the last write is committed.
  */
 const writeTimers = new Map<string, ReturnType<typeof setTimeout>>()
-const pendingWrites = new Map<string, WatchHistoryItem>()
+const pendingWrites = new Map<string, Partial<WatchHistoryItem>>()
 
-export async function saveWatchProgress(item: WatchHistoryItem): Promise<void> {
+export async function saveWatchProgress(item: Partial<WatchHistoryItem>): Promise<void> {
   if (typeof window === "undefined") return
+  if (!item.imdbId) return
 
   // Don't save if title is just the imdbId
-  if (!item.title || item.title === item.imdbId) return
+  if (item.title && item.title === item.imdbId) return
 
-  // Ensure timestamps
-  const now = new Date().toISOString()
-  if (!item.createdAt) item.createdAt = now
-  item.updatedAt = now
+  // Normalize poster before saving
+  if (item.poster !== undefined) {
+    item.poster = normalizePoster(item.poster)
+  }
+  if (item.backdrop !== undefined) {
+    item.backdrop = normalizePoster(item.backdrop)
+  }
 
-  // Deduplicate: if there's a pending write for this imdbId, cancel it
-  // and replace with the latest data
+  // Calculate progress from position/duration if both are available
+  if (item.position != null && item.duration != null && item.duration > 0) {
+    item.progress = calcProgress(item.position, item.duration)
+  }
+
+  // Clamp position to duration
+  if (item.position != null && item.duration != null && item.position > item.duration) {
+    item.position = item.duration
+    item.progress = 100
+  }
+
+  // Deduplicate: merge with any pending write for this imdbId
   const existing = pendingWrites.get(item.imdbId)
   const merged = existing ? { ...existing, ...item } : item
   pendingWrites.set(item.imdbId, merged)
@@ -154,26 +223,59 @@ export async function saveWatchProgress(item: WatchHistoryItem): Promise<void> {
 
   return new Promise((resolve, reject) => {
     const timer = setTimeout(async () => {
-      const data = pendingWrites.get(item.imdbId)
-      pendingWrites.delete(item.imdbId)
-      writeTimers.delete(item.imdbId)
-      if (!data) return resolve()
+      const pendingData = pendingWrites.get(item.imdbId!)
+      pendingWrites.delete(item.imdbId!)
+      writeTimers.delete(item.imdbId!)
+      if (!pendingData) return resolve()
 
       try {
+        // Fetch existing record from IndexedDB for proper merge
+        const existingRecord = await getWatchItem(pendingData.imdbId!)
+
+        // Merge: don't overwrite valid fields with null/undefined
+        const mergedRecord: WatchHistoryItem = {
+          imdbId: pendingData.imdbId!,
+          title: pendingData.title ?? existingRecord?.title ?? pendingData.imdbId!,
+          type: pendingData.type ?? existingRecord?.type ?? "movie",
+          poster: pendingData.poster ?? existingRecord?.poster ?? null,
+          backdrop: pendingData.backdrop ?? existingRecord?.backdrop ?? null,
+          year: pendingData.year ?? existingRecord?.year ?? null,
+          overview: pendingData.overview ?? existingRecord?.overview ?? null,
+          rating: pendingData.rating ?? existingRecord?.rating ?? null,
+          season: pendingData.season ?? existingRecord?.season ?? null,
+          episode: pendingData.episode ?? existingRecord?.episode ?? null,
+          position: pendingData.position ?? existingRecord?.position ?? null,
+          duration: pendingData.duration ?? existingRecord?.duration ?? null,
+          progress: pendingData.progress ?? existingRecord?.progress ?? null,
+          sourceId: pendingData.sourceId ?? existingRecord?.sourceId ?? null,
+          createdAt: existingRecord?.createdAt ?? new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+        }
+
+        // Don't overwrite a valid duration with zero/null
+        if (mergedRecord.duration != null && mergedRecord.duration <= 0 && existingRecord?.duration && existingRecord.duration > 0) {
+          mergedRecord.duration = existingRecord.duration
+        }
+
+        // Recalculate progress from final position/duration
+        if (mergedRecord.position != null && mergedRecord.duration != null && mergedRecord.duration > 0) {
+          mergedRecord.progress = calcProgress(mergedRecord.position, mergedRecord.duration)
+        }
+
         // Check if progress >= 95% — if so, remove the item instead of saving
-        if (data.progress != null && data.progress >= 95) {
-          await removeWatchItem(data.imdbId)
+        if (mergedRecord.progress != null && mergedRecord.progress >= 95) {
+          await removeWatchItem(mergedRecord.imdbId)
           return resolve()
         }
 
-        await tx<void>("readwrite", (store) => store.put(data))
+        await tx<void>("readwrite", (store) => store.put(mergedRecord))
         resolve()
       } catch (e) {
         console.error("[client-history] saveWatchProgress error:", e)
         reject(e)
       }
     }, 300) // 300ms dedup window
-    writeTimers.set(item.imdbId, timer)
+    writeTimers.set(item.imdbId!, timer)
   })
 }
 
