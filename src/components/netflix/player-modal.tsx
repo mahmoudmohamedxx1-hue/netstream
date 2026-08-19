@@ -398,6 +398,8 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     runtimeMinutes: number | null
     seasons: { season: number; episodes: number }[] | null
     tmdbId: number | null
+    poster: string | null
+    backdrop: string | null
   } | null>(null)
   const { toggleWatchlist, isInWatchlist, recordPlay, updateProgress } = useLibrary()
   const { toast } = useToast()
@@ -420,6 +422,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
           imdbId: title.imdbId,
           title: (displayTitle && !displayTitle.startsWith("IMDB ")) ? displayTitle : title.title,
           type: title.type,
+          poster: displayPoster ?? title.poster ?? null,
           position,
           progress: pct,
           duration,
@@ -451,19 +454,32 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
           runtimeMinutes: t.runtimeMinutes ?? null,
           seasons: t.seasons ?? null,
           tmdbId: t.tmdbId ?? null,
+          poster: null,
+          backdrop: null,
         })
       })
       .catch(() => {})
-    // Also fetch TMDB ID via /api/tmdb/[imdbId] for episode data
-    // The endpoint returns { title: { tmdbId: 123, ... } }
+    // Also fetch TMDB data (poster, backdrop, tmdbId for episodes)
+    // The endpoint returns { title: { tmdbId, poster, backdrop, ... } }
     fetch(`/api/tmdb/${encodeURIComponent(title.imdbId)}`, { cache: "force-cache" })
       .then((r) => r.json())
       .then((data) => {
         if (cancelled) return
-        // The endpoint returns { title: {...} } — extract tmdbId from there
-        const tmdbId = data?.tmdbId ?? data?.title?.tmdbId ?? null
-        if (tmdbId) {
-          setMeta((prev) => prev ? { ...prev, tmdbId } : { title: title.title, year: "", genres: [], runtimeMinutes: null, seasons: null, tmdbId })
+        const tmdbData = data?.title ?? data
+        const tmdbId = tmdbData?.tmdbId ?? null
+        const poster = tmdbData?.poster ?? null
+        const backdrop = tmdbData?.backdrop ?? null
+        if (tmdbId || poster || backdrop) {
+          setMeta((prev) => ({
+            title: prev?.title ?? title.title,
+            year: prev?.year ?? "",
+            genres: prev?.genres ?? [],
+            runtimeMinutes: prev?.runtimeMinutes ?? null,
+            seasons: prev?.seasons ?? null,
+            tmdbId: tmdbId ?? prev?.tmdbId ?? null,
+            poster: poster ?? prev?.poster ?? null,
+            backdrop: backdrop ?? prev?.backdrop ?? null,
+          }))
         }
       })
       .catch(() => {})
@@ -493,6 +509,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   const displayTitle = meta?.title ?? title.title
   const displayYear = meta?.year ?? title.year ?? ""
   const displayGenres = meta?.genres ?? []
+  const displayPoster = meta?.poster ?? title.poster ?? null
 
   const playerUrl = useMemo(
     () =>
@@ -654,7 +671,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
       imdbId: title.imdbId,
       title: displayTitle,
       type: title.type,
-      poster: title.poster ?? null,
+      poster: displayPoster ?? title.poster ?? null,
       year: displayYear || null,
       overview: title.overview ?? null,
       rating: title.rating ?? null,
@@ -662,7 +679,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
       episode: isSeries ? episode : null,
       sourceId: sourceId,
     }).catch(() => {})
-  }, [season, episode, displayTitle, displayYear, sourceId])
+  }, [season, episode, displayTitle, displayYear, displayPoster, sourceId])
 
   const inList = isInWatchlist(title.imdbId)
 
@@ -850,7 +867,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
         imdbId: title.imdbId,
         title: titleToSave,
         type: title.type,
-        poster: title.poster ?? null,
+        poster: displayPoster ?? title.poster ?? null,
         year: displayYear || title.year || null,
         overview: title.overview ?? null,
         rating: title.rating ?? null,
@@ -875,6 +892,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
           imdbId: title.imdbId,
           title: (displayTitle && !displayTitle.startsWith("IMDB ")) ? displayTitle : title.title,
           type: title.type,
+          poster: displayPoster ?? title.poster ?? null,
           position: result.position,
           progress: result.progress,
           duration: result.duration,
