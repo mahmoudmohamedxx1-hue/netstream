@@ -383,35 +383,136 @@
   }
 }
 
-/* Smart TV specific — larger touch targets, simpler layout */
+/* ── Smart TV compatibility — Samsung Tizen, LG webOS, Android TV, etc. ────
+   TV browsers use remote controls (D-pad navigation), have limited CSS
+   support, and are viewed from 3m+ distance. These rules ensure usability. */
+
+/* TV remote: larger tap targets + bigger fonts */
 @media (min-width: 1920px) and (pointer: coarse) {
-  /* TV remote controls need larger tap targets */
-  button, a {
+  button, a, [role="button"] {
     min-height: 48px;
     min-width: 48px;
   }
-  /* Increase font sizes for TV viewing distance */
   body {
     font-size: 18px;
   }
 }
 
-/* iPhone 17 Pro specific — newer Safari may have rendering differences */
+/* Tizen (Samsung TV) — older WebKit engine */
+@media tv and (min-width: 1920px) {
+  /* Tizen doesn't support backdrop-filter at all */
+  * {
+    -webkit-backdrop-filter: none !important;
+    backdrop-filter: none !important;
+  }
+  /* Reduce animation complexity for TV GPUs */
+  * {
+    animation-duration: 0.3s !important;
+    transition-duration: 0.3s !important;
+  }
+}
+
+/* webOS (LG TV) — limited CSS Grid support */
+@supports (-webkit-appearance: none) and (not (backdrop-filter: blur(1px))) {
+  /* Fallback: use flexbox instead of grid for older webOS */
+  .grid {
+    display: flex !important;
+    flex-wrap: wrap !important;
+  }
+  .grid > * {
+    flex: 0 0 auto !important;
+  }
+}
+
+/* Android TV — uses a modified Chrome but with remote control */
+@media screen and (-webkit-min-device-pixel-ratio: 1) and (min-width: 1920px) {
+  /* Ensure focus is visible for D-pad navigation */
+  *:focus {
+    outline: 3px solid #e50914 !important;
+    outline-offset: 2px !important;
+  }
+}
+
+/* Fire TV — Silk browser has limited JS support */
+@supports not (Promise.allSettled) {
+  /* Disable complex animations that Silk can't handle */
+  .skeleton-shimmer {
+    background: rgba(255, 255, 255, 0.05) !important;
+    animation: none !important;
+  }
+}
+
+/* ── iOS Safari specific fixes ──────────────────────────────────────────────
+   Covers iPhone (all models including 17 Pro), iPad, and iPod Touch.
+   Targets via @supports with Apple-specific properties. */
 @supports (font: -apple-system-body) and (-webkit-touch-callout: none) {
-  /* Fix for iOS Safari rendering issues with transform: scale */
   html {
     -webkit-text-size-adjust: 100%;
     text-size-adjust: 100%;
   }
-  /* Fix for iOS Safari 17+ viewport calculations */
   .fixed {
     -webkit-backface-visibility: hidden;
     backface-visibility: hidden;
   }
+  /* Fix 100vh issue on iOS (Safari includes URL bar in viewport height) */
+  .h-screen, .h-\[78vh\] {
+    height: -webkit-fill-available;
+  }
+  /* Fix input zoom on iOS — font-size >= 16px prevents auto-zoom */
+  input, select, textarea {
+    font-size: 16px !important;
+  }
+  /* Fix position: fixed on iOS Safari when keyboard opens */
+  .fixed {
+    position: -webkit-sticky;
+  }
 }
 
-/* Prevent horizontal scroll on all devices */
+/* iPad Pro — reports as MacIntel but has touch */
+@media (pointer: coarse) and (min-width: 1024px) {
+  /* iPad uses touch but has a wide screen — treat as tablet */
+  button, a {
+    min-height: 44px;
+  }
+}
+
+/* ── Android Chrome specific ──────────────────────────────────────────────── */
+@supports (-webkit-appearance: none) and (not (-apple-pay-capable)) {
+  /* Android Chrome: fix tap highlight color */
+  * {
+    -webkit-tap-highlight-color: rgba(229, 9, 20, 0.3);
+  }
+  /* Android Chrome: smooth scrolling */
+  html {
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* ── Older Android browsers (Android 4-6) ────────────────────────────────── */
+@supports not (display: grid) {
+  /* Fallback: flexbox instead of grid */
+  .grid {
+    display: flex !important;
+    flex-wrap: wrap !important;
+  }
+  .grid-cols-2 > * { flex: 0 0 50% !important; }
+  .grid-cols-3 > * { flex: 0 0 33.33% !important; }
+  .grid-cols-4 > * { flex: 0 0 25% !important; }
+}
+
+/* ── Prevent horizontal scroll on ALL devices ────────────────────────────── */
 html, body {
   max-width: 100%;
   overflow-x: hidden;
+  /* Prevent text selection on long press for UI elements */
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  user-select: none;
+}
+
+/* Allow text selection in input/textarea */
+input, textarea, [contenteditable] {
+  -webkit-user-select: text !important;
+  -moz-user-select: text !important;
+  user-select: text !important;
 }
