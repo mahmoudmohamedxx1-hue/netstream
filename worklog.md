@@ -1968,3 +1968,100 @@ Updated ARCHITECTURE.md with all details of this version including:
 - Complete change log
 - Planned future updates
 - Security notes
+
+---
+Task ID: D1
+Agent: main (Z.ai Code)
+Task: Test NetStream on Android mobile devices and fix any compatibility issues.
+
+Work Log:
+
+## D1-A — Tested on 5 Android device viewports + Desktop
+
+Used Agent Browser to test NetStream on the following Android device viewports:
+1. **Pixel 7** (412×915) — modern Android phone
+2. **Samsung Galaxy S20** (360×800) — common Android phone
+3. **Galaxy Fold outer screen** (280×653) — very narrow foldable
+4. **Android Tablet** (1024×1366) — tablet
+5. **Pixel 7 Pro** (414×896) — large Android phone
+6. **Desktop** (1280×800) — with 85% zoom
+
+### Issues Found
+
+**Issue 1: Horizontal scroll on narrow Android viewports**
+- Galaxy S20 (360×800): 44px horizontal overflow
+- Galaxy Fold (280×653): 124px horizontal overflow
+- Root cause: `transform: scale(0.85)` + `width: 117.65%` on `html` element was applied to ALL viewports. On narrow screens (< 412px), the `width: 117.65%` made html wider than the viewport, and `overflow-x: hidden` couldn't fully clip the carousel slides (`w-[100vw]`) positioned off-screen.
+- Pixel 7 (412px) and wider: 0 overflow (worked fine)
+
+**Issue 2: Footer not at bottom of document on Desktop**
+- With `transform: scale(0.85)` on html, `document.documentElement.scrollHeight` returned 5918px while actual content ended at 5030px — creating 888px of phantom scrollable empty space below the footer.
+- Root cause: `transform: scale` doesn't affect layout. The browser calculates scrollHeight as `layout_height / scale_factor`, inflating the reported document height. When user scrolled to "bottom", the footer was above the viewport, not visible.
+- Mobile was unaffected because the media query meant no transform was applied there.
+
+## D1-B — Fixed both issues with a single CSS approach
+
+**Fix: Replaced `transform: scale(0.85)` with CSS `zoom: 0.85` (desktop only, ≥768px)**
+
+File: `src/app/globals.css`
+
+Before:
+```css
+html {
+  transform: scale(0.85);
+  transform-origin: 0 0;
+  width: 117.65%;
+}
+```
+
+After:
+```css
+html {
+  overflow-x: hidden;
+  max-width: 100vw;
+}
+@media (min-width: 768px) {
+  html {
+    zoom: 0.85;
+  }
+}
+```
+
+**Why `zoom` instead of `transform: scale`:**
+- `zoom` affects layout properly — the browser recalculates all dimensions, so `scrollHeight` is accurate (no phantom space).
+- `zoom` is supported in all modern browsers: Chrome, Edge, Safari (since v4), Firefox 126+.
+- The previous note about "iPhone 17 Safari doesn't support zoom" was a misdiagnosis — iOS Safari has supported `zoom` since iOS 4. The original crash was likely from a different cause.
+- On mobile (<768px), no zoom is applied — the UI renders at 100% which is appropriate for small screens and avoids the horizontal overflow entirely.
+
+## D1-C — Verified all fixes
+
+Re-ran all tests after the fix. Results:
+
+| Device | Viewport | H-Scroll | Errors | Footer at bottom |
+|--------|----------|----------|--------|------------------|
+| Pixel 7 | 412×915 | 0 ✓ | none ✓ | yes ✓ |
+| Galaxy S20 | 360×800 | 0 ✓ (was 44) | none ✓ | yes ✓ |
+| Galaxy Fold | 280×653 | 0 ✓ (was 124) | none ✓ | yes ✓ |
+| Android Tablet | 1024×1366 | 0 ✓ | none ✓ | yes ✓ |
+| Pixel 7 Pro | 414×896 | 0 ✓ | none ✓ | yes ✓ |
+| Desktop | 1280×800 | 0 ✓ | none ✓ | yes ✓ (footerAtDocBottom: true) |
+
+Additional verification:
+- **Desktop 85% zoom**: Confirmed via `getComputedStyle(html).zoom` — page is scaled to 85%, all content visible, no cutoff.
+- **Footer on desktop**: `docHeight: 5030` (was 5918), `footer.bottom: 5030` = `docHeight` ✓. After scrolling to bottom, footer is fully visible in viewport.
+- **Player modal on Pixel 7**: Clicked "Play" button → modal opens with YouTube trailer iframe, `dialogVisible: true`, no errors.
+- **Search on Pixel 7**: Clicked Search icon → search overlay opens with textbox, no errors.
+- **IndexedDB Continue Watching**: Database `netstream-client` with `watch-history` store accessible (0 items on fresh session, as expected).
+- **VLM visual analysis** of Galaxy S20 and Galaxy Fold screenshots confirmed: no horizontal cutoff, navbar usable, hero readable, cards properly sized.
+- **VLM analysis** of desktop screenshot confirmed: 85% zoom applied correctly, professional Netflix-like layout, no issues.
+- **Lint**: 0 errors, 10 pre-existing warnings (unused eslint-disable directives).
+- **Dev log**: All API routes returning 200, no errors or crashes.
+
+Stage Summary:
+- **Horizontal scroll FIXED** on all Android devices (0 on all viewports, was 44px on S20 and 124px on Fold).
+- **Footer position FIXED** on desktop (footer now at bottom of document, was 888px above bottom due to transform phantom space).
+- **85% zoom PRESERVED** on desktop/tablet (≥768px) via CSS `zoom: 0.85`.
+- **Mobile renders at 100%** (no zoom) — appropriate for small screens, avoids overflow.
+- **All core flows verified**: home render, navbar, hero, content rows, search, player modal, IndexedDB.
+- **No regressions**: 0 lint errors, 0 runtime errors, all API routes working.
+- Files changed: `src/app/globals.css` (replaced transform: scale with zoom, added media query).
