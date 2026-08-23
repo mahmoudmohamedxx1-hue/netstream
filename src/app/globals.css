@@ -118,20 +118,15 @@
   * {
     @apply border-border outline-ring/50;
   }
-  html {
-    /* Prevent horizontal overflow on ALL devices */
-    overflow-x: hidden;
-    max-width: 100vw;
-  }
-  /* Page renders at 100% on all devices — no zoom.
-     The previous 85% zoom caused the content to appear smaller than the
-     browser window on laptops (large empty margins on both sides). */
+  /* Page renders at 100% on all devices — no zoom, no transform.
+     html stays a non-scroll element (do NOT set overflow on html —
+     setting overflow-x: hidden on html creates a scroll container
+     that conflicts with body and causes janky/stuck scrolling on
+     laptops and trackpads). */
   html,
   body {
     @apply bg-background text-foreground;
     background-color: #0a0a0a;
-    /* Enable native pull-to-refresh on mobile */
-    overscroll-behavior-y: contain;
   }
   /* Hide ALL scrollbars globally */
   * {
@@ -496,14 +491,25 @@
   .grid-cols-4 > * { flex: 0 0 25% !important; }
 }
 
-/* ── Prevent horizontal scroll on ALL devices ────────────────────────────── */
-html, body {
+/* ── Prevent horizontal scroll WITHOUT breaking vertical scroll ──────────── */
+/* Use `overflow-x: clip` on body — unlike `hidden`, `clip` does NOT create
+   a scroll container, so the document's native vertical scrolling stays
+   smooth on trackpads, mice, and touch devices. Setting overflow on both
+   html AND body creates dual scroll containers which causes janky/stuck
+   scrolling — so we only set it on body. */
+body {
   max-width: 100%;
-  overflow-x: hidden;
+  overflow-x: clip;
   /* Prevent text selection on long press for UI elements */
   -webkit-user-select: none;
   -moz-user-select: none;
   user-select: none;
+}
+/* Fallback for browsers without overflow:clip support (Safari <16, old TV browsers) */
+@supports not (overflow: clip) {
+  body {
+    overflow-x: hidden;
+  }
 }
 
 /* Allow text selection in input/textarea */
