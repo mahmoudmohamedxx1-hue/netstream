@@ -123,17 +123,9 @@
     overflow-x: hidden;
     max-width: 100vw;
   }
-  /* On tablet/desktop (>=768px) render the page at 85% zoom.
-     Using CSS `zoom` (supported in Chrome, Edge, Safari, Firefox 126+)
-     instead of `transform: scale` because zoom affects layout properly —
-     transform: scale leaves phantom scroll space below the footer
-     (browser reports scrollHeight = layout_height / scale, creating
-     ~888px of empty scrollable space below the content). */
-  @media (min-width: 768px) {
-    html {
-      zoom: 0.85;
-    }
-  }
+  /* Page renders at 100% on all devices — no zoom.
+     The previous 85% zoom caused the content to appear smaller than the
+     browser window on laptops (large empty margins on both sides). */
   html,
   body {
     @apply bg-background text-foreground;

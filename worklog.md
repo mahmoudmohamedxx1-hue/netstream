@@ -2065,3 +2065,86 @@ Stage Summary:
 - **All core flows verified**: home render, navbar, hero, content rows, search, player modal, IndexedDB.
 - **No regressions**: 0 lint errors, 0 runtime errors, all API routes working.
 - Files changed: `src/app/globals.css` (replaced transform: scale with zoom, added media query).
+
+---
+Task ID: D2
+Agent: main (Z.ai Code)
+Task: Fix "content looks smaller than the window" on laptop browsers.
+
+Work Log:
+
+## D2-A — Diagnosed the issue
+
+The user reported that on their laptop browser, the website content appeared smaller than the browser window — with large empty margins on both sides.
+
+**Root cause:** The `zoom: 0.85` CSS rule (added in Task D1 to replace `transform: scale(0.85)`) was still scaling the entire page down to 85% on all desktop/tablet viewports (≥768px). This made the content occupy only ~75-80% of the window width, leaving ~10-12% empty margin on each side.
+
+The 85% zoom was originally requested by the user in a previous session ("i want now if the browser shows website normally 100% i want it to be 85%"), but it caused:
+1. Horizontal overflow on narrow mobile viewports (fixed in D1 by limiting zoom to ≥768px)
+2. Phantom scroll space below footer with `transform: scale` (fixed in D1 by switching to `zoom`)
+3. **Now:** Content appearing too small on laptop browsers — the user no longer wants the 85% zoom
+
+## D2-B — Removed the 85% zoom entirely
+
+File: `src/app/globals.css`
+
+Before:
+```css
+@media (min-width: 768px) {
+  html {
+    zoom: 0.85;
+  }
+}
+```
+
+After:
+```css
+/* Page renders at 100% on all devices — no zoom.
+   The previous 85% zoom caused the content to appear smaller than the
+   browser window on laptops (large empty margins on both sides). */
+```
+
+The `html` element now only has `overflow-x: hidden` and `max-width: 100vw` to prevent horizontal overflow — no zoom or transform is applied on any device.
+
+## D2-C — Cleared stale .next cache
+
+After editing the CSS, the first test showed `htmlZoom: "0.85"` still being applied even though the source file was correct. Investigation revealed that Turbopack's `.next/dev/static/chunks/src_app_globals_css_*.css` still contained `zoom: .85` at line 537 — the dev server was serving a stale cached CSS file that HMR didn't invalidate.
+
+**Fix:** Deleted the entire `.next` directory and restarted the dev server to force a full recompile.
+
+Verified the recompiled CSS:
+- `grep -c "zoom: .85" .next/dev/static/chunks/src_app_globals_css_*.css` → `0` ✓
+
+## D2-D — Verified the fix
+
+Tested at laptop resolution (1536×864):
+
+| Check | Before | After |
+|-------|--------|-------|
+| `htmlZoom` | `0.85` | `1` ✓ |
+| `navWidth` | ~1305px (85% of 1536) | `1536` (= viewportWidth) ✓ |
+| `navFillsViewport` | false | `true` ✓ |
+| `hScroll` | 0 | `0` ✓ |
+| Screenshot size | 691KB (zoomed out) | 1.5MB (full rich page) ✓ |
+
+**VLM visual analysis** confirmed:
+- Content extends edge-to-edge horizontally — no empty margins on sides
+- Navbar spans full width from left edge to right edge
+- Hero section is proper full-bleed (background image fills entire width)
+- Netflix-style immersive layout — no central container constraining width
+- Text and UI elements appropriately sized for desktop
+- No distortion, no horizontal scroll
+
+Also verified at 1280×800: `htmlZoom: "1"`, navbar fills viewport.
+
+**Lint:** 0 errors, 10 pre-existing warnings (unchanged).
+**Dev log:** All API routes returning 200, no errors.
+
+Stage Summary:
+- **85% zoom REMOVED** entirely — page now renders at 100% on all devices.
+- **Content fills the full browser window** on laptops — no more empty margins.
+- **Navbar and hero are full-width** (Netflix-style full-bleed layout).
+- **Stale .next cache cleared** — CSS changes now properly reflected.
+- **No horizontal scroll** on any device (mobile still has `overflow-x: hidden`).
+- **No regressions** — 0 lint errors, 0 runtime errors, all core flows working.
+- Files changed: `src/app/globals.css` (removed `zoom: 0.85` media query).
