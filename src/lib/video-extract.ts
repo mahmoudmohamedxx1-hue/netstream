@@ -56,7 +56,7 @@ export async function get2EmbedServers(
     const res = await fetch(embedUrl, {
       headers,
       redirect: "follow",
-      signal: AbortSignal.timeout(10000),
+      signal: undefined,
     })
     if (!res.ok) return { servers: [], directServers: [] }
     const html = await res.text()
@@ -80,7 +80,7 @@ export async function get2EmbedServers(
           const srvRes = await fetch(srv.url, {
             headers: { ...headers, Referer: embedUrl },
             redirect: "follow",
-            signal: AbortSignal.timeout(10000),
+            signal: undefined,
           })
           if (!srvRes.ok) return { ...srv, host: "unknown" }
           const srvHtml = await srvRes.text()
@@ -93,7 +93,7 @@ export async function get2EmbedServers(
           const jsRes = await fetch(jsUrl, {
             headers: { ...headers, Referer: srvRes.url },
             redirect: "follow",
-            signal: AbortSignal.timeout(10000),
+            signal: undefined,
           })
           if (!jsRes.ok) return { ...srv, host: "unknown" }
           const jsText = await jsRes.text()
@@ -251,7 +251,7 @@ export async function searchArabicSite(
     const searchRes = await fetch(searchUrl, {
       headers,
       redirect: "follow",
-      signal: AbortSignal.timeout(12000),
+      signal: undefined,
     })
     if (!searchRes.ok) return { sources: [], movieUrl: null }
     const searchHtml = await searchRes.text()
@@ -290,14 +290,14 @@ export async function searchArabicSite(
         headers: { ...headers, "Content-Type": "application/x-www-form-urlencoded" },
         body: "View=1",
         redirect: "follow",
-        signal: AbortSignal.timeout(12000),
+        signal: undefined,
       })
       movieHtml = watchRes.ok ? await watchRes.text() : ""
     } else {
       const watchRes = await fetch(movieUrl, {
         headers,
         redirect: "follow",
-        signal: AbortSignal.timeout(12000),
+        signal: undefined,
       })
       movieHtml = watchRes.ok ? await watchRes.text() : ""
     }
@@ -359,7 +359,7 @@ export async function extractDirectFromEmbed(
     const res = await fetch(embedUrl, {
       headers,
       redirect: "follow",
-      signal: AbortSignal.timeout(10000),
+      signal: undefined,
     })
     html = await res.text()
     finalUrl = res.url || embedUrl
@@ -427,7 +427,7 @@ export async function extractDirectFromEmbed(
         const redRes = await fetch(redirectMatch[1], {
           headers: { ...headers, Referer: embedUrl },
           redirect: "follow",
-          signal: AbortSignal.timeout(10000),
+          signal: undefined,
         })
         const redHtml = await redRes.text()
         const hlsMatch = redHtml.match(/'hls': ?'(http.*?)'/)
@@ -510,7 +510,7 @@ export async function getDownloadInfo(
           method: "HEAD",
           headers: sizeHeaders,
           redirect: "follow",
-          signal: AbortSignal.timeout(8000),
+          signal: undefined,
         })
         const len = sizeRes.headers.get("content-length")
         size = len ? parseInt(len, 10) || 0 : 0
@@ -549,7 +549,7 @@ async function estimateHlsSize(
     const playlistRes = await fetch(m3u8Url, {
       headers,
       redirect: "follow",
-      signal: AbortSignal.timeout(10000),
+      signal: undefined,
     })
     if (!playlistRes.ok) return 0
     let playlist = await playlistRes.text()
@@ -580,7 +580,7 @@ async function estimateHlsSize(
           const variantRes = await fetch(variantUrls[pickIdx], {
             headers,
             redirect: "follow",
-            signal: AbortSignal.timeout(10000),
+            signal: undefined,
           })
           if (variantRes.ok) {
             playlist = await variantRes.text()
@@ -613,7 +613,7 @@ async function estimateHlsSize(
             method: "HEAD",
             headers,
             redirect: "follow",
-            signal: AbortSignal.timeout(3000),
+            signal: undefined,
           })
           const len = segRes.headers.get("content-length")
           return len ? parseInt(len, 10) || 0 : 0

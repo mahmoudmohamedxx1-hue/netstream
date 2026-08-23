@@ -1,6 +1,7 @@
 "use client"
 
 import { create } from "zustand"
+import { fetchWithTimeout } from "./fetch-timeout"
 
 export type SavedTitle = {
   imdbId: string
@@ -46,7 +47,7 @@ export const useLibrary = create<LibraryState>((set, get) => ({
 
   load: async () => {
     try {
-      const wRes = await fetch("/api/watchlist", { cache: "no-store", signal: AbortSignal.timeout(15000) })
+      const wRes = await fetchWithTimeout("/api/watchlist", { cache: "no-store", timeoutMs: 15000 })
       const w = wRes.ok ? ((await wRes.json()) as { items: SavedTitle[] }) : { items: [] }
       set({ watchlist: w.items ?? [], loaded: true })
     } catch {
