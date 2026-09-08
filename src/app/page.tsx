@@ -14,6 +14,7 @@ import { TitleDetail } from "@/components/netflix/title-detail"
 import { Footer } from "@/components/netflix/footer"
 import { PullToRefresh } from "@/components/netflix/pull-to-refresh"
 import { OfflineIndicator } from "@/components/netflix/offline-indicator"
+import { QuickStartCard } from "@/components/netflix/quick-start-card"
 import { Poster } from "@/components/netflix/poster"
 import {
   CATALOG,
@@ -142,6 +143,11 @@ export default function Home() {
 
             {/* IMDB quick-launch banner */}
             <ImdbBanner onOpen={() => setSearchOpen(true)} />
+
+            {/* Quick start onboarding card (3-step install guide) */}
+            <div className="mx-4 my-10 sm:mx-8">
+              <QuickStartCard />
+            </div>
           </>
         )}
       </main>
