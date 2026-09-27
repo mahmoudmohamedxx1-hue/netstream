@@ -668,21 +668,34 @@ export function buildPlayerUrl(opts: {
   sourceId?: string
 }): string {
   const source = getSource(opts.sourceId ?? VIDEO_SOURCES[0].id)
-  if (source.useTmdbId && opts.tmdbId && source.buildMovieTmdb) {
+
+  // Extract TMDB ID from the "tmdb-{id}" format (used when a title has no
+  // IMDB ID — some providers like vidlink, vidfast, videasy support TMDB IDs)
+  let tmdbId = opts.tmdbId
+  if (!tmdbId && opts.imdbId?.startsWith("tmdb-")) {
+    tmdbId = Number(opts.imdbId.replace("tmdb-", ""))
+  }
+
+  // If the source supports TMDB IDs and we have one, use it
+  if (source.useTmdbId && tmdbId && source.buildMovieTmdb) {
     if (opts.type === "series" && source.buildSeriesTmdb) {
       return source.buildSeriesTmdb(
-        opts.tmdbId,
+        tmdbId,
         opts.season ?? 1,
         opts.episode ?? 1,
       )
     }
-    return source.buildMovieTmdb(opts.tmdbId)
+    return source.buildMovieTmdb(tmdbId)
   }
-  // Fall back to IMDB ID
+
+  // Fall back to IMDB ID (skip the "tmdb-" prefix — those providers don't
+  // support TMDB IDs, so the title won't play on them. The auto-fallback
+  // will switch to a TMDB-supporting provider.)
+  const imdbId = opts.imdbId?.startsWith("tmdb-") ? "" : opts.imdbId
   if (opts.type === "series") {
-    return source.buildSeries(opts.imdbId, opts.season ?? 1, opts.episode ?? 1)
+    return source.buildSeries(imdbId, opts.season ?? 1, opts.episode ?? 1)
   }
-  return source.buildMovie(opts.imdbId)
+  return source.buildMovie(imdbId)
 }
 
 // Validate an IMDB id (e.g. "tt0111161"). Tolerant: adds "tt" prefix if missing.

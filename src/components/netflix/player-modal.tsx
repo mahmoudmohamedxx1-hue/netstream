@@ -69,7 +69,10 @@ function toggleFavorite(id: string): string[] {
 
 // ── Preferred providers (user-specified top 5) ──────────────────────────────
 // These are tried first by the auto-switch logic, in this order.
-const PREFERRED_PROVIDERS = ["vidfast.pro", "vidcore.net", "superembed", "moviesapi.to", "2embed.cc"]
+const PREFERRED_PROVIDERS = ["vidlink.pro", "vidfast.pro", "moviesapi.to", "superembed", "2embed.cc"]
+// TMDB-supporting providers — used when a title has no IMDB ID (tmdb- prefix).
+// These providers can play titles using TMDB IDs directly.
+const TMDB_PROVIDERS = ["vidlink.pro", "vidfast.pro", "videasy.net"]
 
 // ── Watched episodes — saved in localStorage per imdbId+season ──────────────
 const WATCHED_KEY = "netstream:watched"
@@ -282,7 +285,14 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   // If the user has a saved sourceId from watch history (resume), use that.
   const [quality, setQuality] = useState<string>("auto")
   const savedSourceId = title.sourceId ?? undefined
-  const defaultSource = savedSourceId || lastProvider.get(title.imdbId) || "vidfast.pro"
+  // If the title has no IMDB ID (tmdb- prefix), default to a TMDB-supporting
+  // provider (vidlink.pro) so it can play without needing an IMDB ID.
+  // vidlink.pro is also the default for all titles because it has fewer ads
+  // than vidfast/vidcore and supports both IMDB and TMDB IDs.
+  const isTmdbOnly = title.imdbId?.startsWith("tmdb-")
+  const defaultSource = savedSourceId
+    || lastProvider.get(title.imdbId)
+    || "vidlink.pro"
   const [sourceId, setSourceId] = useState<string>(defaultSource)
   const [season, setSeason] = useState<number>(title.season ?? 1)
   const [episode, setEpisode] = useState<number>(title.episode ?? 1)
@@ -537,9 +547,9 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
 
   // Providers that benefit from proxying (sandbox detection, heavy ads):
   // 2embed.cc, 2embed.skin, 2embed.to, vidsrc.me, vidsrc.to
-  // Other providers (vidfast, vidcore, vidlink, moviesapi, etc.) should be
-  // loaded directly — the proxy breaks their JS video player.
-  const PROXY_PROVIDERS = ["2embed.cc", "2embed.skin", "2embed.to", "vidsrc.me", "vidsrc.to", "vidsrc.cc"]
+  // NOTE: vidcore.net returns 403 to server-side requests (Cloudflare),
+  // so it can't be proxied. Its ads are handled by the browser's popup blocker.
+  const PROXY_PROVIDERS = ["2embed.cc", "2embed.skin", "2embed.to", "vidsrc.me", "vidsrc.to", "vidsrc.cc", "vidsrc.stream", "vidsrc.xyz"]
 
   const rawPlayerUrl = useMemo(
     () =>
@@ -586,10 +596,12 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
 
     const checkAndSwitch = async () => {
       // Build the fallback chain: favorites first, then preferred, then tier 1
+      // For TMDB-only titles (no IMDB ID), use TMDB-supporting providers
       const favSources = favorites
         .map(id => VIDEO_SOURCES.find(s => s.id === id))
         .filter((s): s is VideoSource => !!s && s.tier < 5)
-      const preferredSources = PREFERRED_PROVIDERS
+      const preferredList = isTmdbOnly ? TMDB_PROVIDERS : PREFERRED_PROVIDERS
+      const preferredSources = preferredList
         .map(id => VIDEO_SOURCES.find(s => s.id === id))
         .filter((s): s is VideoSource => !!s)
       const tier1Sources = VIDEO_SOURCES.filter(s => s.tier === 1)
@@ -928,10 +940,12 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
       fallbackIdxRef.current += 1
       if (fallbackIdxRef.current > 3) return
       // Build the fallback chain: favorites first, then preferred, then tier 1
+      // For TMDB-only titles (no IMDB ID), use TMDB-supporting providers
       const favSources = favorites
         .map(id => VIDEO_SOURCES.find(s => s.id === id))
         .filter((s): s is VideoSource => !!s && s.tier < 5)
-      const preferredSources = PREFERRED_PROVIDERS
+      const preferredList = isTmdbOnly ? TMDB_PROVIDERS : PREFERRED_PROVIDERS
+      const preferredSources = preferredList
         .map(id => VIDEO_SOURCES.find(s => s.id === id))
         .filter((s): s is VideoSource => !!s)
       const tier1Sources = VIDEO_SOURCES.filter(s => s.tier === 1)

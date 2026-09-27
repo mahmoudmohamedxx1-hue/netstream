@@ -525,8 +525,33 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
         if (data.imdbId) {
           t.imdbId = data.imdbId
           onPlay({ imdbId: data.imdbId, title: t.title, type: t.type, year: t.year, poster: data.poster ?? t.poster, overview: t.overview, rating: t.rating })
+        } else {
+          // No IMDB ID found — fall back to TMDB ID. Some providers
+          // (vidlink, vidfast, videasy) support TMDB IDs directly.
+          // We pass a synthetic imdbId of "tmdb-{id}" so the player knows
+          // to use the TMDB ID for providers that support it.
+          onPlay({
+            imdbId: `tmdb-${t.tmdbId}`,
+            title: t.title,
+            type: t.type,
+            year: t.year,
+            poster: data.poster ?? t.poster,
+            overview: t.overview,
+            rating: t.rating,
+          } as any)
         }
-      } catch {}
+      } catch {
+        // On error, still try to play with TMDB ID fallback
+        onPlay({
+          imdbId: `tmdb-${t.tmdbId}`,
+          title: t.title,
+          type: t.type,
+          year: t.year,
+          poster: t.poster,
+          overview: t.overview,
+          rating: t.rating,
+        } as any)
+      }
       setLookingUp(null)
     },
     [onPlay]
