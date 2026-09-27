@@ -1269,12 +1269,6 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
                   allowFullScreen
                   referrerPolicy="no-referrer"
                   onLoad={() => setLoaded(true)}
-                  // Sandbox: when ad-block is ON, block popups and top navigation
-                  // to prevent popunder ads. When OFF, allow everything.
-                  // This works across ALL platforms (desktop, mobile, Smart TV).
-                  sandbox={adBlockOn
-                    ? "allow-scripts allow-same-origin allow-presentation allow-forms"
-                    : "allow-scripts allow-same-origin allow-presentation allow-forms allow-popups allow-top-navigation"}
                   className="absolute inset-0 h-full w-full"
                 />
               )}
