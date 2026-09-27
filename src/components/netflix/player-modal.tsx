@@ -879,21 +879,18 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   }, [sourceId, health, title.imdbId, lastProvider, toast, reportProvider])
 
   // ── Reliable auto-fallback ──────────────────────────────────────────────
-  // When the iframe doesn't start playing within 8s, try the next preferred
+  // When the video doesn't start playing within 8s, try the next preferred
   // provider. We DON'T cancel this when onLoad fires — onLoad just means the
   // HTML page loaded, not that the video is actually playing. Cross-origin
   // iframes block us from detecting playback, so we use a timer instead.
-  // The fallback chain is:
-  //   1. User's favorite servers (if any) — sorted by tier
-  //   2. PREFERRED_PROVIDERS (vidfast, vidcore, superembed, moviesapi, 2embed)
-  //   3. All tier 1 providers
-  // Caps at 3 attempts. Reset by manual "Next server" / "Reload".
-  // Skipped for Arabic providers (they have their own flow).
-  // Also skipped if the user has interacted (clicked something = video works).
+  // Uses a ref-based timer that survives re-renders (the old useEffect approach
+  // kept getting cleared by re-renders from setLoaded/setPrechecking).
+  const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => {
-    if (userInteractedRef.current) return
     if (isArabicProvider) return
-    const timer = setTimeout(() => {
+    // Start the fallback timer on mount / when sourceId changes
+    if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current)
+    fallbackTimerRef.current = setTimeout(() => {
       if (userInteractedRef.current) return
       fallbackIdxRef.current += 1
       if (fallbackIdxRef.current > 3) return
@@ -905,14 +902,13 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
         .map(id => VIDEO_SOURCES.find(s => s.id === id))
         .filter((s): s is VideoSource => !!s)
       const tier1Sources = VIDEO_SOURCES.filter(s => s.tier === 1)
-      // Combine, deduplicate
       const chain = [...favSources, ...preferredSources, ...tier1Sources]
         .filter((s, i, arr) => arr.findIndex(x => x.id === s.id) === i)
       if (chain.length === 0) return
-      const currentIdx = chain.findIndex(s => s.id === sourceId)
+      const currentIdx = chain.findIndex(s => s.id === sourceIdRef.current)
       const nextIdx = (currentIdx + 1) % chain.length
       const next = chain[nextIdx]
-      if (next && next.id !== sourceId) {
+      if (next && next.id !== sourceIdRef.current) {
         setLoaded(false)
         setSourceId(next.id)
         lastProvider.set(title.imdbId, next.id)
@@ -923,8 +919,11 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
         })
       }
     }, 8000)
-    return () => clearTimeout(timer)
-  }, [sourceId, reloads, isArabicProvider, title.imdbId, favorites, lastProvider, toast])
+    return () => {
+      if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sourceId, reloads, title.imdbId])
   // A4 — 30-second watch-success reporter.
   const reportedOkRef = useRef<Set<string>>(new Set())
   useEffect(() => {
