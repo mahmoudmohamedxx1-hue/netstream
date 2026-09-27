@@ -1,6 +1,7 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import { Navbar } from "@/components/netflix/navbar"
 import { ContentRow } from "@/components/netflix/content-row"
 import { ContentCard, type CardTitle } from "@/components/netflix/content-card"
@@ -29,13 +30,188 @@ import { Play, Bookmark, History, Search as SearchIcon, Film, Tv, Download, Glob
 type NavKey = "home" | "series" | "movies" | "mylist"
 
 export default function Home() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#0a0a0a]" />}>
+      <HomeContent />
+    </Suspense>
+  )
+}
+
+function HomeContent() {
   const { t } = useLang()
+  const router = useRouter()
+  const searchParams = useSearchParams()
+
+  // ── URL-synced state ────────────────────────────────────────────────────
+  // Each view has its own shareable link:
+  //   /                  → Home
+  //   /?nav=series       → Series browse page
+  //   /?nav=movies       → Movies browse page
+  //   /?nav=mylist       → My List page
+  //   /?detail=tt1234567 → Title detail page for that IMDB ID
+  //   /?play=tt1234567   → Player modal open for that title
+  //   /?search=1         → Search overlay open
+  //
+  // We read the initial state from the URL on mount, and push updates to the
+  // URL whenever state changes. Browser back/forward works naturally.
+
+  // Read initial values from URL
+  const initialNav = (searchParams.get("nav") as NavKey) || "home"
+  const initialDetailId = searchParams.get("detail")
+  const initialPlayId = searchParams.get("play")
+  const initialSearch = searchParams.get("search") === "1"
+
   const [player, setPlayer] = useState<PlayerTitle | null>(null)
   const [detail, setDetail] = useState<{ imdbId: string; title: string; type: "movie" | "series"; year?: string | null; poster?: string | null; overview?: string | null; rating?: string | null } | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
   const [imdbOpen, setImdbOpen] = useState(false)
-  const [nav, setNav] = useState<NavKey>("home")
+  const [nav, setNav] = useState<NavKey>(initialNav)
   const { watchlist, load } = useLibrary()
+
+  // ── Sync state → URL ────────────────────────────────────────────────────
+  // Build the query string from current state and replace the URL (without
+  // scrolling). We use replace for detail/player/search (overlays) and push
+  // for nav changes (distinct pages the user might want to go back to).
+  const updateUrl = useCallback((opts: {
+    nav?: NavKey
+    detailId?: string | null
+    playId?: string | null
+    search?: boolean
+    push?: boolean
+  }) => {
+    const params = new URLSearchParams()
+    const n = opts.nav ?? nav
+    if (n !== "home") params.set("nav", n)
+    if (opts.detailId) params.set("detail", opts.detailId)
+    if (opts.playId) params.set("play", opts.playId)
+    if (opts.search) params.set("search", "1")
+    const qs = params.toString()
+    const url = qs ? `/?${qs}` : "/"
+    if (opts.push) {
+      router.push(url, { scroll: false })
+    } else {
+      router.replace(url, { scroll: false })
+    }
+  }, [nav, router])
+
+  // ── On mount: if the URL has ?detail=tt... or ?play=tt..., resolve it ───
+  // We don't have the full title object from the URL alone, so we fetch it
+  // from the TMDB API to get the title, poster, type, etc.
+  // The API returns { title: { title, type, poster, ... } } — the actual
+  // title data is nested under data.title.
+  useEffect(() => {
+    if (initialDetailId) {
+      // Resolve title detail from IMDB ID
+      fetch(`/api/tmdb/${initialDetailId}`)
+        .then((r) => r.ok ? r.json() : null)
+        .then((data) => {
+          const t = data?.title ?? data
+          if (t) {
+            setDetail({
+              imdbId: initialDetailId,
+              title: t.title ?? "",
+              type: t.type ?? "movie",
+              year: t.year ?? null,
+              poster: t.poster ?? null,
+              overview: t.overview ?? null,
+              rating: t.rating ?? null,
+            })
+          }
+        })
+        .catch(() => {})
+    } else if (initialPlayId) {
+      // Resolve player title from IMDB ID
+      fetch(`/api/tmdb/${initialPlayId}`)
+        .then((r) => r.ok ? r.json() : null)
+        .then((data) => {
+          const t = data?.title ?? data
+          if (t) {
+            setPlayer({
+              imdbId: initialPlayId,
+              title: t.title ?? "",
+              type: t.type ?? "movie",
+              poster: t.poster ?? null,
+              year: t.year ?? null,
+              overview: t.overview ?? null,
+              rating: t.rating ?? null,
+              season: null,
+              episode: null,
+            })
+          }
+        })
+        .catch(() => {})
+    }
+    if (initialSearch) {
+      setSearchOpen(true)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // ── Handle browser back/forward buttons ─────────────────────────────────
+  // When the user clicks back/forward, the URL changes but our React state
+  // doesn't automatically update. We listen for popstate and sync state
+  // from the new URL.
+  useEffect(() => {
+    const onPopState = () => {
+      const params = new URLSearchParams(window.location.search)
+      const newNav = (params.get("nav") as NavKey) || "home"
+      const newDetailId = params.get("detail")
+      const newPlayId = params.get("play")
+      const newSearch = params.get("search") === "1"
+
+      setNav(newNav)
+      setSearchOpen(newSearch)
+
+      // If the URL has a detail/play ID we don't currently have, resolve it
+      if (newDetailId && (!detail || detail.imdbId !== newDetailId)) {
+        fetch(`/api/tmdb/${newDetailId}`)
+          .then((r) => r.ok ? r.json() : null)
+          .then((data) => {
+            const t = data?.title ?? data
+            if (t) {
+              setDetail({
+                imdbId: newDetailId,
+                title: t.title ?? "",
+                type: t.type ?? "movie",
+                year: t.year ?? null,
+                poster: t.poster ?? null,
+                overview: t.overview ?? null,
+                rating: t.rating ?? null,
+              })
+            }
+          })
+          .catch(() => {})
+      } else if (!newDetailId) {
+        setDetail(null)
+      }
+
+      if (newPlayId && (!player || player.imdbId !== newPlayId)) {
+        fetch(`/api/tmdb/${newPlayId}`)
+          .then((r) => r.ok ? r.json() : null)
+          .then((data) => {
+            const t = data?.title ?? data
+            if (t) {
+              setPlayer({
+                imdbId: newPlayId,
+                title: t.title ?? "",
+                type: t.type ?? "movie",
+                poster: t.poster ?? null,
+                year: t.year ?? null,
+                overview: t.overview ?? null,
+                rating: t.rating ?? null,
+                season: null,
+                episode: null,
+              })
+            }
+          })
+          .catch(() => {})
+      } else if (!newPlayId) {
+        setPlayer(null)
+      }
+    }
+    window.addEventListener("popstate", onPopState)
+    return () => window.removeEventListener("popstate", onPopState)
+  }, [detail, player])
 
   // Load watchlist from API on mount (history is now IndexedDB-based)
   useEffect(() => {
@@ -46,6 +222,16 @@ export default function Home() {
   useEffect(() => {
     window.scrollTo(0, 0)
   }, [nav])
+
+  // ── State setters that also sync to URL ──────────────────────────────────
+  const handleSetNav = useCallback((k: NavKey) => {
+    setNav(k)
+    // Close any open overlays when switching pages
+    setDetail(null)
+    setPlayer(null)
+    setSearchOpen(false)
+    updateUrl({ nav: k, detailId: null, playId: null, search: false, push: true })
+  }, [updateUrl])
 
   // Open the title detail page (TMDB metadata, cast, trailer, similar)
   const openDetail = useCallback((t: CardTitle | Title | SavedTitle) => {
@@ -58,7 +244,10 @@ export default function Home() {
       overview: t.overview ?? null,
       rating: t.rating ?? null,
     })
-  }, [])
+    setPlayer(null)
+    setSearchOpen(false)
+    updateUrl({ detailId: t.imdbId, playId: null, search: false, push: true })
+  }, [updateUrl])
 
   // Play directly (skips detail) — used by "Continue Watching" and IMDB dialog
   const openPlayer = useCallback((t: CardTitle | Title | SavedTitle) => {
@@ -73,7 +262,31 @@ export default function Home() {
       season: (t as { season?: number | null }).season ?? null,
       episode: (t as { episode?: number | null }).episode ?? null,
     })
-  }, [])
+    setDetail(null)
+    setSearchOpen(false)
+    updateUrl({ detailId: null, playId: t.imdbId, search: false, push: true })
+  }, [updateUrl])
+
+  // Close handlers — clear the URL params
+  const closeDetail = useCallback(() => {
+    setDetail(null)
+    updateUrl({ detailId: null, push: true })
+  }, [updateUrl])
+
+  const closePlayer = useCallback(() => {
+    setPlayer(null)
+    updateUrl({ playId: null, push: true })
+  }, [updateUrl])
+
+  const closeSearch = useCallback(() => {
+    setSearchOpen(false)
+    updateUrl({ search: false })
+  }, [updateUrl])
+
+  const openSearch = useCallback(() => {
+    setSearchOpen(true)
+    updateUrl({ search: true })
+  }, [updateUrl])
 
   // AI Chat — when the AI suggests a title, open the detail page.
   // If we have an imdbId, open directly. If we only have a tmdbId, do a
@@ -122,8 +335,8 @@ export default function Home() {
       } catch {}
     }
     // Fallback: open the search overlay so the user can find it manually
-    setSearchOpen(true)
-  }, [openDetail])
+    openSearch()
+  }, [openDetail, openSearch])
 
   const rows = useMemo(() => getRows(), [])
 
@@ -163,15 +376,15 @@ export default function Home() {
     <div className="flex min-h-screen flex-col bg-[#0a0a0a]">
       <PullToRefresh />
       <Navbar
-        onSearch={() => setSearchOpen(true)}
+        onSearch={openSearch}
         active={nav}
-        onNav={(k) => setNav(k as NavKey)}
+        onNav={(k) => handleSetNav(k as NavKey)}
       />
 
       <main className="flex-1" style={{ display: player || detail ? "none" : undefined }}>
         {/* My List view */}
         {nav === "mylist" ? (
-          <MyListView items={myListCards} onPlay={openDetail} onSearch={() => setSearchOpen(true)} />
+          <MyListView items={myListCards} onPlay={openDetail} onSearch={openSearch} />
         ) : nav === "movies" ? (
           <TmdbBrowseGrid type="movie" onPlay={openDetail} />
         ) : nav === "series" ? (
@@ -190,10 +403,10 @@ export default function Home() {
             />
 
             {/* Library banner */}
-            <LibraryBanner onNav={(k) => setNav(k as NavKey)} />
+            <LibraryBanner onNav={(k) => handleSetNav(k as NavKey)} />
 
             {/* IMDB quick-launch banner */}
-            <ImdbBanner onOpen={() => setSearchOpen(true)} />
+            <ImdbBanner onOpen={openSearch} />
 
             {/* Quick start onboarding card (3-step install guide) */}
             <div className="mx-4 my-10 sm:mx-8">
@@ -211,16 +424,16 @@ export default function Home() {
       <TitleDetail
         title={detail ?? { imdbId: "", title: "", type: "movie" }}
         open={!!detail}
-        onClose={() => setDetail(null)}
-        onPlay={(t) => { setDetail(null); openPlayer(t) }}
+        onClose={closeDetail}
+        onPlay={(t) => { closeDetail(); openPlayer(t) }}
       />
 
-      <PlayerModal title={player} onClose={() => setPlayer(null)} />
+      <PlayerModal title={player} onClose={closePlayer} />
       <OfflineIndicator />
       <SearchOverlay
         open={searchOpen}
-        onClose={() => setSearchOpen(false)}
-        onPlay={(t) => { setSearchOpen(false); openDetail(t) }}
+        onClose={closeSearch}
+        onPlay={(t) => { closeSearch(); openDetail(t) }}
       />
       <ImdbPlayDialog
         open={imdbOpen}
