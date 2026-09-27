@@ -909,6 +909,10 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
       // No health data — fall back to all alive (tier < 5) sources
       chain = VIDEO_SOURCES.filter((s) => s.tier < 5)
     }
+    // For TMDB-only titles, filter to only TMDB-supporting providers
+    if (isTmdbOnly) {
+      chain = chain.filter((s) => s.useTmdbId)
+    }
     if (chain.length === 0) return
     const currentIdx = chain.findIndex((s) => s.id === sourceId)
     const next = chain[(currentIdx + 1) % chain.length]
