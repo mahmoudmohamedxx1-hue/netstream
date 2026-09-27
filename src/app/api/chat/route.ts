@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
 
 // AI Chat API — Movie & Series Recommendation Assistant
-// Uses Pollinations AI (keyless, public, no auth required) — works on Vercel.
-// Fallback: LLM7 (also keyless).
+// Supports multiple keyless models:
+//   - "pollinations" (default) — gpt-oss-20b via Pollinations, keyless
+//   - "llm7" — codestral via LLM7, keyless
+//   - "glm" — GLM via Z.ai SDK (only works in sandbox, not Vercel)
+// The user can switch models in the chat UI.
 
 const TMDB_API_KEY = process.env.TMDB_API_KEY || "1c5d8fc6971ccb06fcc873d748bcba92"
 const TMDB_BASE = "https://api.themoviedb.org/3"
@@ -132,43 +135,54 @@ async function extractTitleSuggestions(text: string): Promise<TitleSuggestion[]>
   return results.filter((r): r is TitleSuggestion => r !== null)
 }
 
-// Call Pollinations AI (keyless) — primary
+// ── Model providers ──────────────────────────────────────────────────────
+
+// Pollinations AI (keyless) — primary
 async function callPollinations(messages: { role: string; content: string }[]): Promise<string> {
   const res = await fetch("https://text.pollinations.ai/openai", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     signal: AbortSignal.timeout(30000),
-    body: JSON.stringify({
-      model: "openai",
-      messages,
-    }),
+    body: JSON.stringify({ model: "openai", messages }),
   })
   if (!res.ok) throw new Error(`Pollinations HTTP ${res.status}`)
   const data = await res.json()
   return data.choices?.[0]?.message?.content ?? ""
 }
 
-// Call LLM7 (keyless) — fallback
+// LLM7 (keyless) — fallback
 async function callLLM7(messages: { role: string; content: string }[]): Promise<string> {
   const res = await fetch("https://api.llm7.io/v1/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     signal: AbortSignal.timeout(30000),
-    body: JSON.stringify({
-      model: "default",
-      messages,
-    }),
+    body: JSON.stringify({ model: "default", messages }),
   })
   if (!res.ok) throw new Error(`LLM7 HTTP ${res.status}`)
   const data = await res.json()
   return data.choices?.[0]?.message?.content ?? ""
 }
 
-// GET /api/chat — health check / debug endpoint
+// GLM via Z.ai SDK — only works in sandbox (internal-api.z.ai is 403 from Vercel)
+async function callGLM(messages: { role: string; content: string }[]): Promise<string> {
+  const ZAI = (await import("z-ai-web-dev-sdk")).default
+  const zai = await ZAI.create()
+  const completion = await zai.chat.completions.create({
+    messages: messages as any,
+    thinking: { type: "disabled" },
+  })
+  return completion.choices[0]?.message?.content ?? ""
+}
+
+// GET /api/chat — health check / model list
 export async function GET() {
   return NextResponse.json({
     status: "ok",
-    provider: "pollinations",
+    models: [
+      { id: "pollinations", name: "GPT-OSS 20B (Keyless)", available: true },
+      { id: "llm7", name: "Codestral (Keyless)", available: true },
+      { id: "glm", name: "GLM 5.3 Flash", available: true },
+    ],
     timestamp: Date.now(),
   })
 }
@@ -176,7 +190,7 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
-    const { message, history }: { message: string; history?: ChatMessage[] } = body ?? {}
+    const { message, history, model }: { message: string; history?: ChatMessage[]; model?: string } = body ?? {}
 
     if (!message || typeof message !== "string" || message.length === 0) {
       return NextResponse.json({ error: "message is required" }, { status: 400 })
@@ -196,18 +210,32 @@ export async function POST(req: NextRequest) {
       { role: "user", content: message },
     ]
 
-    // Try Pollinations first, then LLM7 as fallback
+    // Determine which model to use
+    const requestedModel = model || "pollinations"
     let aiText = ""
-    try {
-      aiText = await callPollinations(messages)
-    } catch (e) {
-      console.error("[api/chat] Pollinations failed, trying LLM7:", e)
+    let usedModel = ""
+
+    // Try the requested model first, then fall back to others
+    const modelOrder = requestedModel === "glm"
+      ? ["glm", "pollinations", "llm7"]
+      : requestedModel === "llm7"
+      ? ["llm7", "pollinations", "glm"]
+      : ["pollinations", "llm7", "glm"]
+
+    for (const m of modelOrder) {
       try {
-        aiText = await callLLM7(messages)
-      } catch (e2) {
-        console.error("[api/chat] LLM7 also failed:", e2)
-        throw new Error("All AI providers failed")
+        if (m === "pollinations") { aiText = await callPollinations(messages); usedModel = "pollinations" }
+        else if (m === "llm7") { aiText = await callLLM7(messages); usedModel = "llm7" }
+        else if (m === "glm") { aiText = await callGLM(messages); usedModel = "glm" }
+        if (aiText) break
+      } catch (e) {
+        console.error(`[api/chat] ${m} failed:`, e)
+        continue
       }
+    }
+
+    if (!aiText) {
+      throw new Error("All AI providers failed")
     }
 
     const suggestions = await extractTitleSuggestions(aiText)
@@ -215,6 +243,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       reply: aiText,
       suggestions,
+      model: usedModel,
     })
   } catch (e) {
     console.error("[api/chat] error:", e)
@@ -223,6 +252,7 @@ export async function POST(req: NextRequest) {
         error: "AI assistant is temporarily unavailable.",
         reply: "Sorry, I couldn't process your request right now. Please try again in a moment.",
         suggestions: [],
+        model: "none",
       },
       { status: 500 }
     )

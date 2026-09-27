@@ -20,6 +20,8 @@ import {
   Maximize,
   Minimize,
   SkipForward,
+  ShieldCheck,
+  ShieldOff,
 } from "lucide-react"
 import { Poster } from "./poster"
 import { EpisodeGrid } from "./episode-grid"
@@ -46,7 +48,7 @@ import { estimateHourlyData, estimateTotalData, parseQuality } from "@/lib/data-
 import { useLastProvider } from "@/hooks/use-last-provider"
 import { usePlaybackProgress } from "@/hooks/use-playback-progress"
 import { useLang } from "@/lib/lang-context"
-import { getAdBlockEnabled } from "@/components/netflix/navbar"
+import { getAdBlockEnabled, setAdBlockEnabled } from "@/components/netflix/navbar"
 import { upsertWatchItem } from "@/lib/client-history"
 
 // ── Favorite servers — saved in localStorage ────────────────────────────────
@@ -517,7 +519,21 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   const displayGenres = meta?.genres ?? []
   const displayPoster = meta?.poster ?? title.poster ?? null
 
-  const playerUrl = useMemo(
+  // Ad-block: when enabled, route the iframe through /api/video-proxy which
+  // strips ad scripts, hides ad elements, and blocks ad network requests.
+  // This acts like uBlock Origin Lite — no pop-up ads, no popunders.
+  const [adBlockOn, setAdBlockOn] = useState(true)
+  useEffect(() => {
+    setAdBlockOn(getAdBlockEnabled())
+  }, [])
+  const toggleAdBlock = useCallback(() => {
+    const next = !adBlockOn
+    setAdBlockOn(next)
+    setAdBlockEnabled(next)
+    setReloads((r) => r + 1) // reload the iframe with/without proxy
+  }, [adBlockOn])
+
+  const rawPlayerUrl = useMemo(
     () =>
       buildPlayerUrl({
         imdbId: title.imdbId,
@@ -528,6 +544,12 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
       }),
     [title, season, episode, sourceId]
   )
+
+  const playerUrl = useMemo(() => {
+    if (!adBlockOn) return rawPlayerUrl
+    // Route through video-proxy to strip ads
+    return `/api/video-proxy?url=${encodeURIComponent(rawPlayerUrl)}`
+  }, [rawPlayerUrl, adBlockOn])
 
   // Arabic provider streaming — when the user selects an Arabic scraper site
   // (EgyDead, EgyBest, etc.), we:
@@ -1473,6 +1495,17 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
               title={`${t("reload")} (R)`}
             >
               <RotateCw className="h-3.5 w-3.5" />
+            </button>
+            <button
+              onClick={toggleAdBlock}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-semibold text-white transition",
+                adBlockOn ? "bg-emerald-500/20 hover:bg-emerald-500/30" : "bg-white/10 hover:bg-white/20"
+              )}
+              title={adBlockOn ? "Ad-block ON — pop-up ads are blocked" : "Ad-block OFF — pop-up ads may appear"}
+            >
+              {adBlockOn ? <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" /> : <ShieldOff className="h-3.5 w-3.5" />}
+              <span className="hidden sm:inline">{adBlockOn ? "Ad-Block" : "No Block"}</span>
             </button>
             <button
               onClick={handleNextServer}
