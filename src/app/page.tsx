@@ -15,6 +15,7 @@ import { Footer } from "@/components/netflix/footer"
 import { PullToRefresh } from "@/components/netflix/pull-to-refresh"
 import { OfflineIndicator } from "@/components/netflix/offline-indicator"
 import { QuickStartCard } from "@/components/netflix/quick-start-card"
+import { AIChat } from "@/components/netflix/ai-chat"
 import { Poster } from "@/components/netflix/poster"
 import {
   CATALOG,
@@ -73,6 +74,56 @@ export default function Home() {
       episode: (t as { episode?: number | null }).episode ?? null,
     })
   }, [])
+
+  // AI Chat — when the AI suggests a title, open the detail page.
+  // If we have an imdbId, open directly. If we only have a tmdbId, do a
+  // lookup first to resolve the imdbId.
+  const handleAIPlay = useCallback(async (s: {
+    title: string
+    year?: string
+    type: "movie" | "series"
+    tmdbId?: number
+    imdbId?: string
+    poster?: string | null
+    overview?: string
+    rating?: string | null
+  }) => {
+    if (s.imdbId) {
+      openDetail({
+        imdbId: s.imdbId,
+        title: s.title,
+        type: s.type,
+        year: s.year ?? null,
+        poster: s.poster ?? null,
+        overview: s.overview ?? null,
+        rating: s.rating ?? null,
+      } as CardTitle)
+      return
+    }
+    if (s.tmdbId) {
+      try {
+        const tmdbType = s.type === "series" ? "tv" : "movie"
+        const res = await fetch(`/api/tmdb/lookup?tmdbId=${s.tmdbId}&type=${tmdbType}`)
+        if (res.ok) {
+          const data = await res.json()
+          if (data.imdbId) {
+            openDetail({
+              imdbId: data.imdbId,
+              title: s.title,
+              type: s.type,
+              year: s.year ?? null,
+              poster: s.poster ?? null,
+              overview: s.overview ?? null,
+              rating: s.rating ?? null,
+            } as CardTitle)
+            return
+          }
+        }
+      } catch {}
+    }
+    // Fallback: open the search overlay so the user can find it manually
+    setSearchOpen(true)
+  }, [openDetail])
 
   const rows = useMemo(() => getRows(), [])
 
@@ -176,6 +227,9 @@ export default function Home() {
         onClose={() => setImdbOpen(false)}
         onPlay={(t) => openPlayer(t)}
       />
+
+      {/* AI Recommendation Assistant — floating chat popup */}
+      <AIChat onPlayTitle={handleAIPlay} />
     </div>
   )
 }

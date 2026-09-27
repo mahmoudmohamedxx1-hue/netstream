@@ -2494,3 +2494,109 @@ Other notes (not in the top 10, mentioned for completeness):
 Stage Summary:
 - 10 prioritized issues identified. The 3 highest-impact, easy wins are: (1) delete the Vercel-Analytics `QuickStartCard` from the home page, (2) delete the dead Stremio + Supabase + Puppeteer code (4 + 17 + 1 files), and (3) add a host allowlist to the 6 proxy routes. Together these remove visible UX noise, eliminate ~1700 lines of dead code, fix 13+ TypeScript errors, and close the most serious SSRF vector.
 - No code changes were made in this task — analysis only. Next task should pick up the recommended fixes in priority order.
+
+---
+Task ID: 2
+Agent: research sub-agent (general-purpose)
+Task: Research the freellmpool GitHub repository (https://github.com/0xzr/freellmpool) to understand how to use keyless AI models, the API endpoint/request format, whether GLM 5.3 flash is available, and how to integrate with z-ai-web-dev-sdk in a Next.js API route. Research only — no code changes.
+
+Work Log:
+- Used `z-ai function -n page_reader` to fetch and parse: the GitHub repo page, `README.md`, `.env.example`, `SERVICE-INVENTORY.md`, `FAQ.md`, and `src/freellmpool/providers.toml` (raw.githubusercontent.com).
+- Reviewed the existing project LLM skill at `/home/z/my-project/skills/LLM/SKILL.md` and the installed `z-ai-web-dev-sdk@0.0.18` (`node_modules/z-ai-web-dev-sdk/{package.json,README.md,dist/index.d.ts}`).
+- Confirmed `/etc/.z-ai-config` exists with `baseUrl: "https://internal-api.z.ai/v1"`, `apiKey: "Z.ai"`, plus `chatId`/`userId`/`token` — so the SDK is pre-authenticated for Z.ai's internal API. No `.z-ai-config` exists at project or home root; the system-level one is what the SDK loads.
+- Grep'd `src/` for `z-ai-web-dev-sdk|ZAI\.create|chat\.completions` — no matches. There are currently NO LLM/chat API routes in the Next.js app; the only API routes under `src/app/api/` are for streaming/imdb/tmdb/auth/etc. Integrating a chat endpoint would be a new addition.
+- Cross-referenced the SDK's `CreateChatCompletionBody` type (`dist/index.d.ts`): it accepts an optional `model?: string`, `messages: {role:'system'|'user'|'assistant', content:string}[]`, `stream?: boolean`, `thinking?: {type:'enabled'|'disabled'}`. The model is optional and defaults to whatever the configured endpoint serves (Z.ai's backend, currently a GLM-4.x class model — NOT GLM 5.3 flash).
+
+Findings — freellmpool overview:
+- Repo: `0xzr/freellmpool`, MIT-licensed, latest release **0.13.0** (Aug 2026). Install: `pip install freellmpool` (Python 3.11+, only dependency `httpx`). Also `uvx freellmpool ...`, Docker `ghcr.io/0xzr/freellmpool:0.13.0`, and an `llm-freellmpool` plugin for Simon Willison's `llm` CLI.
+- Self-description: "Free LLM gateway: 22 LLM providers, 178 enabled chat routes, 431 cataloged chat models; keyless start when available."
+- It pools free-tier providers behind ONE OpenAI-compatible endpoint. Fails over when a provider is rate-limited or down; tracks per-day usage; resets at UTC midnight.
+- Three usage surfaces: (1) CLI `freellmpool ask "..."`, (2) Python library `from freellmpool import Pool`, (3) local proxy `freellmpool proxy` → `http://localhost:8080` (binds to 127.0.0.1 by default).
+
+Findings — KEYLESS providers (no API key required; will work with an empty `.env`):
+1. **Pollinations** — `https://text.pollinations.ai/openai`, `auth = "none"`. Enabled models: `openai` (alias, auto=false), `openai-fast` (auto). Disabled/explicit-pin: `gpt-oss`, `gpt-oss-20b`, `ovh-reasoning`.
+2. **OVHcloud AI Endpoints** — `https://oai.endpoints.kepler.ai.cloud.ovh.net/v1`, `auth = "none"`. Enabled models include: `Meta-Llama-3_3-70B-Instruct`, `Qwen3.5-397B-A17B`, `gpt-oss-120b`, `Mistral-Small-3.2-24B-Instruct-2506`, `Mistral-Nemo-Instruct-2407`, `Qwen3.6-27B`, `Qwen3-32B`, `Qwen3.5-9B`, `Qwen2.5-VL-72B-Instruct`, `Mistral-7B-Instruct-v0.3`, `gpt-oss-20b`, `Qwen3-Coder-30B-A3B-Instruct`. Strongest keyless privacy posture per the FAQ.
+3. **Kilo Gateway** — `https://api.kilo.ai/api/gateway`, `auth = "none"`, 200 req/hr per IP. Models carry a `provider/` prefix. Enabled keyless free models: `openrouter/free`, `kilo-auto/free`, `poolside/laguna-xs-2.1:free`, `stepfun/step-3.7-flash:free`, `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free`, `nvidia/nemotron-3-super-120b-a12b:free`, `nvidia/nemotron-3-ultra-550b-a55b:free`, `cohere/north-mini-code:free`, `dots-studio/dots-3-note-preview:free`, `inclusionai/ling-3.0-flash-fin:free`, `liquid/lfm-2.5-2.6b:free`, `meituan/longcat-2.0-free`, `minimax/minimax-m2.7:free`, `nvidia/nemotron-3.5-lightning:free`, `poolside/laguna-s-2.1:free`, `tencent/hy3:free`.
+4. **LLM7** — `https://api.llm7.io/v1`, `key_optional = true` (set `LLM7_API_KEY` for higher limits, but works without). Enabled models: `default` (60 rpd), `fast` (60 rpd), `codestral-latest`. The catalog also lists `GLM-4.6V-Flash` but as `enabled = false`.
+5. **OpenCode Zen** — `https://opencode.ai/zen/v1`, `auth = "none"`, but ALL its models are `enabled = false` by default pending privacy review — so effectively NOT in the auto pool yet.
+
+Findings — API endpoint & request format for freellmpool:
+- Start the proxy: `freellmpool proxy` → listens on `http://127.0.0.1:8080`.
+- On loopback any placeholder API key works (unless `FREELLMPOOL_PROXY_KEY` / `--api-key` is set). Tailnet/LAN serving requires a real bearer token.
+- Endpoints (OpenAI-compatible):
+  - `POST /v1/chat/completions` — chat, token streaming, tool calling.
+  - `POST /v1/responses` — OpenAI Responses API shim (for Codex CLI).
+  - `POST /v1/messages` — experimental Anthropic Messages path (for Claude Code; text + tools, no vision).
+  - `POST /v1/embeddings`, `POST /v1/audio/transcriptions` (multipart, Whisper-style).
+  - `GET /v1/models` — routing aliases + concrete provider/model ids; `?ready=true` returns locally ready targets.
+  - `GET /v1/providers` — authenticated, secret-free provider/model readiness.
+  - `GET /healthz`, `/livez`, `/readyz`, `/dashboard`, `/status`, `/badge.svg`, `/summary.svg`, `/playground`, `/freellmpool/battle`.
+- Routing aliases a client can pass as `model`:
+  - `"auto"` — default least-used-first pool pick.
+  - `freellmpool/agent|spread|auto|fast|quality|fair` — explicit routing modes (OpenCode picker).
+  - Common OpenAI/Anthropic names like `gpt-4o-mini` are auto-mapped to a free equivalent.
+  - Pin a specific provider/model: `groq/openai/gpt-oss-20b`, `-p cerebras,groq`, or `-m <provider>/<model>`.
+  - Body extension `"task": "grounded-reading"` or header `X-Freellmpool-Task` to declare task intent.
+
+Findings — example curl/code:
+- Python via OpenAI SDK pointed at the local proxy:
+  ```python
+  freellmpool proxy   # terminal 1 → http://localhost:8080
+  # terminal 2:
+  export OPENAI_BASE_URL=http://localhost:8080/v1
+  export OPENAI_API_KEY=unused
+  from openai import OpenAI
+  client = OpenAI()
+  print(client.chat.completions.create(
+      model="auto",
+      messages=[{"role":"user","content":"hi"}],
+  ).choices[0].message.content)
+  ```
+- curl (chat):
+  ```bash
+  curl -s http://localhost:8080/v1/chat/completions \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer unused" \
+    -d '{"model":"auto","messages":[{"role":"user","content":"hi"}]}'
+  ```
+- curl (Whisper transcription, multipart):
+  ```bash
+  curl -s http://localhost:8080/v1/audio/transcriptions -F file=@audio.mp3 -F model=auto
+  ```
+- CLI one-liner (no proxy needed): `uvx freellmpool ask --max-tokens 32 "Reply with one short sentence: freellmpool is ready."` — works with zero keys if a keyless route is up.
+- Pin a model: `freellmpool ask -m groq/openai/gpt-oss-20b "hi"` or `freellmpool ask -p cerebras,groq "hi"`.
+- Python library:
+  ```python
+  from freellmpool import Pool
+  pool = Pool.from_default_config()
+  reply = pool.ask("Summarize the plot of Hamlet in 20 words.")
+  print(reply.text, "—", reply.provider_id)
+  ```
+
+Findings — GLM 5.3 flash availability (the specific question):
+- **GLM 5.3 flash is NOT available as a keyless model.** It is cataloged in `providers.toml` but disabled and behind a paid/keyed provider:
+  - Under provider `id = "ollama"` (Ollama Cloud, `https://ollama.com/v1`, key_env `OLLAMA_API_KEY`) there are two entries: `{ name = "glm-5.3", rpd = 0, enabled = false, auto = false }` and `{ name = "glm-5.3-flash", rpd = 0, enabled = false, auto = false }`. Both are DISABLED for auto-routing and require an `OLLAMA_API_KEY`. They can only be used with an explicit pin like `freellmpool ask -m ollama/glm-5.3-flash "..."` AND a configured `OLLAMA_API_KEY`.
+  - There is also a `morph-glm53flash` alias under the Morph provider (`https://api.morphllm.com/v1`, `MORPH_API_KEY`), also `enabled = false, auto = false`, also not free/keyless.
+- The Z.ai/Zhipu GLM provider (`id = "zhipu"`, `https://api.z.ai/api/paas/v4`, key_env `ZHIPU_API_KEY`) currently exposes only `glm-4.5-flash` (auto=false, rpd=1000) and `glm-4.7-flash` (auto, rpd=1000). NO `glm-5.3-flash` here, and it is NOT keyless (requires `ZHIPU_API_KEY`).
+- GLM-5.2 appears in many places (HuggingFace router `zai-org/GLM-5.2`, NVIDIA `z-ai/glm-5.2`, Vercel `zai/glm-5.2`, OpenRouter `z-ai/glm-5.2`, SiliconFlow `ZhipuAI/GLM-5.2`, Mistral `zai-glm-5-2`, Morph `morph-glm52-744b`) — all key-gated, many disabled.
+- **Closest usable "GLM flash" via keyless route**: none. The keyless providers serve Llama/Qwen/Mistral/gpt-oss/DeepSeek/Step/Nemotron/etc. — NOT any GLM variant.
+- **Closest usable GLM flash via a key**: Z.ai's `glm-4.7-flash` (free with `ZHIPU_API_KEY`, rpd=1000, auto-routed).
+
+Findings — z-ai-web-dev-sdk (already installed, project LLM skill at `skills/LLM/SKILL.md`):
+- Package: `z-ai-web-dev-sdk@0.0.18` (Node ≥ 20 / bun ≥ 1.3). Backend-only — must never be imported in client components.
+- Config: `/etc/.z-ai-config` is present and points the SDK at `https://internal-api.z.ai/v1` with `apiKey: "Z.ai"` and a pre-baked `chatId`/`userId`/JWT `token`. So `ZAI.create()` works out of the box — no project-level `.z-ai-config` is needed.
+- The SDK does NOT expose GLM 5.3 flash. The `model` field in `chat.completions.create({model?, messages, stream?, thinking?})` is optional and the underlying model is whatever Z.ai's internal API serves (currently a GLM-4.x class model). Passing `model: "glm-5.3-flash"` will NOT work through this SDK — Z.ai's public Z.ai/Zhipu PaaS only has `glm-4.5-flash` and `glm-4.7-flash` per freellmpool's catalog, and the SDK's configured `internal-api.z.ai/v1` endpoint is a separate hosted surface that does not document a `glm-5.3-flash` model name.
+- The SDK's `chat.completions.createVision()` requires `model: string` (mandatory for vision) and supports `text`/`image_url`/`video_url`/`file_url` content items.
+- Other SDK capabilities already available: TTS (`audio.tts.create`), ASR (`audio.asr.create`), image generation/edit/search, video generation, async-result polling, and function calling (`functions.invoke('web_search'|'page_reader', {...})`).
+- Recommended Next.js integration pattern (do NOT implement yet — research only): a `src/app/api/chat/route.ts` POST handler that does `const zai = await ZAI.create(); const completion = await zai.chat.completions.create({ messages: [...], thinking: { type: 'disabled' } }); return Response.json({ reply: completion.choices[0]?.message?.content });`, all server-side (the SDK reads `/etc/.z-ai-config` automatically). The LLM skill's `ConversationManager` class shows how to maintain multi-turn history. For streaming, pass `stream: true` and pipe the SDK's response. If freellmpool is preferred over the SDK, the route can instead `fetch('http://127.0.0.1:8080/v1/chat/completions', { method:'POST', headers:{'Authorization':'Bearer unused','Content-Type':'application/json'}, body: JSON.stringify({model:'auto', messages}) })` — but ONLY if a freellmpool proxy process is running on the host (it is not today).
+
+Recommendations / next actions:
+1. **For "GLM 5.3 flash" specifically**: it is not available keyless anywhere in freellmpool's catalog and is not served by the z-ai-web-dev-sdk. The realistic options are: (a) drop the requirement and use the default GLM model the z-ai SDK serves, (b) use Z.ai's `glm-4.7-flash` via `ZHIPU_API_KEY` if a true "flash" tier is needed, or (c) use `ollama/glm-5.3-flash` via `OLLAMA_API_KEY` with an explicit freellmpool pin — all of which require a key.
+2. **For a keyless chat endpoint in this Next.js project**: freellmpool can run with zero keys (Pollinations/OVHcloud/Kilo/LLM7) but it is a Python sidecar — not a drop-in JS dependency. To use it from Next.js, you'd run `freellmpool proxy` as a separate process and `fetch()` its OpenAI-compatible `/v1/chat/completions` from a route handler. That is heavier than using the already-installed `z-ai-web-dev-sdk`, which is pre-authenticated via `/etc/.z-ai-config` and needs no extra process.
+3. **Lightest-weight path to add an LLM chat API route here**: use `z-ai-web-dev-sdk` directly (no proxy, no key, no Python). Pattern is in `skills/LLM/SKILL.md` (`ConversationManager` + `chat.completions.create({ messages, thinking: { type: 'disabled' } })`). Acceptable since the SDK is already wired up; the model served will be Z.ai's default GLM, not GLM 5.3 flash.
+
+Stage Summary:
+- freellmpool is a Python gateway that pools 22 free LLM providers behind one OpenAI-compatible proxy at `http://127.0.0.1:8080/v1/chat/completions`; 4 of those providers are truly keyless (Pollinations, OVHcloud, Kilo, LLM7) and let the proxy answer with an empty `.env`.
+- GLM 5.3 flash is cataloged but DISABLED and requires `OLLAMA_API_KEY` (or `MORPH_API_KEY`); it is NOT keyless and not auto-routed. The only keyless GLM-adjacent entry is `GLM-4.6V-Flash` under LLM7, also disabled.
+- The project's installed `z-ai-web-dev-sdk@0.0.18` is pre-authenticated via `/etc/.z-ai-config` (Z.ai internal API) and is the simplest integration path; it does not serve GLM 5.3 flash but serves Z.ai's default GLM model with no extra setup.
+- No code changes were made in this task — research only. Next task should decide between (a) adding a `/api/chat` route via `z-ai-web-dev-sdk`, or (b) running a freellmpool sidecar and proxying to it from a route handler.

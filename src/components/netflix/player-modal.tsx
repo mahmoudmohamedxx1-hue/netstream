@@ -1166,9 +1166,13 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
                 <span className="text-white/50">Server:</span>{" "}
                 <span className="font-semibold text-white">{source.name}</span>
               </span>
-              {/* Data usage badge for current server */}
+              {/* Data usage badge — shows total estimated data for THIS title
+                  (not a fixed hourly rate), so it differs from title to title.
+                  Falls back to hourly rate if runtime is unknown. */}
               <span className={cn("ml-auto shrink-0 rounded px-1 py-0.5 text-[9px] font-bold", parseQuality(source.quality).color)}>
-                {estimateHourlyData(source.quality)}
+                {meta?.runtimeMinutes
+                  ? estimateTotalData(source.quality, meta.runtimeMinutes)
+                  : estimateHourlyData(source.quality)}
               </span>
             </SelectTrigger>
             <SelectContent className="z-[200] max-h-[24rem] border-white/15 bg-[#181818] text-white">
@@ -1249,13 +1253,18 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
                         </p>
                         <p className="text-[10px] text-white/40">
                           {s.quality}
-                          {/* Data usage estimate — helps users save internet */}
+                          {/* Data usage estimate — total for THIS title (differs
+                              per title based on runtime), falls back to hourly
+                              rate if runtime unknown. Helps users save internet. */}
                           <span className="text-cyan-400/70">
-                            {" "}• {estimateHourlyData(s.quality)}
+                            {" "}• {meta?.runtimeMinutes
+                              ? estimateTotalData(s.quality, meta.runtimeMinutes)
+                              : estimateHourlyData(s.quality)}
                           </span>
+                          {/* Also show hourly rate so users can compare */}
                           {meta?.runtimeMinutes ? (
                             <span className="text-white/30">
-                              {" "}• {estimateTotalData(s.quality, meta.runtimeMinutes)}
+                              {" "}({estimateHourlyData(s.quality)})
                             </span>
                           ) : null}
                           {/* Show health latency (preferred) or provider-latency data */}
