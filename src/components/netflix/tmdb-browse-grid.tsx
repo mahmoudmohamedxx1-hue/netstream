@@ -345,8 +345,21 @@ export function TmdbBrowseGrid({ type, onPlay, initialCategory, headerTitle, hea
             year: t.year, poster: data.poster ?? t.poster,
             overview: t.overview, rating: t.rating,
           })
+        } else {
+          // No IMDB ID — fall back to TMDB ID
+          onPlay({
+            imdbId: `tmdb-${t.tmdbId}`, title: t.title, type: t.type,
+            year: t.year, poster: data.poster ?? t.poster,
+            overview: t.overview, rating: t.rating,
+          } as any)
         }
-      } catch {}
+      } catch {
+        // On error, still try to play with TMDB ID fallback
+        onPlay({
+          imdbId: `tmdb-${t.tmdbId}`, title: t.title, type: t.type,
+          year: t.year, poster: t.poster, overview: t.overview, rating: t.rating,
+        } as any)
+      }
       setLookingUp(null)
     },
     [onPlay]

@@ -182,8 +182,34 @@ export function SearchOverlay({ open, onClose, onPlay }: Props) {
               rating: t.rating ?? "",
               genre: [],
             })
+          } else {
+            // No IMDB ID — fall back to TMDB ID (tmdb-{id} prefix)
+            close()
+            onPlay({
+              imdbId: `tmdb-${t.tmdbId}`,
+              title: t.title,
+              type: t.type,
+              year: t.year,
+              poster: t.poster ?? "",
+              overview: t.overview ?? "",
+              rating: t.rating ?? "",
+              genre: [],
+            })
           }
-        } catch {}
+        } catch {
+          // On error, still try to play with TMDB ID fallback
+          close()
+          onPlay({
+            imdbId: `tmdb-${t.tmdbId}`,
+            title: t.title,
+            type: t.type,
+            year: t.year,
+            poster: t.poster ?? "",
+            overview: t.overview ?? "",
+            rating: t.rating ?? "",
+            genre: [],
+          })
+        }
       }
     },
     [flatResults, close, onPlay]

@@ -101,6 +101,28 @@ function HomeContent() {
   // title data is nested under data.title.
   useEffect(() => {
     if (initialDetailId) {
+      // Check if it's a tmdb- prefixed ID (title without IMDB ID)
+      if (initialDetailId.startsWith("tmdb-")) {
+        const tmdbId = initialDetailId.replace("tmdb-", "")
+        // Fetch title details from TMDB directly
+        fetch(`https://api.themoviedb.org/3/tv/${tmdbId}?api_key=1c5d8fc6971ccb06fcc873d748bcba92&language=en-US`)
+          .then((r) => r.ok ? r.json() : null)
+          .then((data) => {
+            if (data) {
+              setDetail({
+                imdbId: initialDetailId,
+                title: data.name ?? data.title ?? "",
+                type: "series",
+                year: (data.first_air_date ?? "").slice(0, 4) || null,
+                poster: data.poster_path ? `https://image.tmdb.org/t/p/w500${data.poster_path}` : null,
+                overview: data.overview ?? null,
+                rating: data.vote_average ? String(data.vote_average) : null,
+              })
+            }
+          })
+          .catch(() => {})
+        return
+      }
       // Resolve title detail from IMDB ID
       fetch(`/api/tmdb/${initialDetailId}`)
         .then((r) => r.ok ? r.json() : null)
@@ -120,6 +142,49 @@ function HomeContent() {
         })
         .catch(() => {})
     } else if (initialPlayId) {
+      // Check if it's a tmdb- prefixed ID (title without IMDB ID)
+      if (initialPlayId.startsWith("tmdb-")) {
+        const tmdbId = initialPlayId.replace("tmdb-", "")
+        // Try TV first, then movie
+        fetch(`https://api.themoviedb.org/3/tv/${tmdbId}?api_key=1c5d8fc6971ccb06fcc873d748bcba92&language=en-US`)
+          .then((r) => r.ok ? r.json() : null)
+          .then((data) => {
+            if (data) {
+              setPlayer({
+                imdbId: initialPlayId,
+                title: data.name ?? "",
+                type: "series",
+                poster: data.poster_path ? `https://image.tmdb.org/t/p/w500${data.poster_path}` : null,
+                year: (data.first_air_date ?? "").slice(0, 4) || null,
+                overview: data.overview ?? null,
+                rating: data.vote_average ? String(data.vote_average) : null,
+                season: 1,
+                episode: 1,
+              })
+            } else {
+              // Try movie
+              return fetch(`https://api.themoviedb.org/3/movie/${tmdbId}?api_key=1c5d8fc6971ccb06fcc873d748bcba92&language=en-US`)
+                .then((r) => r.ok ? r.json() : null)
+                .then((movieData) => {
+                  if (movieData) {
+                    setPlayer({
+                      imdbId: initialPlayId,
+                      title: movieData.title ?? "",
+                      type: "movie",
+                      poster: movieData.poster_path ? `https://image.tmdb.org/t/p/w500${movieData.poster_path}` : null,
+                      year: (movieData.release_date ?? "").slice(0, 4) || null,
+                      overview: movieData.overview ?? null,
+                      rating: movieData.vote_average ? String(movieData.vote_average) : null,
+                      season: null,
+                      episode: null,
+                    })
+                  }
+                })
+            }
+          })
+          .catch(() => {})
+        return
+      }
       // Resolve player title from IMDB ID
       fetch(`/api/tmdb/${initialPlayId}`)
         .then((r) => r.ok ? r.json() : null)
