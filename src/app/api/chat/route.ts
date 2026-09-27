@@ -29,7 +29,18 @@ interface TitleSuggestion {
 
 const SYSTEM_PROMPT = `You are NetStream AI, the official recommendation assistant for NetStream — a free streaming platform where users watch movies and TV series in HD with 40+ streaming sources.
 
-Your job: help users discover movies and series they'll love. You have deep knowledge of cinema and TV from all over the world, including Hollywood, Bollywood, Arabic cinema, Turkish dramas, Korean dramas, anime, and more.
+Your job: help users discover movies and series they'll love.
+
+## PRIORITY CONTENT (in this order)
+When recommending titles, prioritize in this order:
+1. **Hollywood movies** — blockbuster hits, action, sci-fi, drama, comedy from major studios
+2. **Oscar-winning & Oscar-nominated films** — Academy Award winners and nominees (Best Picture, Best Director, Best Actor/Actress, etc.)
+3. **Arabic movies & series** — Egyptian, Syrian, Lebanese, Gulf cinema and TV dramas
+4. **International content** — Korean, Turkish, Bollywood, European, anime, etc.
+
+Unless the user specifically asks for something else, ALWAYS include at least 1-2 Hollywood/Oscar titles and 1 Arabic title in your recommendations.
+
+You have deep knowledge of cinema and TV from all over the world, including Hollywood, Bollywood, Arabic cinema, Turkish dramas, Korean dramas, anime, and more.
 
 Guidelines:
 - Be friendly, enthusiastic, and concise. Keep responses under 200 words.
@@ -40,24 +51,71 @@ Guidelines:
 - If the user asks something unrelated to movies/TV, gently steer back to entertainment.
 - You can also answer questions about actors, directors, plot summaries, and "what should I watch" questions.
 - For Arabic content, include both the Arabic and English names when possible.
+- When mentioning Oscar winners, note the award (e.g., "Best Picture winner", "Oscar nominee for Best Director").
 
 Remember: every title you recommend should be formatted as "🎬 Title (Year)" or "📺 Title (Year)" so the system can make them clickable.`
 
 async function getPlatformContext(): Promise<string> {
   try {
-    const res = await fetch(
-      `${TMDB_BASE}/trending/all/week?api_key=${TMDB_API_KEY}&language=en-US`,
-      { next: { revalidate: 3600 } }
-    )
-    if (!res.ok) return ""
-    const data = await res.json()
-    const titles = (data.results ?? []).slice(0, 20).map((r: any) => {
-      const title = r.title ?? r.name ?? ""
-      const type = r.media_type === "tv" ? "series" : "movie"
-      const year = (r.release_date ?? r.first_air_date ?? "").slice(0, 4)
-      return `${type === "series" ? "📺" : "🎬"} ${title} (${year})`
-    })
-    return `\n\nCurrently trending on NetStream this week:\n${titles.join("\n")}`
+    // Fetch multiple content categories in parallel to give the AI context
+    // about what's available on NetStream, prioritizing Hollywood, Oscar,
+    // and Arabic content.
+    const [trendingRes, topMoviesRes, arabicMoviesRes, arabicSeriesRes] = await Promise.all([
+      fetch(`${TMDB_BASE}/trending/all/week?api_key=${TMDB_API_KEY}&language=en-US`, { next: { revalidate: 3600 } }).catch(() => null),
+      fetch(`${TMDB_BASE}/movie/top_rated?api_key=${TMDB_API_KEY}&language=en-US&page=1`, { next: { revalidate: 3600 } }).catch(() => null),
+      fetch(`${TMDB_BASE}/discover/movie?api_key=${TMDB_API_KEY}&with_original_language=ar&sort_by=popularity.desc&page=1`, { next: { revalidate: 3600 } }).catch(() => null),
+      fetch(`${TMDB_BASE}/discover/tv?api_key=${TMDB_API_KEY}&with_original_language=ar&sort_by=popularity.desc&page=1`, { next: { revalidate: 3600 } }).catch(() => null),
+    ])
+
+    const sections: string[] = []
+
+    // Trending this week
+    if (trendingRes?.ok) {
+      const data = await trendingRes.json()
+      const titles = (data.results ?? []).slice(0, 15).map((r: any) => {
+        const title = r.title ?? r.name ?? ""
+        const type = r.media_type === "tv" ? "series" : "movie"
+        const year = (r.release_date ?? r.first_air_date ?? "").slice(0, 4)
+        return `${type === "series" ? "📺" : "🎬"} ${title} (${year})`
+      })
+      if (titles.length) sections.push(`📈 Trending this week:\n${titles.join("\n")}`)
+    }
+
+    // Top-rated Hollywood/Oscar movies
+    if (topMoviesRes?.ok) {
+      const data = await topMoviesRes.json()
+      const titles = (data.results ?? []).slice(0, 10).map((r: any) => {
+        const title = r.title ?? ""
+        const year = (r.release_date ?? "").slice(0, 4)
+        return `🎬 ${title} (${year})`
+      })
+      if (titles.length) sections.push(`🏆 Top-rated Hollywood/Oscar movies:\n${titles.join("\n")}`)
+    }
+
+    // Arabic movies
+    if (arabicMoviesRes?.ok) {
+      const data = await arabicMoviesRes.json()
+      const titles = (data.results ?? []).slice(0, 8).map((r: any) => {
+        const title = r.title ?? ""
+        const year = (r.release_date ?? "").slice(0, 4)
+        return `🎬 ${title} (${year})`
+      })
+      if (titles.length) sections.push(`🌍 Popular Arabic movies:\n${titles.join("\n")}`)
+    }
+
+    // Arabic series
+    if (arabicSeriesRes?.ok) {
+      const data = await arabicSeriesRes.json()
+      const titles = (data.results ?? []).slice(0, 8).map((r: any) => {
+        const title = r.name ?? ""
+        const year = (r.first_air_date ?? "").slice(0, 4)
+        return `📺 ${title} (${year})`
+      })
+      if (titles.length) sections.push(`🌍 Popular Arabic series:\n${titles.join("\n")}`)
+    }
+
+    if (sections.length === 0) return ""
+    return `\n\n=== Currently available on NetStream ===\n\n${sections.join("\n\n")}`
   } catch {
     return ""
   }
