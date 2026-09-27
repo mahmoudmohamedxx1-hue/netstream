@@ -482,96 +482,16 @@ const TIER_2: VideoSource[] = [
 // The /api/arabic-stream endpoint scrapes the Arabic site (using the exact
 // logic from the ImZaw repo's loadLinks() method) and returns embeddable
 // video-host URLs that play directly in an iframe.
-const TIER_3: VideoSource[] = [
-  {
-    id: "egydead",
-    name: "EgyDead",
-    quality: "HD",
-    tier: 3,
-    logo: "ED",
-    color: "from-red-600 to-rose-800",
-    mobile: true,
-    region: "Arabic",
-    buildMovie: (_id) => `https://tv.egydead.live/?s=`,
-    buildSeries: (_id, _s, _e) => `https://tv.egydead.live/?s=`,
-  },
-  {
-    id: "egybest",
-    name: "EgyBest",
-    quality: "HD",
-    tier: 3,
-    logo: "EB",
-    color: "from-amber-500 to-orange-600",
-    mobile: true,
-    region: "Arabic",
-    // EgyBest's original domains are dead — routed through EgyDead's scraper
-    buildMovie: (_id) => `https://tv.egydead.live/?s=`,
-    buildSeries: (_id, _s, _e) => `https://tv.egydead.live/?s=`,
-  },
-  {
-    id: "shahid4u",
-    name: "Shahid4u",
-    quality: "HD",
-    tier: 3,
-    logo: "S4",
-    color: "from-blue-500 to-cyan-600",
-    mobile: true,
-    region: "Arabic",
-    buildMovie: (_id) => `https://shed4u.cam/?s=`,
-    buildSeries: (_id, _s, _e) => `https://shed4u.cam/?s=`,
-  },
-  {
-    id: "faselhd",
-    name: "FaselHD",
-    quality: "HD",
-    tier: 3,
-    logo: "FH",
-    color: "from-emerald-500 to-teal-700",
-    mobile: true,
-    region: "Arabic",
-    buildMovie: (_id) => `https://faselhd.club/?s=`,
-    buildSeries: (_id, _s, _e) => `https://faselhd.club/?s=`,
-  },
-  // Old dead Arabic embed providers — kept in "Others" for manual access.
-  {
-    id: "arabembed",
-    name: "ArabEmbed",
-    quality: "HD",
-    tier: 5,
-    logo: "AR",
-    color: "from-red-600 to-rose-800",
-    mobile: true,
-    region: "Arabic",
-    buildMovie: (id) => `https://arabembed.xyz/embed/movie/${id}`,
-    buildSeries: (id, s, e) =>
-      `https://arabembed.xyz/embed/tv/${id}/${s}/${e}`,
-  },
-  {
-    id: "trembed",
-    name: "Trembed",
-    quality: "HD",
-    tier: 5,
-    logo: "TR",
-    color: "from-green-600 to-emerald-700",
-    mobile: true,
-    region: "Arabic",
-    buildMovie: (id) => `https://trembed.xyz/embed/movie/${id}`,
-    buildSeries: (id, s, e) =>
-      `https://trembed.xyz/embed/tv/${id}/${s}/${e}`,
-  },
-  {
-    id: "gomoov",
-    name: "Gomoov",
-    quality: "HD",
-    tier: 5,
-    logo: "GM",
-    color: "from-yellow-500 to-amber-600",
-    mobile: true,
-    region: "Arabic",
-    buildMovie: (id) => `https://gomoov.to/embed/movie/${id}`,
-    buildSeries: (id, s, e) => `https://gomoov.to/embed/tv/${id}/${s}/${e}`,
-  },
-]
+// ─── Arabic content ──────────────────────────────────────────────────────
+// All 7 original Arabic-region providers (EgyDead, EgyBest, Shahid4u, FaselHD,
+// ArabEmbed, Trembed, Gomoov) are DEAD — 0% success rate across 19 Arabic
+// titles in testing. Their domains are DNS-dead or return 403/empty pages.
+// REMOVED entirely so they don't clutter the Arabic tab.
+//
+// Instead, the Arabic tab (ARABIC_SOURCES below) shows the general providers
+// that work for Arabic content: vidcore.net (100%), 2embed.cc (100%),
+// vidlink.pro (100%), vidfast.pro (100%), etc.
+const TIER_3: VideoSource[] = []
 
 // ─── Tier 5: "Others" — providers that are currently dead or unverified ──
 // These providers failed our HTTP 200 reachability test (DNS failure, 5xx,
@@ -673,17 +593,14 @@ export const PRIMARY_SOURCES = VIDEO_SOURCES.filter((s) => s.tier <= 2)
 export const ADVANCED_SOURCES = VIDEO_SOURCES.filter((s) => s.tier === 3 && s.region === "Global")
 // Mobile-first providers (touch-friendly, responsive embeds).
 export const MOBILE_SOURCES = VIDEO_SOURCES.filter((s) => s.tier === 1)
-// All Arabic-region providers (any tier).
-// NOTE: All 7 Arabic-region providers are currently DEAD (0% success rate
-// in testing — see worklog Task 4). We put working general providers that
-// support Arabic content FIRST so Arabic titles actually play.
+// Arabic tab — shows ONLY working general providers that support Arabic
+// content. All 7 original Arabic-region providers (EgyDead, EgyBest,
+// Shahid4u, FaselHD, ArabEmbed, Trembed, Gomoov) are DEAD (0% success)
+// and have been removed entirely.
 // Best Arabic provider: vidcore.net (100% success on 19 Arabic titles).
-export const ARABIC_SOURCES: VideoSource[] = [
-  // ── Best working providers for Arabic content (tested 19 titles) ──
-  ...(VIDEO_SOURCES.filter((s) => ["vidcore.net", "2embed.cc", "vidlink.pro", "vidfast.pro", "2embed.skin", "vidsrc.me", "vidsrc.to"].includes(s.id))),
-  // ── Original Arabic-region providers (currently broken, kept for manual access) ──
-  ...VIDEO_SOURCES.filter((s) => s.region === "Arabic"),
-]
+export const ARABIC_SOURCES: VideoSource[] = VIDEO_SOURCES.filter((s) =>
+  ["vidcore.net", "2embed.cc", "vidlink.pro", "vidfast.pro", "2embed.skin", "vidsrc.me", "vidsrc.to", "videasy.net", "moviesapi.to"].includes(s.id)
+)
 // "Others" — dead/unverified providers kept for manual access.
 export const OTHER_SOURCES = VIDEO_SOURCES.filter((s) => s.tier === 5)
 
