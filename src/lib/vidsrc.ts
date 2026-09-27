@@ -593,14 +593,13 @@ export const PRIMARY_SOURCES = VIDEO_SOURCES.filter((s) => s.tier <= 2)
 export const ADVANCED_SOURCES = VIDEO_SOURCES.filter((s) => s.tier === 3 && s.region === "Global")
 // Mobile-first providers (touch-friendly, responsive embeds).
 export const MOBILE_SOURCES = VIDEO_SOURCES.filter((s) => s.tier === 1)
-// Arabic tab — shows ONLY working general providers that support Arabic
-// content. All 7 original Arabic-region providers (EgyDead, EgyBest,
-// Shahid4u, FaselHD, ArabEmbed, Trembed, Gomoov) are DEAD (0% success)
-// and have been removed entirely.
-// Best Arabic provider: vidcore.net (100% success on 19 Arabic titles).
-export const ARABIC_SOURCES: VideoSource[] = VIDEO_SOURCES.filter((s) =>
-  ["vidcore.net", "2embed.cc", "vidlink.pro", "vidfast.pro", "2embed.skin", "vidsrc.me", "vidsrc.to", "videasy.net", "moviesapi.to"].includes(s.id)
-)
+// Arabic tab — shows the SAME working providers as the Primary tab.
+// All original Arabic-region providers (EgyDead, EgyBest, Shahid4u, FaselHD,
+// ArabEmbed, Trembed, Gomoov) were DEAD (0% success) and have been removed.
+// The general providers in the Primary tab work for Arabic content too
+// (tested: vidcore.net = 100% on 19 Arabic titles), so the Arabic tab is
+// now a copy of the Primary tab — no fake/dead sources.
+export const ARABIC_SOURCES: VideoSource[] = PRIMARY_SOURCES
 // "Others" — dead/unverified providers kept for manual access.
 export const OTHER_SOURCES = VIDEO_SOURCES.filter((s) => s.tier === 5)
 

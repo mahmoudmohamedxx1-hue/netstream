@@ -286,6 +286,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   const [episode, setEpisode] = useState<number>(title.episode ?? 1)
   const [reloads, setReloads] = useState(0)
   const [loaded, setLoaded] = useState(false)
+  const [prechecking, setPrechecking] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [downloadOpen, setDownloadOpen] = useState(false)
   const [subtitleOpen, setSubtitleOpen] = useState(false)
@@ -548,6 +549,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     if (userInteractedRef.current) return
     if (isArabicProvider) return
     precheckDoneRef.current = true
+    setPrechecking(true)
 
     const checkAndSwitch = async () => {
       // Build the fallback chain: favorites first, then preferred, then tier 1
@@ -564,7 +566,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
 
       // Check the current provider first
       const currentSource = VIDEO_SOURCES.find(s => s.id === sourceId)
-      if (!currentSource) return
+      if (!currentSource) { setPrechecking(false); return }
       const currentUrl = buildPlayerUrl({
         imdbId: title.imdbId,
         type: title.type,
@@ -576,13 +578,13 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
       try {
         const res = await fetch(`/api/provider-check?url=${encodeURIComponent(currentUrl)}`, { cache: "no-store" })
         const data = await res.json()
-        if (data.ok) return // current provider works, no switch needed
+        if (data.ok) { setPrechecking(false); return } // current provider works
       } catch {
         // check failed, try switching anyway
       }
 
       // Current provider failed — check the others in parallel
-      if (userInteractedRef.current) return
+      if (userInteractedRef.current) { setPrechecking(false); return }
       const checks = await Promise.all(
         chain.filter(s => s.id !== sourceId).slice(0, 6).map(async (s) => {
           const url = buildPlayerUrl({
@@ -611,6 +613,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
           description: "Previous server was unavailable",
         })
       }
+      setPrechecking(false)
     }
     checkAndSwitch()
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -876,18 +879,22 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   }, [sourceId, health, title.imdbId, lastProvider, toast, reportProvider])
 
   // ── Reliable auto-fallback ──────────────────────────────────────────────
-  // When the iframe doesn't fire onLoad within 6s, try the next preferred
-  // provider. The fallback chain is:
+  // When the iframe doesn't start playing within 8s, try the next preferred
+  // provider. We DON'T cancel this when onLoad fires — onLoad just means the
+  // HTML page loaded, not that the video is actually playing. Cross-origin
+  // iframes block us from detecting playback, so we use a timer instead.
+  // The fallback chain is:
   //   1. User's favorite servers (if any) — sorted by tier
   //   2. PREFERRED_PROVIDERS (vidfast, vidcore, superembed, moviesapi, 2embed)
   //   3. All tier 1 providers
   // Caps at 3 attempts. Reset by manual "Next server" / "Reload".
   // Skipped for Arabic providers (they have their own flow).
+  // Also skipped if the user has interacted (clicked something = video works).
   useEffect(() => {
-    if (loaded) return
+    if (userInteractedRef.current) return
     if (isArabicProvider) return
     const timer = setTimeout(() => {
-      if (loaded) return
+      if (userInteractedRef.current) return
       fallbackIdxRef.current += 1
       if (fallbackIdxRef.current > 3) return
       // Build the fallback chain: favorites first, then preferred, then tier 1
@@ -906,6 +913,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
       const nextIdx = (currentIdx + 1) % chain.length
       const next = chain[nextIdx]
       if (next && next.id !== sourceId) {
+        setLoaded(false)
         setSourceId(next.id)
         lastProvider.set(title.imdbId, next.id)
         setReloads(r => r + 1)
@@ -914,9 +922,9 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
           description: `Server ${fallbackIdxRef.current + 1} of ${chain.length}`,
         })
       }
-    }, 6000)
+    }, 8000)
     return () => clearTimeout(timer)
-  }, [sourceId, reloads, loaded, isArabicProvider, title.imdbId, favorites, lastProvider, toast])
+  }, [sourceId, reloads, isArabicProvider, title.imdbId, favorites, lastProvider, toast])
   // A4 — 30-second watch-success reporter.
   const reportedOkRef = useRef<Set<string>>(new Set())
   useEffect(() => {
@@ -1213,16 +1221,25 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
                   {t("openInTab")}
                 </a>
               </div>
-              <iframe
-                key={`${sourceId}-${reloads}`}
-                src={playerUrl}
-                title={title.title}
-                allow="autoplay; fullscreen; encrypted-media; picture-in-picture; accelerometer; gyroscope; web-share"
-                allowFullScreen
-                referrerPolicy="no-referrer"
-                onLoad={() => setLoaded(true)}
-                className="absolute inset-0 h-full w-full"
-              />
+              {prechecking ? (
+                <div className="absolute inset-0 flex items-center justify-center bg-black">
+                  <div className="flex flex-col items-center gap-3">
+                    <div className="h-10 w-10 animate-spin rounded-full border-2 border-white/20 border-t-white" />
+                    <p className="text-xs text-white/50">Finding the best server…</p>
+                  </div>
+                </div>
+              ) : (
+                <iframe
+                  key={`${sourceId}-${reloads}`}
+                  src={playerUrl}
+                  title={title.title}
+                  allow="autoplay; fullscreen; encrypted-media; picture-in-picture; accelerometer; gyroscope; web-share"
+                  allowFullScreen
+                  referrerPolicy="no-referrer"
+                  onLoad={() => setLoaded(true)}
+                  className="absolute inset-0 h-full w-full"
+                />
+              )}
           {/* Watched-progress bar (Netflix-style red strip at bottom of video) */}
           {watchProgress > 0 && (
             <div className="absolute bottom-0 left-0 z-20 h-1 w-full bg-white/10">
