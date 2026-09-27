@@ -674,7 +674,16 @@ export const ADVANCED_SOURCES = VIDEO_SOURCES.filter((s) => s.tier === 3 && s.re
 // Mobile-first providers (touch-friendly, responsive embeds).
 export const MOBILE_SOURCES = VIDEO_SOURCES.filter((s) => s.tier === 1)
 // All Arabic-region providers (any tier).
-export const ARABIC_SOURCES = VIDEO_SOURCES.filter((s) => s.region === "Arabic")
+// NOTE: All 7 Arabic-region providers are currently DEAD (0% success rate
+// in testing — see worklog Task 4). We put working general providers that
+// support Arabic content FIRST so Arabic titles actually play.
+// Best Arabic provider: vidcore.net (100% success on 19 Arabic titles).
+export const ARABIC_SOURCES: VideoSource[] = [
+  // ── Best working providers for Arabic content (tested 19 titles) ──
+  ...(VIDEO_SOURCES.filter((s) => ["vidcore.net", "2embed.cc", "vidlink.pro", "vidfast.pro", "2embed.skin", "vidsrc.me", "vidsrc.to"].includes(s.id))),
+  // ── Original Arabic-region providers (currently broken, kept for manual access) ──
+  ...VIDEO_SOURCES.filter((s) => s.region === "Arabic"),
+]
 // "Others" — dead/unverified providers kept for manual access.
 export const OTHER_SOURCES = VIDEO_SOURCES.filter((s) => s.tier === 5)
 

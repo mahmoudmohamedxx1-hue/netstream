@@ -338,6 +338,53 @@ function HomeContent() {
     openSearch()
   }, [openDetail, openSearch])
 
+  // AI Chat — when the AI suggests a title, open the detail page.
+  const handleAIPlay = useCallback(async (s: {
+    title: string
+    year?: string
+    type: "movie" | "series"
+    tmdbId?: number
+    imdbId?: string
+    poster?: string | null
+    overview?: string
+    rating?: string | null
+  }) => {
+    if (s.imdbId) {
+      openDetail({
+        imdbId: s.imdbId,
+        title: s.title,
+        type: s.type,
+        year: s.year ?? null,
+        poster: s.poster ?? null,
+        overview: s.overview ?? null,
+        rating: s.rating ?? null,
+      } as CardTitle)
+      return
+    }
+    if (s.tmdbId) {
+      try {
+        const tmdbType = s.type === "series" ? "tv" : "movie"
+        const res = await fetch(`/api/tmdb/lookup?tmdbId=${s.tmdbId}&type=${tmdbType}`)
+        if (res.ok) {
+          const data = await res.json()
+          if (data.imdbId) {
+            openDetail({
+              imdbId: data.imdbId,
+              title: s.title,
+              type: s.type,
+              year: s.year ?? null,
+              poster: s.poster ?? null,
+              overview: s.overview ?? null,
+              rating: s.rating ?? null,
+            } as CardTitle)
+            return
+          }
+        }
+      } catch {}
+    }
+    setSearchOpen(true)
+  }, [openDetail])
+
   const rows = useMemo(() => getRows(), [])
 
   const rowsForNav = useMemo(() => {
