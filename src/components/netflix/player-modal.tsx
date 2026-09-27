@@ -391,6 +391,10 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   useEffect(() => {
     // No-op — manual server switching only
   }, [health, sourceId])
+
+  // Pre-check ref — moved here; the actual effect is after isArabicProvider
+  // and toast are defined (see "Pre-check" effect below).
+  const precheckDoneRef = useRef(false)
   // Auto-filled metadata from the local IMDb dataset (best 11k titles).
   const [meta, setMeta] = useState<{
     title: string
@@ -532,6 +536,85 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   //   3. Play the direct URL in a native <video> element with HLS.js
   //   This bypasses iframes entirely — no ads, no cross-origin issues.
   const isArabicProvider = source.region === "Arabic" && source.tier === 3
+
+  // ── Pre-check: verify the current provider actually responds with 200 ──
+  // before loading it in the iframe. If it returns 502/403/etc., auto-switch
+  // to the next preferred provider. This prevents the user from seeing a
+  // broken page icon when a provider is down for a specific title.
+  // Only runs ONCE per title (not on every reload) and only if the user
+  // hasn't manually picked a server.
+  useEffect(() => {
+    if (precheckDoneRef.current) return
+    if (userInteractedRef.current) return
+    if (isArabicProvider) return
+    precheckDoneRef.current = true
+
+    const checkAndSwitch = async () => {
+      // Build the fallback chain: favorites first, then preferred, then tier 1
+      const favSources = favorites
+        .map(id => VIDEO_SOURCES.find(s => s.id === id))
+        .filter((s): s is VideoSource => !!s && s.tier < 5)
+      const preferredSources = PREFERRED_PROVIDERS
+        .map(id => VIDEO_SOURCES.find(s => s.id === id))
+        .filter((s): s is VideoSource => !!s)
+      const tier1Sources = VIDEO_SOURCES.filter(s => s.tier === 1)
+      const chain = [...favSources, ...preferredSources, ...tier1Sources]
+        .filter((s, i, arr) => arr.findIndex(x => x.id === s.id) === i)
+        .slice(0, 8)
+
+      // Check the current provider first
+      const currentSource = VIDEO_SOURCES.find(s => s.id === sourceId)
+      if (!currentSource) return
+      const currentUrl = buildPlayerUrl({
+        imdbId: title.imdbId,
+        type: title.type,
+        season: season ?? 1,
+        episode: episode ?? 1,
+        sourceId: currentSource.id,
+      })
+
+      try {
+        const res = await fetch(`/api/provider-check?url=${encodeURIComponent(currentUrl)}`, { cache: "no-store" })
+        const data = await res.json()
+        if (data.ok) return // current provider works, no switch needed
+      } catch {
+        // check failed, try switching anyway
+      }
+
+      // Current provider failed — check the others in parallel
+      if (userInteractedRef.current) return
+      const checks = await Promise.all(
+        chain.filter(s => s.id !== sourceId).slice(0, 6).map(async (s) => {
+          const url = buildPlayerUrl({
+            imdbId: title.imdbId,
+            type: title.type,
+            season: season ?? 1,
+            episode: episode ?? 1,
+            sourceId: s.id,
+          })
+          try {
+            const r = await fetch(`/api/provider-check?url=${encodeURIComponent(url)}`, { cache: "no-store" })
+            const d = await r.json()
+            return { source: s, ok: d.ok }
+          } catch {
+            return { source: s, ok: false }
+          }
+        })
+      )
+      const firstWorking = checks.find(c => c.ok)
+      if (firstWorking && !userInteractedRef.current && firstWorking.source.id !== sourceIdRef.current) {
+        setSourceId(firstWorking.source.id)
+        lastProvider.set(title.imdbId, firstWorking.source.id)
+        setReloads(r => r + 1)
+        toast({
+          title: `Switched to ${firstWorking.source.name}`,
+          description: "Previous server was unavailable",
+        })
+      }
+    }
+    checkAndSwitch()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [title.imdbId, title.type, season, episode])
   type ArabicSource = { url: string; host: string; originalUrl: string }
   type ExtractedSource = { embedUrl: string; host: string; videoUrl: string | null; videoType: "mp4" | "hls" | null; status: "pending" | "extracting" | "ready" | "failed" }
   const [arabicStream, setArabicStream] = useState<{
