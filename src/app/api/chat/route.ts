@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
-import ZAI from "z-ai-web-dev-sdk"
 
 // AI Chat API — Movie & Series Recommendation Assistant
-// Uses z-ai-web-dev-sdk (keyless, pre-authenticated via /etc/.z-ai-config)
+// Uses Pollinations AI (keyless, public, no auth required) — works on Vercel.
+// Fallback: LLM7 (also keyless).
 
 const TMDB_API_KEY = process.env.TMDB_API_KEY || "1c5d8fc6971ccb06fcc873d748bcba92"
 const TMDB_BASE = "https://api.themoviedb.org/3"
@@ -132,6 +132,38 @@ async function extractTitleSuggestions(text: string): Promise<TitleSuggestion[]>
   return results.filter((r): r is TitleSuggestion => r !== null)
 }
 
+// Call Pollinations AI (keyless) — primary
+async function callPollinations(messages: { role: string; content: string }[]): Promise<string> {
+  const res = await fetch("https://text.pollinations.ai/openai", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    signal: AbortSignal.timeout(30000),
+    body: JSON.stringify({
+      model: "openai",
+      messages,
+    }),
+  })
+  if (!res.ok) throw new Error(`Pollinations HTTP ${res.status}`)
+  const data = await res.json()
+  return data.choices?.[0]?.message?.content ?? ""
+}
+
+// Call LLM7 (keyless) — fallback
+async function callLLM7(messages: { role: string; content: string }[]): Promise<string> {
+  const res = await fetch("https://api.llm7.io/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    signal: AbortSignal.timeout(30000),
+    body: JSON.stringify({
+      model: "default",
+      messages,
+    }),
+  })
+  if (!res.ok) throw new Error(`LLM7 HTTP ${res.status}`)
+  const data = await res.json()
+  return data.choices?.[0]?.message?.content ?? ""
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
@@ -145,10 +177,9 @@ export async function POST(req: NextRequest) {
     }
 
     const platformContext = await getPlatformContext()
-    const zai = await ZAI.create()
 
     const messages: { role: string; content: string }[] = [
-      { role: "assistant", content: SYSTEM_PROMPT + platformContext },
+      { role: "system", content: SYSTEM_PROMPT + platformContext },
       ...(history ?? []).slice(-10).map((m) => ({
         role: m.role,
         content: m.content,
@@ -156,12 +187,20 @@ export async function POST(req: NextRequest) {
       { role: "user", content: message },
     ]
 
-    const completion = await zai.chat.completions.create({
-      messages: messages as any,
-      thinking: { type: "disabled" },
-    })
+    // Try Pollinations first, then LLM7 as fallback
+    let aiText = ""
+    try {
+      aiText = await callPollinations(messages)
+    } catch (e) {
+      console.error("[api/chat] Pollinations failed, trying LLM7:", e)
+      try {
+        aiText = await callLLM7(messages)
+      } catch (e2) {
+        console.error("[api/chat] LLM7 also failed:", e2)
+        throw new Error("All AI providers failed")
+      }
+    }
 
-    const aiText = completion.choices[0]?.message?.content ?? ""
     const suggestions = await extractTitleSuggestions(aiText)
 
     return NextResponse.json({
