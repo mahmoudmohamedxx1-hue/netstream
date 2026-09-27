@@ -14,28 +14,32 @@ export async function GET(req: NextRequest) {
 
   // 15+ categories — a mix of trending, popular, top-rated, genre-based,
   // language-based, and release-status rows.
+  // Each endpoint has an explicit `type` field so we don't rely on brittle
+  // path-substring detection (`/discover/tv?...` doesn't contain `/tv/` so
+  // the old `path.includes("/tv/")` check misdetected Arabic Series, Crime
+  // Series, and Drama Series as movies — causing the wrong title to open).
   const endpoints = [
-    { key: "Trending Now", path: "/trending/all/week", pages: 2 },
-    { key: "Popular Movies", path: "/movie/popular", pages: 2 },
-    { key: "Popular Series", path: "/tv/popular", pages: 2 },
-    { key: "IMDB Top Movies", path: "/movie/top_rated", pages: 2 },
-    { key: "IMDB Top Series", path: "/tv/top_rated", pages: 2 },
-    { key: "Arabic Movies", path: "/discover/movie?with_original_language=ar&sort_by=popularity.desc", pages: 2 },
-    { key: "Arabic Series", path: "/discover/tv?with_original_language=ar&sort_by=popularity.desc", pages: 2 },
-    { key: "Now Playing in Theaters", path: "/movie/now_playing", pages: 2 },
-    { key: "Airing This Week", path: "/tv/on_the_air", pages: 2 },
-    { key: "Action Movies", path: "/discover/movie?with_genres=28&sort_by=popularity.desc", pages: 2 },
-    { key: "Comedy Movies", path: "/discover/movie?with_genres=35&sort_by=popularity.desc", pages: 2 },
-    { key: "Horror Movies", path: "/discover/movie?with_genres=27&sort_by=popularity.desc", pages: 2 },
-    { key: "Sci-Fi Movies", path: "/discover/movie?with_genres=878&sort_by=popularity.desc", pages: 2 },
-    { key: "Animation Movies", path: "/discover/movie?with_genres=16&sort_by=popularity.desc", pages: 2 },
-    { key: "Crime Series", path: "/discover/tv?with_genres=80&sort_by=popularity.desc", pages: 2 },
-    { key: "Drama Series", path: "/discover/tv?with_genres=18&sort_by=popularity.desc", pages: 2 },
-    { key: "Documentaries", path: "/discover/movie?with_genres=99&sort_by=popularity.desc", pages: 2 },
+    { key: "Trending Now", path: "/trending/all/week", pages: 2, type: "mixed" as const },
+    { key: "Popular Movies", path: "/movie/popular", pages: 2, type: "movie" as const },
+    { key: "Popular Series", path: "/tv/popular", pages: 2, type: "series" as const },
+    { key: "IMDB Top Movies", path: "/movie/top_rated", pages: 2, type: "movie" as const },
+    { key: "IMDB Top Series", path: "/tv/top_rated", pages: 2, type: "series" as const },
+    { key: "Arabic Movies", path: "/discover/movie?with_original_language=ar&sort_by=popularity.desc", pages: 2, type: "movie" as const },
+    { key: "Arabic Series", path: "/discover/tv?with_original_language=ar&sort_by=popularity.desc", pages: 2, type: "series" as const },
+    { key: "Now Playing in Theaters", path: "/movie/now_playing", pages: 2, type: "movie" as const },
+    { key: "Airing This Week", path: "/tv/on_the_air", pages: 2, type: "series" as const },
+    { key: "Action Movies", path: "/discover/movie?with_genres=28&sort_by=popularity.desc", pages: 2, type: "movie" as const },
+    { key: "Comedy Movies", path: "/discover/movie?with_genres=35&sort_by=popularity.desc", pages: 2, type: "movie" as const },
+    { key: "Horror Movies", path: "/discover/movie?with_genres=27&sort_by=popularity.desc", pages: 2, type: "movie" as const },
+    { key: "Sci-Fi Movies", path: "/discover/movie?with_genres=878&sort_by=popularity.desc", pages: 2, type: "movie" as const },
+    { key: "Animation Movies", path: "/discover/movie?with_genres=16&sort_by=popularity.desc", pages: 2, type: "movie" as const },
+    { key: "Crime Series", path: "/discover/tv?with_genres=80&sort_by=popularity.desc", pages: 2, type: "series" as const },
+    { key: "Drama Series", path: "/discover/tv?with_genres=18&sort_by=popularity.desc", pages: 2, type: "series" as const },
+    { key: "Documentaries", path: "/discover/movie?with_genres=99&sort_by=popularity.desc", pages: 2, type: "movie" as const },
   ]
 
   // Helper: fetch a single page from TMDB and map results to our format.
-  const fetchPage = async (path: string, page: number, lang: string) => {
+  const fetchPage = async (path: string, page: number, lang: string, endpointType: "movie" | "series" | "mixed") => {
     const sep = path.includes("?") ? "&" : "?"
     const res = await fetch(
       `${TMDB_BASE}${path}${sep}api_key=${TMDB_API_KEY}&page=${page}&language=${lang}`,
@@ -44,9 +48,9 @@ export async function GET(req: NextRequest) {
     if (!res.ok) return []
     const data = await res.json()
     return (data.results ?? []).map((r: any) => {
-      const isTvEndpoint = path.includes("/tv/")
-      const isTrending = path.includes("/trending/")
-      const isMovie = isTrending ? r.media_type === "movie" : !isTvEndpoint
+      // Use the explicit endpoint type. For trending (mixed), fall back to
+      // the per-result media_type field that TMDB provides.
+      const isMovie = endpointType === "mixed" ? r.media_type === "movie" : endpointType === "movie"
       return {
         imdbId: null,
         tmdbId: r.id,
@@ -67,7 +71,7 @@ export async function GET(req: NextRequest) {
         try {
           // Fetch `ep.pages` pages in parallel and merge (dedup by tmdbId).
           const pages = await Promise.all(
-            Array.from({ length: ep.pages }, (_, i) => fetchPage(ep.path, i + 1, lang))
+            Array.from({ length: ep.pages }, (_, i) => fetchPage(ep.path, i + 1, lang, ep.type))
           )
           const all = pages.flat()
           // Deduplicate by tmdbId (some categories may return overlap).

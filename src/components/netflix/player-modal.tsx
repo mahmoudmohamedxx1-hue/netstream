@@ -42,6 +42,7 @@ import { useLibrary } from "@/lib/library-store"
 import { useToast } from "@/hooks/use-toast"
 import { usePictureInPicture } from "@/hooks/use-pip"
 import { useIsMobile } from "@/hooks/use-mobile"
+import { estimateHourlyData, estimateTotalData, parseQuality } from "@/lib/data-usage"
 import { useLastProvider } from "@/hooks/use-last-provider"
 import { usePlaybackProgress } from "@/hooks/use-playback-progress"
 import { useLang } from "@/lib/lang-context"
@@ -1159,11 +1160,15 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
               because our items use complex JSX — SelectValue would mirror that JSX
               into the trigger and double the logo. */}
           <Select value={sourceId} onValueChange={handleSourceChange}>
-            <SelectTrigger className="h-9 w-[170px] border-white/20 bg-white/5 text-xs text-white">
+            <SelectTrigger className="h-9 w-[200px] border-white/20 bg-white/5 text-xs text-white">
               <ProviderLogo source={source} size="sm" />
               <span className="truncate text-white/80">
                 <span className="text-white/50">Server:</span>{" "}
                 <span className="font-semibold text-white">{source.name}</span>
+              </span>
+              {/* Data usage badge for current server */}
+              <span className={cn("ml-auto shrink-0 rounded px-1 py-0.5 text-[9px] font-bold", parseQuality(source.quality).color)}>
+                {estimateHourlyData(source.quality)}
               </span>
             </SelectTrigger>
             <SelectContent className="z-[200] max-h-[24rem] border-white/15 bg-[#181818] text-white">
@@ -1244,6 +1249,15 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
                         </p>
                         <p className="text-[10px] text-white/40">
                           {s.quality}
+                          {/* Data usage estimate — helps users save internet */}
+                          <span className="text-cyan-400/70">
+                            {" "}• {estimateHourlyData(s.quality)}
+                          </span>
+                          {meta?.runtimeMinutes ? (
+                            <span className="text-white/30">
+                              {" "}• {estimateTotalData(s.quality, meta.runtimeMinutes)}
+                            </span>
+                          ) : null}
                           {/* Show health latency (preferred) or provider-latency data */}
                           {h ? (
                             <span className={h.ok ? " text-emerald-400/70" : " text-red-400/70"}>
