@@ -164,6 +164,15 @@ async function callLLM7(messages: { role: string; content: string }[]): Promise<
   return data.choices?.[0]?.message?.content ?? ""
 }
 
+// GET /api/chat — health check / debug endpoint
+export async function GET() {
+  return NextResponse.json({
+    status: "ok",
+    provider: "pollinations",
+    timestamp: Date.now(),
+  })
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
