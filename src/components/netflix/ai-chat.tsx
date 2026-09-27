@@ -3,19 +3,6 @@
 import * as React from "react"
 import { Sparkles, X, Send, Film, Tv, Loader2, Bot, User } from "lucide-react"
 import { cn } from "@/lib/utils"
-<<<<<<< Updated upstream
-import { Poster } from "./poster"
-
-// ──────────────────────────────────────────────────────────────────────────
-// AIChat — Floating AI recommendation assistant for NetStream.
-//
-// A floating sparkles button (bottom-right) opens a chat dialog where users
-// can ask for movie/series recommendations. The AI is connected to the
-// website's data (trending titles, TMDB search) and returns clickable
-// title suggestions that open the player.
-// ──────────────────────────────────────────────────────────────────────────
-=======
->>>>>>> Stashed changes
 
 interface TitleSuggestion {
   title: string
@@ -56,20 +43,12 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
   const scrollRef = React.useRef<HTMLDivElement>(null)
   const inputRef = React.useRef<HTMLInputElement>(null)
 
-<<<<<<< Updated upstream
-  // Auto-scroll to bottom when new messages arrive
-=======
->>>>>>> Stashed changes
   React.useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight
     }
   }, [messages, loading])
 
-<<<<<<< Updated upstream
-  // Focus input when chat opens
-=======
->>>>>>> Stashed changes
   React.useEffect(() => {
     if (open) {
       setTimeout(() => inputRef.current?.focus(), 100)
@@ -124,10 +103,7 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
 
   return (
     <>
-<<<<<<< Updated upstream
       {/* Floating button */}
-=======
->>>>>>> Stashed changes
       {!open && (
         <button
           onClick={() => setOpen(true)}
@@ -142,15 +118,10 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
         </button>
       )}
 
-<<<<<<< Updated upstream
       {/* Chat dialog */}
       {open && (
         <div className="fixed bottom-6 right-6 z-[100] flex h-[600px] max-h-[85vh] w-[400px] max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#141414] shadow-2xl">
           {/* Header */}
-=======
-      {open && (
-        <div className="fixed bottom-6 right-6 z-[100] flex h-[600px] max-h-[85vh] w-[400px] max-w-[calc(100vw-3rem)] flex-col overflow-hidden rounded-2xl border border-white/10 bg-[#141414] shadow-2xl">
->>>>>>> Stashed changes
           <div className="flex items-center justify-between border-b border-white/10 bg-gradient-to-r from-primary/20 to-transparent px-4 py-3">
             <div className="flex items-center gap-2.5">
               <div className="flex size-9 items-center justify-center rounded-full bg-gradient-to-br from-primary to-red-600">
@@ -173,17 +144,11 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
             </button>
           </div>
 
-<<<<<<< Updated upstream
           {/* Messages */}
           <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto p-4">
             {messages.map((msg, i) => (
               <div key={i} className={cn("flex gap-2.5", msg.role === "user" && "flex-row-reverse")}>
                 {/* Avatar */}
-=======
-          <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto p-4">
-            {messages.map((msg, i) => (
-              <div key={i} className={cn("flex gap-2.5", msg.role === "user" && "flex-row-reverse")}>
->>>>>>> Stashed changes
                 <div className={cn(
                   "flex size-8 shrink-0 items-center justify-center rounded-full",
                   msg.role === "assistant"
@@ -196,10 +161,7 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
                     <User className="size-4 text-white/70" />
                   )}
                 </div>
-<<<<<<< Updated upstream
                 {/* Bubble */}
-=======
->>>>>>> Stashed changes
                 <div className={cn("max-w-[78%] space-y-3", msg.role === "user" && "text-right")}>
                   <div className={cn(
                     "inline-block rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed",
@@ -209,10 +171,7 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
                   )}>
                     {msg.content}
                   </div>
-<<<<<<< Updated upstream
                   {/* Title suggestion cards */}
-=======
->>>>>>> Stashed changes
                   {msg.suggestions && msg.suggestions.length > 0 && (
                     <div className="space-y-2 pt-1">
                       <p className="text-[10px] font-semibold uppercase tracking-wider text-white/40">
@@ -224,10 +183,7 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
                           onClick={() => onPlayTitle(s)}
                           className="flex w-full items-center gap-3 rounded-lg border border-white/10 bg-white/5 p-2 text-left transition hover:border-primary/40 hover:bg-white/10"
                         >
-<<<<<<< Updated upstream
                           {/* Poster thumbnail */}
-=======
->>>>>>> Stashed changes
                           <div className="size-12 shrink-0 overflow-hidden rounded bg-neutral-800">
                             {s.poster ? (
                               <img
@@ -246,10 +202,7 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
                               </div>
                             )}
                           </div>
-<<<<<<< Updated upstream
                           {/* Title info */}
-=======
->>>>>>> Stashed changes
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-xs font-semibold text-white">{s.title}</p>
                             <p className="flex items-center gap-1.5 text-[10px] text-white/50">
@@ -258,10 +211,7 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
                               {s.rating && <span>• ⭐ {s.rating}</span>}
                             </p>
                           </div>
-<<<<<<< Updated upstream
                           {/* Play icon */}
-=======
->>>>>>> Stashed changes
                           <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/20 text-primary">
                             ▶
                           </div>
@@ -273,10 +223,7 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
               </div>
             ))}
 
-<<<<<<< Updated upstream
             {/* Loading indicator */}
-=======
->>>>>>> Stashed changes
             {loading && (
               <div className="flex gap-2.5">
                 <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary to-red-600">
@@ -290,10 +237,7 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
             )}
           </div>
 
-<<<<<<< Updated upstream
           {/* Suggestion chips (show only on first message) */}
-=======
->>>>>>> Stashed changes
           {messages.length <= 1 && !loading && (
             <div className="flex flex-wrap gap-1.5 border-t border-white/5 px-4 py-2">
               {SUGGESTION_CHIPS.map((chip) => (
@@ -308,10 +252,7 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
             </div>
           )}
 
-<<<<<<< Updated upstream
           {/* Input */}
-=======
->>>>>>> Stashed changes
           <form onSubmit={handleSubmit} className="flex items-center gap-2 border-t border-white/10 p-3">
             <input
               ref={inputRef}

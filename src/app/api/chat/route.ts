@@ -1,19 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import ZAI from "z-ai-web-dev-sdk"
 
-<<<<<<< Updated upstream
-// ──────────────────────────────────────────────────────────────────────────
-// AI Chat API — Movie & Series Recommendation Assistant
-//
-// Uses z-ai-web-dev-sdk (keyless, pre-authenticated via /etc/.z-ai-config).
-// The AI is connected to the website's data: it knows what titles are
-// trending, popular, and available on NetStream. When it recommends a
-// title, we search TMDB to make it clickable in the UI.
-// ──────────────────────────────────────────────────────────────────────────
-=======
 // AI Chat API — Movie & Series Recommendation Assistant
 // Uses z-ai-web-dev-sdk (keyless, pre-authenticated via /etc/.z-ai-config)
->>>>>>> Stashed changes
 
 const TMDB_API_KEY = process.env.TMDB_API_KEY || "1c5d8fc6971ccb06fcc873d748bcba92"
 const TMDB_BASE = "https://api.themoviedb.org/3"
@@ -35,10 +24,6 @@ interface TitleSuggestion {
   rating?: string | null
 }
 
-<<<<<<< Updated upstream
-// ── System prompt — tells the AI it's NetStream's assistant ───────────────
-=======
->>>>>>> Stashed changes
 const SYSTEM_PROMPT = `You are NetStream AI, the official recommendation assistant for NetStream — a free streaming platform where users watch movies and TV series in HD with 40+ streaming sources.
 
 Your job: help users discover movies and series they'll love. You have deep knowledge of cinema and TV from all over the world, including Hollywood, Bollywood, Arabic cinema, Turkish dramas, Korean dramas, anime, and more.
@@ -55,10 +40,6 @@ Guidelines:
 
 Remember: every title you recommend should be formatted as "🎬 Title (Year)" or "📺 Title (Year)" so the system can make them clickable.`
 
-<<<<<<< Updated upstream
-// ── Fetch a snapshot of what's currently on NetStream ─────────────────────
-=======
->>>>>>> Stashed changes
 async function getPlatformContext(): Promise<string> {
   try {
     const res = await fetch(
@@ -79,13 +60,7 @@ async function getPlatformContext(): Promise<string> {
   }
 }
 
-<<<<<<< Updated upstream
-// ── Extract title suggestions from AI response and match to TMDB ──────────
 async function extractTitleSuggestions(text: string): Promise<TitleSuggestion[]> {
-  // Match patterns like "🎬 Title (Year)" or "📺 Title (Year)"
-=======
-async function extractTitleSuggestions(text: string): Promise<TitleSuggestion[]> {
->>>>>>> Stashed changes
   const titleRegex = /[🎬📺]\s+(.+?)\s*\((\d{4})?\)/g
   const matches: { title: string; year?: string }[] = []
   let m: RegExpExecArray | null
@@ -99,10 +74,6 @@ async function extractTitleSuggestions(text: string): Promise<TitleSuggestion[]>
 
   if (matches.length === 0) return []
 
-<<<<<<< Updated upstream
-  // Search TMDB for each title (in parallel, max 5)
-=======
->>>>>>> Stashed changes
   const top = matches.slice(0, 5)
   const results = await Promise.all(
     top.map(async ({ title, year }) => {
@@ -118,10 +89,6 @@ async function extractTitleSuggestions(text: string): Promise<TitleSuggestion[]>
         )
         if (results.length === 0) return null
 
-<<<<<<< Updated upstream
-        // Prefer results matching the year if provided
-=======
->>>>>>> Stashed changes
         let best = results[0]
         if (year) {
           const yearMatch = results.find((r: any) => {
@@ -134,10 +101,6 @@ async function extractTitleSuggestions(text: string): Promise<TitleSuggestion[]>
         const type: "movie" | "series" = best.media_type === "tv" ? "series" : "movie"
         const bestYear = (best.release_date ?? best.first_air_date ?? "").slice(0, 4)
 
-<<<<<<< Updated upstream
-        // Try to get imdbId via external_ids
-=======
->>>>>>> Stashed changes
         let imdbId: string | undefined
         try {
           const extRes = await fetch(
@@ -169,10 +132,6 @@ async function extractTitleSuggestions(text: string): Promise<TitleSuggestion[]>
   return results.filter((r): r is TitleSuggestion => r !== null)
 }
 
-<<<<<<< Updated upstream
-// ── POST /api/chat ────────────────────────────────────────────────────────
-=======
->>>>>>> Stashed changes
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json()
@@ -185,19 +144,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "message too long (max 1000 chars)" }, { status: 400 })
     }
 
-<<<<<<< Updated upstream
-    // Build the platform context (what's trending right now)
-    const platformContext = await getPlatformContext()
-
-    // Initialize the ZAI SDK (keyless — pre-authenticated)
-    const zai = await ZAI.create()
-
-    // Build the message array: system prompt + conversation history + user message
-=======
     const platformContext = await getPlatformContext()
     const zai = await ZAI.create()
 
->>>>>>> Stashed changes
     const messages: { role: string; content: string }[] = [
       { role: "assistant", content: SYSTEM_PROMPT + platformContext },
       ...(history ?? []).slice(-10).map((m) => ({
@@ -213,11 +162,6 @@ export async function POST(req: NextRequest) {
     })
 
     const aiText = completion.choices[0]?.message?.content ?? ""
-<<<<<<< Updated upstream
-
-    // Extract clickable title suggestions from the AI response
-=======
->>>>>>> Stashed changes
     const suggestions = await extractTitleSuggestions(aiText)
 
     return NextResponse.json({
@@ -228,11 +172,7 @@ export async function POST(req: NextRequest) {
     console.error("[api/chat] error:", e)
     return NextResponse.json(
       {
-<<<<<<< Updated upstream
-        error: "AI assistant is temporarily unavailable. Please try again.",
-=======
         error: "AI assistant is temporarily unavailable.",
->>>>>>> Stashed changes
         reply: "Sorry, I couldn't process your request right now. Please try again in a moment.",
         suggestions: [],
       },
