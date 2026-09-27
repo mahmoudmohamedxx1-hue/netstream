@@ -605,9 +605,13 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
         .map(id => VIDEO_SOURCES.find(s => s.id === id))
         .filter((s): s is VideoSource => !!s)
       const tier1Sources = VIDEO_SOURCES.filter(s => s.tier === 1)
-      const chain = [...favSources, ...preferredSources, ...tier1Sources]
+      let chain = [...favSources, ...preferredSources, ...tier1Sources]
         .filter((s, i, arr) => arr.findIndex(x => x.id === s.id) === i)
-        .slice(0, 8)
+      // For TMDB-only titles, filter to only TMDB-supporting providers
+      if (isTmdbOnly) {
+        chain = chain.filter((s) => s.useTmdbId)
+      }
+      chain = chain.slice(0, 8)
 
       // Check the current provider first
       const currentSource = VIDEO_SOURCES.find(s => s.id === sourceId)
@@ -953,8 +957,12 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
         .map(id => VIDEO_SOURCES.find(s => s.id === id))
         .filter((s): s is VideoSource => !!s)
       const tier1Sources = VIDEO_SOURCES.filter(s => s.tier === 1)
-      const chain = [...favSources, ...preferredSources, ...tier1Sources]
+      let chain = [...favSources, ...preferredSources, ...tier1Sources]
         .filter((s, i, arr) => arr.findIndex(x => x.id === s.id) === i)
+      // For TMDB-only titles, filter to only TMDB-supporting providers
+      if (isTmdbOnly) {
+        chain = chain.filter((s) => s.useTmdbId)
+      }
       if (chain.length === 0) return
       const currentIdx = chain.findIndex(s => s.id === sourceIdRef.current)
       const nextIdx = (currentIdx + 1) % chain.length
