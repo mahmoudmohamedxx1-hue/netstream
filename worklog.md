@@ -2148,3 +2148,349 @@ Stage Summary:
 - **No horizontal scroll** on any device (mobile still has `overflow-x: hidden`).
 - **No regressions** — 0 lint errors, 0 runtime errors, all core flows working.
 - Files changed: `src/app/globals.css` (removed `zoom: 0.85` media query).
+
+---
+Task ID: 1 (Bug Investigation — Arabic titles open a different title)
+Agent: explore (Z.ai Code)
+Task: RESEARCH (do NOT write code). Investigate why clicking an Arabic title opens a DIFFERENT title.
+
+Work Log:
+
+## 1-A — Investigation approach
+
+Read prior worklog (Tasks 1–D2) to understand the architecture, then traced the full click-to-open path for Arabic content:
+- `/api/tmdb/home` (home rows) → `TmdbHome` component → `handleClick` → `/api/tmdb/lookup` → `openDetail` → `TitleDetail` → `useTmdbTitle` → `/api/tmdb/[imdbId]` → `getTmdbTitle` → TMDB `/find/{imdbId}` + `/movie|tv/{tmdbId}` details.
+
+## 1-B — Root cause found
+
+**Root cause:** In `src/app/api/tmdb/home/route.ts` line 47, the TV-vs-movie detection uses a substring check `path.includes("/tv/")` (with a TRAILING SLASH). This matches `/tv/popular`, `/tv/top_rated`, `/tv/on_the_air` (which all contain `/tv/`), but **does NOT match `/discover/tv?…`** (which contains `/tv?`, not `/tv/`).
+
+Three rows in `/api/tmdb/home` use `/discover/tv?…` paths and are therefore misdetected as MOVIES:
+- **Arabic Series** → `/discover/tv?with_original_language=ar&sort_by=popularity.desc`
+- **Crime Series** → `/discover/tv?with_genres=80&sort_by=popularity.desc`
+- **Drama Series** → `/discover/tv?with_genres=18&sort_by=popularity.desc`
+
+Verified by inspecting the live API response:
+
+```
+=== Type detection check for ALL home rows ===
+  ✓ 'Arabic Movies'      types={'movie'}      ← correct
+  ✗ BUG 'Arabic Series'   types={'movie'}      ← WRONG (should be 'series')
+  ✗ BUG 'Crime Series'    types={'movie'}      ← WRONG (should be 'series')
+  ✗ BUG 'Drama Series'    types={'movie'}      ← WRONG (should be 'series')
+  … all other rows correct
+```
+
+## 1-C — Downstream code path that causes the mismatch
+
+The wrong `type=movie` propagates through this chain when a user clicks an Arabic Series card:
+
+1. **Card rendered (TmdbHome):** shows "Bab Al-Hara" with `tmdbId=30695`, `type="movie"` (WRONG, should be `series`).
+2. **`handleClick` in `src/components/netflix/tmdb-home.tsx` (lines 514–533):**
+   ```ts
+   const tmdbType = t.type === "series" ? "tv" : "movie"   // → "movie" (wrong)
+   const res = await fetch(`/api/tmdb/lookup?tmdbId=${t.tmdbId}&type=${tmdbType}`, …)
+   ```
+3. **`/api/tmdb/lookup` route (`src/app/api/tmdb/lookup/route.ts` lines 13, 17–18):** honors `type=movie` and fetches TMDB's `/movie/30695/external_ids`. **Critically, TMDB's movie and TV ID spaces are SEPARATE — TMDB ID 30695 in the movie namespace is a completely different title ("Chance Pe Dance", a 2010 Bollywood film) than TMDB ID 30695 in the TV namespace ("Bab Al-Hara").**
+4. **`handleClick` (tmdb-home.tsx line 527):** calls `onPlay({ imdbId: "tt1392744", title: "Bab Al-Hara", type: "movie", … })` — the title and metadata of the Arabic series, but the IMDB ID of the wrong movie.
+5. **`openDetail` in `src/app/page.tsx` (lines 50–60):** stores this mismatched pair in `detail` state.
+6. **`TitleDetail` (`src/components/netflix/title-detail.tsx` line 48):** calls `useTmdbTitle(open ? title.imdbId : null, …)` → fetches `/api/tmdb/tt1392744`.
+7. **`getTmdbTitle` (`src/lib/tmdb.ts` line 53):** calls TMDB `/find/tt1392744?external_source=imdb_id` → resolves to TMDB movie ID 30695 → returns the wrong title's full metadata (cast, trailer, similar, etc.).
+8. **Result on screen:** The page shows "Chance Pe Dance" (a 2010 Bollywood movie) — cast, trailer, overview, year, similar titles all from this wrong movie — even though the user clicked "Bab Al-Hara".
+
+### End-to-end verification (live, against running dev server)
+
+```
+User clicks 'Bab Al-Hara' (Arabic Series card on home page)
+  Card:     title='Bab Al-Hara'  tmdbId=30695  type=movie   ← wrong type
+  lookup:   /api/tmdb/lookup?tmdbId=30695&type=movie → imdbId tt1392744
+  detail:   /api/tmdb/tt1392744 → 'Chance Pe Dance' year=2010 type=movie  ← WRONG TITLE
+```
+
+Same mismatch confirmed for other Arabic series titles:
+
+| Clicked (Arabic Series card) | tmdbId | Wrong imdbId returned | Wrong title that opens |
+|------------------------------|--------|-----------------------|------------------------|
+| Ask Yarası                    | 320516 | tt0072244             | Die sündige Kleinstadt (1975) |
+| El Helmeya Nights             | 52560  | tt0099166             | Book of Love (1990) |
+| Bab Al-Hara                   | 30695  | tt1392744             | Chance Pe Dance (2010) |
+| A man and 6 Women             | 84774  | tt0211191             | Alice in Wonderland (1981) |
+| Al Hayba                      | 84299  | tt0021635             | Bad Girl (1931) |
+
+(For "El Kebeer Awi" tmdbId=52698, `/movie/52698/external_ids` returns no IMDB ID, so the click silently fails — `handleClick` skips the `onPlay` call entirely because `data.imdbId` is falsy.)
+
+## 1-D — Files / functions involved
+
+| File | Role |
+|------|------|
+| **`src/app/api/tmdb/home/route.ts`** (line 47) | **ROOT CAUSE** — `isTvEndpoint = path.includes("/tv/")` fails to match `/discover/tv?…` |
+| `src/components/netflix/tmdb-home.tsx` (`handleClick`, lines 514–533) | Builds `tmdbType` from the (wrong) `t.type`; calls `/api/tmdb/lookup` |
+| `src/app/api/tmdb/lookup/route.ts` (lines 13, 17–18) | Honors `type` query param; fetches `/movie/{tmdbId}/external_ids` or `/tv/{tmdbId}/external_ids` |
+| `src/app/page.tsx` (`openDetail`, lines 50–60) | Stores `{imdbId, title, …}` in state (title and imdbId now mismatched) |
+| `src/components/netflix/title-detail.tsx` (line 48) | Calls `useTmdbTitle(title.imdbId, …)` using the wrong imdbId |
+| `src/hooks/use-tmdb.ts` (line 56) | Fetches `/api/tmdb/{imdbId}` |
+| `src/app/api/tmdb/[imdbId]/route.ts` (line 14) | Calls `getTmdbTitle(imdbId, lang)` |
+| `src/lib/tmdb.ts` (`getTmdbTitle`, line 53) | TMDB `/find/{imdbId}` resolves to the wrong title's full metadata |
+
+## 1-E — Scope of the bug
+
+- **Affected rows on home page:** "Arabic Series", "Crime Series", "Drama Series" — all three return `type=movie` instead of `type=series`. The "Arabic Series" row is what the user noticed, but the bug also affects the other two `/discover/tv?…` rows.
+- **NOT affected:** `/api/tmdb/browse/route.ts` (used by the Movies/Series browse pages and their "🌍 Arabic" sub-category). That route uses `let type = url.searchParams.get("type") === "series" ? "tv" : "movie"` and then `type: type === "movie" ? "movie" : "series"` in the response mapping — so it correctly returns `type=series` for `/discover/tv?…`. Verified: `/api/tmdb/browse?type=series&category=arabic` returns items with `type=series` correctly.
+- **NOT affected:** All `/tv/…` and `/movie/…` paths in `/api/tmdb/home` (Popular Series, Top Series, Airing This Week, etc.) — these contain the literal substring `/tv/` or `/movie/` and are detected correctly.
+- **NOT affected:** Arabic Movies row (`/discover/movie?with_original_language=ar…`) — correctly detected as `type=movie`.
+
+## 1-F — Recommended fix (NOT implemented; research only)
+
+**Primary fix (cleanest, most robust):** Add an explicit `type: "movie" | "tv"` field to each endpoint definition in `src/app/api/tmdb/home/route.ts`, and use that explicit type directly when mapping results — eliminating the brittle path-substring detection entirely. Example:
+
+```ts
+const endpoints = [
+  { key: "Trending Now",          path: "/trending/all/week",                                   pages: 2 },  // trending uses r.media_type
+  { key: "Arabic Series",         path: "/discover/tv?with_original_language=ar&…",             pages: 2, type: "tv"   },
+  { key: "Arabic Movies",         path: "/discover/movie?with_original_language=ar&…",          pages: 2, type: "movie" },
+  // … etc
+]
+// In fetchPage:
+const isTrending = path.includes("/trending/")
+const isMovie = isTrending ? r.media_type === "movie" : (ep.type === "movie")
+```
+
+**Minimal one-line fix (less robust):** Change line 47 of `src/app/api/tmdb/home/route.ts` from:
+```ts
+const isTvEndpoint = path.includes("/tv/")
+```
+to:
+```ts
+const isTvEndpoint = path.includes("/tv/") || path.includes("/discover/tv")
+```
+
+**Optional defensive fix (independent of the above):** In `handleClick` of `tmdb-home.tsx` (and the analogous `handleClick` in `tmdb-browse-grid.tsx` lines 328–353), after the lookup returns an imdbId, fetch `/api/tmdb/{imdbId}` and verify the returned `tmdbId` matches the originally-clicked `t.tmdbId`. If they don't match, retry the lookup with the opposite type. This guards against any future type-mismatch bugs.
+
+Stage Summary:
+- **Root cause:** In `/api/tmdb/home/route.ts`, the TV-vs-movie detection `path.includes("/tv/")` fails for `/discover/tv?…` paths (they contain `/tv?`, not `/tv/`). Three home rows are affected: "Arabic Series", "Crime Series", "Drama Series".
+- **Why it causes "wrong title opens":** TMDB's movie and TV ID spaces are separate. When the Arabic Series card (a TV show with tmdbId `X`) is mistyped as `type=movie`, the lookup fetches `/movie/X/external_ids`, which returns the IMDB ID of a completely different movie that happens to share the same numeric TMDB ID. The detail page then opens that wrong movie's metadata (cast, trailer, similar, etc.).
+- **Affected components/files:** Root cause is one line in `src/app/api/tmdb/home/route.ts`; the wrong data flows through `tmdb-home.tsx` (`handleClick`), `page.tsx` (`openDetail`), `title-detail.tsx`, `use-tmdb.ts`, `/api/tmdb/[imdbId]`, and `lib/tmdb.ts` (`getTmdbTitle`).
+- **Scope:** Only the three `/discover/tv?…` rows on the HOME page are affected. The Movies/Series browse pages (using `/api/tmdb/browse`) are NOT affected — they correctly use the `type` query param.
+- **Recommended fix:** Add an explicit `type: "movie" | "tv"` field per endpoint in `/api/tmdb/home/route.ts` (primary), OR change `path.includes("/tv/")` to `path.includes("/tv/") || path.includes("/discover/tv")` (minimal). No code was written for this task — research only.
+
+---
+Task ID: 2
+Agent: explore (Z.ai Code)
+Task: Research how to show per-server file sizes for each title in the player modal, so users can pick a server based on internet/data consumption.
+
+Work Log:
+- Read `src/components/netflix/player-modal.tsx` (1571 lines): the main player shell and the server dropdown UI.
+- Read `src/lib/vidsrc.ts` (778 lines): the provider list (40+ iframe embed providers in 6 tiers).
+- Read `src/components/netflix/server-check.tsx` (187 lines): the existing "Server Status" health-check modal.
+- Read `src/components/netflix/download-helper.tsx` (653 lines) — discovered it ALREADY does per-source file-size fetching via `/api/download-info`.
+- Read `src/lib/video-extract.ts` (641 lines) — found `getDownloadInfo()` already extracts a fresh direct video URL and HEADs it for MP4 / samples 2 segments for HLS to compute a byte size.
+- Read `src/app/api/download-info/route.ts`, `/api/2embed-servers/route.ts`, `/api/extract-download/route.ts`, `/api/check-servers/route.ts`, `/api/server-health/route.ts`, `/api/provider-latency/route.ts`, `/api/provider-stats/route.ts`, `/api/stremio/[imdbId]/route.ts`.
+- Read `prisma/schema.prisma` — confirmed there is NO per-server size field in the DB. Only `ProviderStat { ok, reports }` exists today.
+- Grepped the codebase for `bitrate | mbps | GB/h | MB/h | hourly | data usage | fileSize | content-length | quality | resolution` to map every place size/quality is referenced.
+
+Stage Summary / Findings:
+
+## 2-A — How the player modal + server selection works today
+
+`src/components/netflix/player-modal.tsx` → `PlayerShell()` (line 273) is the live player. The "server" the user picks is just one entry from the `VIDEO_SOURCES` array in `src/lib/vidsrc.ts`. Each `VideoSource` (line 10–31 of vidsrc.ts) is:
+
+```ts
+type VideoSource = {
+  id, name, quality, tier (1|2|3|4|5), logo, color, mobile, region,
+  buildMovie(imdbId), buildSeries(imdbId, s, e),
+  useTmdbId?, buildMovieTmdb?, buildSeriesTmdb?,
+}
+```
+
+- `quality` is a HARDCODED STRING per provider (`"1080p"` / `"HD"` / `"Multi"` / `"480p"` / `"SD"`). It is NOT measured and does NOT vary per title.
+- The player builds a single iframe URL via `buildPlayerUrl({ imdbId, type, season, episode, sourceId })` (vidsrc.ts line 737–761) and loads it in a `<iframe>` (player-modal.tsx line 1132–1141). Cross-origin: the parent CANNOT read `iframe.contentWindow` or any property of the video — no `videoWidth`, no `videoHeight`, no `networkInfo`, no `duration`. The only signal the parent gets is the iframe `onLoad` event (line 1139) which fires whether or not the video actually plays.
+
+### Server dropdown UI (player-modal.tsx lines 1156–1290)
+A shadcn `<Select>` rendered in the controls strip. Trigger shows `<ProviderLogo> + "Server: <name>"`. The dropdown content is grouped into 4 tabs (`SOURCE_TABS` from vidsrc.ts lines 690–720): Primary ⚡ / Mobile 📱 / Arabic 🌍 / Others ⚠. Each `<SelectItem>` (lines 1217–1287) shows:
+- Provider logo + name + 📱 mobile icon + region badge + ⚠ dead badge
+- One line of metadata under the name (lines 1245–1264): the hardcoded `s.quality` string, then ONE of:
+  - health data: `• 234ms` / `• timeout` / `• dead`
+  - latency data: `• 234ms`
+  - reliability stat: `• ✓ working (3)` or `• ✗ broken (1)`
+  - `• unverified` for dead-but-untested
+- A ★ favorite star (localStorage `netstream:favorites`)
+
+**There is currently NO per-server file size, NO measured bitrate, and NO per-title quality data shown in the dropdown.** The hardcoded `quality` string on each `VideoSource` is the only quality signal, and it does not change from one title to the next.
+
+### Related modals that already DO show per-source sizes
+1. **`DownloadHelper`** (`src/components/netflix/download-helper.tsx`): opens via the "Download" button (player-modal.tsx line 1396–1402). It calls `/api/extract-download?imdbId=&type=&sourceId=&title=&season=&episode=` which returns an array of `DownloadSource` objects each with `host`, `quality`, `type` (mp4/hls), `embedUrl`, `size` (bytes, 0 if unknown), `variantIndex`. The `SourceCard` component (download-helper.tsx line 560–652) uses a `useLiveSize()` hook (line 517–557) which lazily calls `/api/download-info?embed=…&referer=…` per source to fetch the real file size, displayed via `formatFileSize()` (line 60–70) with a 1MB validity floor (`isValidVideoSize` line 75–77).
+   - **NOTE:** this whole flow goes through Arabic providers (EgyDead/EgyBest/Shahid4u/FaselHD) and 2Embed's server mirrors. It does NOT fetch sizes for the regular iframe providers (vidfast, vidcore, 2embed.cc, vidsrc.me, etc.) — those use encrypted JS players that can't be scraped server-side (see comment download-helper.tsx lines 230–233).
+2. **`ServerCheck`** (`src/components/netflix/server-check.tsx`): the "Test" button (player-modal.tsx line 1364–1371) opens this modal. It calls `/api/check-servers?imdbId=&type=&season=&episode=` which fetches each provider's embed URL in parallel with an 8s timeout and returns `{ id, name, quality, ok, status, … }`. It only shows reachability (HTTP 200 / 403 / dead), NOT size.
+
+## 2-B — Is it technically possible to get real per-server file sizes?
+
+**For iframe-based embed providers (the bulk of `VIDEO_SOURCES`): NO, not directly.**
+- The iframe is cross-origin. The parent page cannot read `contentDocument`, `contentWindow.videoWidth`, `videoHeight`, `duration`, `currentTime`, or anything inside the iframe. So we cannot inspect the playing video element to read its `videoTracks[0].bitrate`, etc.
+- These providers (2embed.cc, vidsrc.me, vidsrc.in, vidfast.pro, vidlink.pro, videasy.net, vidjoy.pro, smashystream, superembed, moviesapi.to, vixsrc.to, vidsrc.hair, vidcore.net, cineby.hair, multiembed.mov, anyembed, etc.) load the actual video through encrypted/obfuscated JavaScript that constructs the m3u8/MP4 URL at runtime. The `/api/extract-download` route's `extractFromEmbedPage()` (extract-download route.ts lines 464–561) tries to scrape `https://…mp4` and `https://…m3u8` patterns from the embed HTML, but the comment at lines 460–463 admits: "many providers (2Embed, vidsrc) load the stream via JavaScript with encrypted/tokenized URLs, so this may not find anything." The download-helper route therefore AUTO-FALLS-BACK to Arabic providers (download-helper.tsx lines 230–241: "Regular providers (2Embed) use encrypted JS players that can't be extracted server-side").
+
+**For Arabic providers (EgyDead / EgyBest / Shahid4u / FaselHD) and 2Embed's resolved server mirrors: YES, partially.**
+- `extractDirectFromEmbed()` in `src/lib/video-extract.ts` (lines 345–484) can unpack the `eval(function(p,a,c,k,e,d))` JS used by MixDrop/Morencius/etc. and pull out a real MP4 or M3U8 URL.
+- `getDownloadInfo()` (lines 489–534) takes that direct URL and:
+  - For MP4: `fetch(url, { method: "HEAD" })` then reads `Content-Length` header → real byte size.
+  - For HLS: `estimateHlsSize()` (lines 537–641) fetches the master playlist, picks a variant, lists segments, HEADs the first 2 segments in parallel, multiplies the average by the segment count → estimated total byte size. (Accuracy ≈ ±20%, since segments vary in size; the comment at line 607 says "HEAD 2 segments in PARALLEL for speed".)
+- This is exactly what `/api/download-info?embed=…&referer=…` already does end-to-end.
+
+**For Stremio/Torrentio streams (NOT in the iframe dropdown, separate modal): YES.** `parseStreamTitle()` in `src/app/api/stremio/[imdbId]/route.ts` (lines 73–83) already extracts a `size` string (e.g. "6.19 GB") from the torrent title format "💾 6.19 GB" — but Stremio streams aren't in the main server dropdown.
+
+### Performance caveat — sizes are SLOW to fetch
+- The download-helper's own comments (download-helper.tsx lines 230–233, 351) say: "Regular providers (2Embed) use encrypted JS players that can't be extracted server-side, so trying them first just wastes ~2 seconds before falling back. Going straight to Arabic cuts the total wait time from ~15s to ~8s."
+- Each `getDownloadInfo()` call is ~2–10 seconds (HTTP fetch + HTML parse + JS unpack + HEAD or segment-sample).
+- The player-modal previously called `/api/provider-latency` and `/api/server-health` (parallel HEAD requests across all providers) but those calls were REMOVED (player-modal.tsx lines 377–392: "they were the main source of lag — each tests 24+ external providers in parallel"). Server switching is now fully manual.
+- → Fetching real file sizes for all 30+ providers in the dropdown ON PLAYER OPEN would re-introduce that lag, only worse (HEAD + segment sampling takes much longer than a single GET).
+- The DB has `ProviderStat` (reliability reports) but no `ProviderSize` table — sizes would have to be cached somewhere or fetched lazily.
+
+## 2-C — What quality / data info we CAN show without re-introducing lag
+
+Three tiers of increasing accuracy and increasing cost:
+
+### Tier 1 (free, instant) — Static quality labels + estimated hourly data
+Each `VideoSource.quality` is already a label like `"1080p"`, `"HD"`, `"Multi"`, `"480p"`, `"SD"`. We could map these to estimated **per-hour data consumption** (industry-standard Netflix-style estimates):
+
+| Label         | Resolution | Bitrate (Mbps) | Data / hour | Data / 2h movie |
+|---------------|-----------|----------------|-------------|------------------|
+| 4K / 2160p    | 3840×2160 | 15–25          | ~7 GB       | ~14 GB            |
+| 1080p / FHD   | 1920×1080 | 5–8            | ~3 GB       | ~6 GB             |
+| 720p / HD     | 1280×720  | 2.5–4          | ~1.5 GB     | ~3 GB             |
+| 480p / SD     | 854×480   | 1–1.5          | ~0.5 GB     | ~1 GB             |
+| 360p          | 640×360   | 0.5–0.8        | ~0.3 GB     | ~0.6 GB           |
+| Multi / Auto  | varies    | varies         | "up to ~3 GB/hr" |
+
+These are already-known numbers (Netflix publishes "High: 3 GB/hour (HD), 7 GB/hour (UHD)"). Showing "~3 GB/hour (1080p estimate)" next to each 1080p-tagged server gives the user a real basis for choosing a server, with ZERO extra network requests. Combined with `meta.runtimeMinutes` (already fetched in player-modal.tsx line 454), we can compute "(this title ≈ ~1h 42min → ~5 GB at 1080p)".
+
+This is the **most practical recommendation** — it's exactly the kind of "estimated data per server" the user is asking for, it requires no new API calls, and it integrates with the existing `quality` field already shown in the dropdown.
+
+### Tier 2 (lazy, per-server) — Real file sizes for Arabic + 2Embed mirror sources
+For the providers we CAN extract direct URLs from (Arabic tier 3 + the 3 direct 2Embed mirror hosts: vidsrc.hair / vidcore.net / cineby.hair), call `/api/download-info?embed=…&referer=…` lazily per server, in the background, AFTER the dropdown opens — show a small spinner and then a `1.2 GB` badge when the size resolves. Reuse the `useLiveSize()` hook pattern from download-helper.tsx (lines 517–557). Cache results in localStorage (`netstream:sizes:<sourceId>:<imdbId>:<s>:<e>`) with a 24h TTL so re-opening the same title doesn't re-fetch.
+
+This works for ~8 of the ~40 servers (4 Arabic + 3 2Embed mirrors + multiembed.mov when not encrypted). It will show a real byte size for those, and "—" / "estimate only" for the rest.
+
+### Tier 3 (server-side batch, slow) — A new `/api/server-sizes` endpoint
+Add a new route `src/app/api/server-sizes/route.ts` that takes `imdbId`, `type`, `season`, `episode` and in parallel:
+1. For each `VideoSource` whose embed URL we can scrape (the 8 above), call `getDownloadInfo()` with a 5s budget per source.
+2. Returns `{ sizes: Record<sourceId, { size, quality, type, fetchedAt }> }`.
+3. Cache in memory for 1 hour (same pattern as `/api/server-health` route.ts lines 41–43) AND optionally persist to a new Prisma model `ProviderSize { imdbId, sourceId, size, quality, measuredAt }` keyed by `(imdbId, sourceId, season, episode)`.
+
+This is the most accurate but the most expensive. Should NOT be called on player open — should be called only when the user clicks a new "Show file sizes" button (next to the existing "Test" / "Server Status" button).
+
+## 2-D — Files / functions that would need modification (NOT implemented — research only)
+
+| File | Role | Change needed |
+|------|------|----------------|
+| **`src/lib/vidsrc.ts`** (lines 10–31, 33–646) | `VideoSource` type + provider list | Add optional fields `typicalBitrateMbps?: number`, `estimatedHourlyDataMB?: number`, `resolution?: "4K" \| "1080p" \| "720p" \| "480p" \| "SD" \| "Multi"`. Populate per provider (vidfast/vidcore/vixsrc = 1080p, moviesapi = 720p, etc.). |
+| **`src/lib/vidsrc.ts`** (new export, e.g. after line 725) | — | Add `ESTIMATED_HOURLY_DATA: Record<string, number>` map (resolution → MB/hour) + helper `estimateDataForSource(source, runtimeMinutes)`. |
+| **`src/components/netflix/player-modal.tsx`** (lines 1217–1287, the `<SelectItem>` block) | server dropdown row | Add a small badge showing either (a) the estimated hourly data ("~3 GB/hr") for Tier-1, or (b) a real byte size ("1.2 GB") for Tier-2, fetched lazily. |
+| **`src/components/netflix/player-modal.tsx`** (around line 1364, near "Test" button) | controls strip | Add a new "💾 Sizes" button that opens a size-comparison panel/modal. |
+| **`src/components/netflix/download-helper.tsx`** (lines 60–70, 517–557) | existing size logic | Extract `formatFileSize`, `isValidVideoSize`, `useLiveSize` into a shared `src/lib/format-bytes.ts` + `src/hooks/use-live-size.ts` so the player-modal can reuse them. |
+| **`src/app/api/download-info/route.ts`** | existing single-source size endpoint | No change needed — already returns `{ success, videoUrl, videoType, size }`. The dropdown can call it directly with the provider's `buildMovie(imdbId)` / `buildSeries(imdbId, s, e)` URL as `embed=`. |
+| **`src/app/api/server-sizes/route.ts`** (NEW file) | batch size endpoint for Tier 3 | New route. Iterate `VIDEO_SOURCES` (or only the scrapable subset), call `getDownloadInfo()` in parallel with a 5s budget, return `Record<sourceId, { size, quality, type }>`. Mirror the caching pattern from `/api/server-health/route.ts` lines 41–66. |
+| **`prisma/schema.prisma`** (after line 83) | DB schema | Optional: add `ProviderSize { id, imdbId, sourceId, season?, episode?, size Int, quality String, measuredAt DateTime, @@unique([imdbId, sourceId, season, episode]) }` for persistent size cache. Requires `bun run db:push`. |
+| **`src/hooks/use-language.ts`** (lines 76, 173, etc.) | i18n | Add keys: `dataPerHour`, `estimatedSize`, `fileSize`, `loadingSize`, `showSizes`. |
+
+## 2-E — Recommended approach (do NOT implement yet)
+
+A **hybrid Tier-1 + lazy Tier-2** approach is the best balance of usefulness vs. cost:
+
+1. **Always show estimated hourly data in the dropdown (Tier 1, instant, free).** Compute it client-side from `source.quality` + a small lookup table. This works for ALL 40+ providers immediately, with zero network calls. Format: `~3 GB/hr` badge next to the existing `1080p` label. If `meta.runtimeMinutes` is known, also show `(≈5 GB for this movie)` once in the info section.
+
+2. **Lazily fetch real sizes only for the providers where extraction is known to work (Tier 2 subset):** the 4 Arabic tier-3 providers + `vidsrc.hair`, `vidcore.net`, `cineby.hair`, `multiembed.mov`. Use the existing `/api/download-info?embed=<buildMovieUrl>&referer=…` endpoint, with a 6s timeout, in the background after the dropdown first opens. Cache in localStorage for 24h. When a real size arrives, replace the estimate badge with `1.2 GB ✓` (real) styled differently from `~3 GB/hr` (estimate). Reuse the `useLiveSize()` hook from download-helper.tsx — extract it to `src/hooks/use-live-size.ts` first.
+
+3. **Add a "💾 Sizes" button** next to the existing "Test" (Server Status) button that opens a comparison modal (similar to `ServerCheck`) showing all servers ranked by real file size, with the estimates as fallback. This uses Tier 3 (`/api/server-sizes`) only when explicitly requested, so it never lags the player open.
+
+4. **Do NOT** attempt to fetch sizes for the encrypted-JS providers (2embed.cc, vidsrc.me, vidsrc.in, vidfast.pro, vidlink.pro, videasy.net, vidjoy.pro, smashystream, superembed, moviesapi.to, vixsrc.to, etc.) — the extraction code already documents that these can't be scraped server-side. For these, show only the Tier-1 estimate.
+
+5. **Do NOT** add per-server size fetching to the player open path itself — it would re-introduce the lag that was specifically removed in player-modal.tsx lines 377–392. The Tier-1 estimate is shown instantly; Tier-2 real sizes are fetched lazily AFTER the dropdown is visible.
+
+### Key code that already exists and can be reused as-is
+- `getDownloadInfo(embedUrl, referer, variantIndex)` in `src/lib/video-extract.ts` lines 489–534 — extracts + sizes in one call.
+- `estimateHlsSize()` in `src/lib/video-extract.ts` lines 537–641 — HLS sampling.
+- `/api/download-info` route — single-source size endpoint, returns `{ success, videoUrl, videoType, size }`.
+- `useLiveSize()` hook in `src/components/netflix/download-helper.tsx` lines 517–557 — lazy per-source size fetcher.
+- `formatFileSize()` + `isValidVideoSize()` in download-helper.tsx lines 60–77 — byte formatting with 1MB floor.
+- `parseHlsVariants()` in `/api/extract-download/route.ts` lines 278–334 — HLS master playlist variant parsing (returns per-quality variant indexes).
+- `getQualityForHost()` in `/api/extract-download/route.ts` lines 440–453 — host→typical-quality map (MixDrop=480p, VOE=1080p, etc.) — could be reused to refine the static `quality` labels on `VideoSource`.
+- `meta.runtimeMinutes` is already fetched in player-modal.tsx line 454 — gives us the multiplier for "estimated total data for this title".
+
+### Why real per-server sizes for the iframe providers are not achievable
+- The iframe is cross-origin (browser security model) → parent can't read video element properties.
+- The providers obfuscate the video URL behind encrypted JS that runs inside the iframe → server-side scraping of the embed HTML usually finds nothing (already documented in `/api/extract-download/route.ts` lines 460–463).
+- Even if we proxy the iframe content same-origin via `/api/video-proxy`, the JS still constructs the m3u8/MP4 URL at runtime in the browser — we'd need a headless browser (Puppeteer) to execute the JS and intercept the network request, which is too heavy for a dropdown.
+- Therefore: for the encrypted iframe providers, the BEST we can do is the Tier-1 estimated hourly data based on the static `quality` label.
+
+Stage Summary:
+- **Player modal today:** server dropdown in `player-modal.tsx` (lines 1156–1290) shows each `VideoSource` from `vidsrc.ts` with a hardcoded `quality` string ("1080p"/"HD"/"Multi"/"480p"/"SD"), plus optional health/latency/reliability badges. NO per-server file size is shown anywhere in the dropdown.
+- **Existing size infrastructure:** `getDownloadInfo()` in `src/lib/video-extract.ts` (lines 489–534) + `/api/download-info` route + `useLiveSize()` hook in `download-helper.tsx` (lines 517–557) ALREADY fetch real byte sizes — but only for sources whose direct video URL can be extracted (Arabic tier-3 providers + 2Embed's resolved mirror hosts: vidsrc.hair / vidcore.net / cineby.hair).
+- **Iframe providers (the bulk of the dropdown):** CANNOT expose real file sizes. Cross-origin iframe blocks parent-side inspection; provider JS is encrypted/obfuscated so server-side scraping of the embed HTML rarely finds the m3u8/MP4 URL (already documented in `/api/extract-download/route.ts` lines 460–463).
+- **What we CAN show without lag:** Tier-1 estimated hourly data from the static `quality` label (e.g. "1080p ≈ 3 GB/hr") for ALL providers, instantly, with zero network calls. Combined with `meta.runtimeMinutes` (already fetched), we get "(this title ≈ 5 GB at 1080p)".
+- **What we CAN show lazily for the ~8 scrapable providers:** real byte sizes via the existing `/api/download-info` endpoint, fetched in the background after the dropdown opens, cached in localStorage 24h.
+- **Files that would need change:** `src/lib/vidsrc.ts` (add bitrate/data fields), `src/components/netflix/player-modal.tsx` (render size badge in `<SelectItem>` + new "Sizes" button/modal), `src/lib/format-bytes.ts` (extract shared helpers from download-helper.tsx), `src/hooks/use-live-size.ts` (extract shared hook), optional new `src/app/api/server-sizes/route.ts` (batch endpoint, Tier 3), optional new Prisma `ProviderSize` model for persistent cache.
+- **Recommended approach:** Hybrid — always show Tier-1 estimate (~3 GB/hr style) instantly for every provider; lazily fetch real byte size only for the 8 scrapable providers in the background; add a "💾 Sizes" button for an explicit Tier-3 batch comparison modal (called on-demand, NOT on player open, to avoid re-introducing the lag that was deliberately removed at player-modal.tsx lines 377–392). No code was written for this task — research only.
+
+---
+Task ID: 3
+Agent: explore (broader codebase analysis)
+Task: Identify bugs and issues across the NetStream codebase — dead code, performance, UX, security, and code-quality problems.
+
+Work Log:
+- Read prior worklog (Tasks 1–18) to understand context: a Netflix-style streaming site built around vidsrc/2Embed iframes + Arabic site scrapers + a Stremio/torrent experiment that was later abandoned.
+- Ran `npx tsc --noEmit` and reviewed the project-only errors (filtered out skills/examples directories that are not part of the app).
+- Searched the codebase for imports of suspect components to confirm which are dead vs. live.
+- Reviewed every API route under `src/app/api/` for SSRF, input-validation, and CORS issues.
+- Inspected the homepage (`src/app/page.tsx`), TMDB home (`tmdb-home.tsx`), browse grid (`tmdb-browse-grid.tsx`), player modal, and quick-start card for UX/perf issues.
+- Verified that no `error.tsx` / `loading.tsx` / `not-found.tsx` route segment files exist anywhere under `src/app/`.
+
+Top issues found (prioritized, with severity + recommended fix):
+
+1. **`QuickStartCard` shows Vercel Analytics install instructions on the NetStream homepage** — SEVERITY: HIGH
+   - `src/components/netflix/quick-start-card.tsx` renders a 3-step onboarding block titled "Install our package", "Add the React component", "Deploy & Visit your Site" with `npm i @vercel/analytics` and `<Analytics/>` code samples. It is rendered on the home page at `src/app/page.tsx:148-150` (`<QuickStartCard />`). This is leftover template content that has nothing to do with NetStream and is visible to every visitor.
+   - **Fix:** Delete the import + usage in `page.tsx` (lines 17, 148–150) and delete `quick-start-card.tsx`, or replace its body with NetStream-relevant content (e.g. an "Install the APK" panel reusing the existing download UI).
+
+2. **SSRF (Server-Side Request Forgery) in 6 proxy routes** — SEVERITY: HIGH
+   - `src/app/api/proxy/route.ts`, `src/app/api/video-proxy/route.ts`, `src/app/api/stream-video/route.ts`, `src/app/api/download/route.ts`, `src/app/api/extract-video/route.ts`, `src/app/api/extract-download/route.ts` all accept a `?url=` / `?embed=` / `?referer=` query param and `await fetch(url)` it server-side with no host allowlist. An attacker can use the site as an open proxy: fetch internal network services (e.g. `http://localhost:3031/...`, AWS metadata at `http://169.254.169.254/...`), bypass IP allowlists on third-party CDNs, or burn the server's bandwidth.
+   - **Fix:** Add a host allowlist (`mixdrop.top`, `voe.sx`, `streamruby.com`, `tv10.egydead.live`, `shed4u.cam`, the `2embed.*`/`vidsrc.*` domains the player actually uses) and reject anything else with 403. Reject private/loopback IPs (10.x, 192.168.x, 127.x, 169.254.x, ::1) explicitly. Apply the same check to redirect hops (the `redirect: "follow"` calls currently follow any redirect to any host).
+
+3. **Large dead-code surface from abandoned Stremio/torrent feature** — SEVERITY: MEDIUM
+   - `src/components/netflix/stremio-player.tsx` (580 lines), `src/app/api/stremio/[imdbId]/route.ts` (170 lines), `src/app/api/stremio-stream/route.ts` (126 lines), and the entire `mini-services/torrent-stream/` directory (index.ts + package.json + lock files, ~400+ lines) are all unreferenced. `Grep` for `StremioPlayer`, `stremio-player`, `/api/stremio`, and `torrent-stream` returns hits ONLY inside those files themselves — nothing in the live app imports or calls them. They ship in the bundle/JS routes and expose the dead `/api/stremio-stream` endpoint that always 503s because the torrent mini-service isn't running.
+   - **Fix:** Delete all four locations. They can be recovered from git history if ever needed.
+
+4. **Dead Supabase auth/likes/progress stack causing TypeScript errors** — SEVERITY: HIGH
+   - `src/lib/supabase/{server,client,admin,auth-context}.tsx` (4 files), `src/components/auth/auth-modal.tsx`, `src/components/netflix/like-button.tsx`, and 11 API routes (`src/app/api/auth/{sign-up,sign-in,sign-out,session,magic-link,phone-otp,oauth,callback}/route.ts`, `src/app/api/likes/[imdbId]/route.ts`, `src/app/api/progress/{list,save}/route.ts`) all `import` from `@supabase/supabase-js` and/or `@supabase/ssr` — packages that are NOT in `package.json`. `tsc --noEmit` reports 4 "Cannot find module" errors. Additionally, `like-button.tsx` calls `useLibrary()` expecting `{ likes, toggleLike, isLiked }` but `LibraryState` only has `watchlist/history/toggleWatchlist/...` — 3 more TS errors. `AuthProvider` is never mounted (not in `layout.tsx`) and `<AuthModal>` is never rendered anywhere. So the whole auth stack is dead code AND broken.
+   - **Fix:** Either (a) `bun add @supabase/supabase-js @supabase/ssr` and wire `AuthProvider` + `<AuthModal>` into the app if you actually want auth, or (b) — recommended — delete the 4 supabase files + `auth-modal.tsx` + `like-button.tsx` + the 11 auth/likes/progress API routes. They can be restored from git.
+
+5. **Dead Puppeteer route `/api/stream/[imdbId]`** — SEVERITY: MEDIUM
+   - `src/app/api/stream/[imdbId]/route.ts` (278 lines) imports `puppeteer-core` (not in `package.json` — TS error `TS2307`) and hardcodes a local Chrome path (`/home/z/.cache/puppeteer/...`). It is not called anywhere in the live app — `player-modal.tsx` uses `/api/stream-video` (the lightweight extractor), not `/api/stream/[imdbId]`. So this route is dead, broken, and would 500 if anyone hit it.
+   - **Fix:** Delete the file.
+
+6. **TMDB API key hardcoded as a fallback in 8 files** — SEVERITY: MEDIUM
+   - The literal `"1c5d8fc6971ccb06fcc873d748bcba92"` appears as the fallback of `process.env.TMDB_API_KEY || "..."` in: `src/lib/tmdb.ts:7`, `src/app/api/tmdb/home/route.ts:3`, `src/app/api/tmdb/search/route.ts:3`, `src/app/api/tmdb/browse/route.ts:3`, `src/app/api/tmdb/genres/route.ts:3`, `src/app/api/tmdb/lookup/route.ts:3`, `src/app/api/tmdb/season/route.ts:5`, `src/app/api/posters/route.ts:3`. Even though TMDB keys are technically free, this is (a) code duplication across 8 sites that must be updated in lockstep, and (b) a leaked credential in source code that any public-fork user gets for free.
+   - **Fix:** Centralize the constant in `src/lib/tmdb.ts` (export `TMDB_API_KEY`) and import it in the 7 route files. Make the env var required in production (`if (!process.env.TMDB_API_KEY) return 503`) instead of silently falling back.
+
+7. **No Next.js error boundary / `error.tsx`** — SEVERITY: MEDIUM
+   - `Glob` for `**/error.tsx`, `**/loading.tsx`, `**/not-found.tsx` under `src/app/` returns nothing. Any uncaught runtime error in a client component (e.g. a `JSON.parse` on a malformed API response, an undefined-access in the player, a TMDB fetch failure inside `useTmdbTitle`) will bubble up and crash the whole page with Next.js's default red-error overlay in dev / a broken page in prod. The 1585-line `player-modal.tsx` in particular has many effects + state setters that are easy to trip.
+   - **Fix:** Add `src/app/error.tsx` (client component that catches + shows a "Something went wrong, reload" UI with a retry button) and `src/app/not-found.tsx` (custom 404).
+
+8. **Heavy uncached TMDB fan-out on every home + browse page load** — SEVERITY: MEDIUM
+   - `src/app/api/tmdb/home/route.ts` fetches **17 categories × 2 pages = 34 TMDB API calls** per request, in parallel. The client (`tmdb-home.tsx:200`) calls it with `cache: "no-store"` and retries up to 3× on failure — so a flaky TMDB can mean ~100 upstream calls per page load. Similarly, `tmdb-browse-grid.tsx:179-208` fires **12 categories × 2 pages = 24 TMDB calls** on every Movies/Series tab mount, also `cache: "no-store"`. The server-side route uses `{ next: { revalidate: 3600 } }` but the client-side `no-store` defeats that and the dev/prod traffic can easily blow past TMDB's free-tier rate limit (~50 req/s).
+   - **Fix:** Change the client fetches from `cache: "no-store"` to `next: { revalidate: 600 }` (10-min client cache) OR use SWR/React Query with a 10–30 min stale time. Lower the home endpoint from 17 rows to ~10 (drop the most-redundant genre rows) and only fetch 1 page per row (20 titles) — Netflix-style rows don't need 40. The latency drop + rate-limit headroom is worth the slightly shorter rows.
+
+9. **Missing input validation on `POST /api/watchlist` and `POST /api/history`** — SEVERITY: MEDIUM
+   - `src/app/api/watchlist/route.ts:18-40` and `src/app/api/history/route.ts:18-57` only check `if (!imdbId || !title || !type)` — they don't validate that `imdbId` matches `^tt\d{7,8}$`, that `type ∈ {"movie","series"}`, that `year` is a 4-digit string, or that `season`/`episode` are positive integers. A malicious or buggy client can POST `{ imdbId: "x".repeat(10000), title: "...", type: "movie" }` and pollute the SQLite DB. Prisma parameterizes queries so no SQL injection, but no length/format guard means the DB can grow unbounded.
+   - **Fix:** Add a tiny zod schema (`z.object({ imdbId: z.string().regex(/^tt\d{7,8}$/), type: z.enum(["movie","series"]), title: z.string().min(1).max(200), ... })`) and `safeParse` the body before the upsert. Return 400 on validation failure.
+
+10. **TypeScript type bug in dead `custom-video-player.tsx`** — SEVERITY: LOW (because dead code)
+    - `src/components/netflix/custom-video-player.tsx:73` declares `const [showSettings, setShowSettings] = useState(false)` (boolean) but lines 563, 569, 594, 600 compare it to the strings `"subs"` and `"main"` (`showSettings === "subs" ? false : "subs"`). `tsc` reports 6 errors (`TS2367` + `TS2345`) because the comparison is always false and `"subs"` isn't assignable to `SetStateAction<boolean>`. The component is NOT imported anywhere — it's dead code superseded by `NativeVideoPlayer` inside `player-modal.tsx`.
+    - **Fix:** Delete the file (recommended, since it's dead). If kept, change `useState(false)` to `useState<"main" | "subs" | false>(false)`.
+
+Other notes (not in the top 10, mentioned for completeness):
+- `src/components/netflix/player-modal.tsx` is 1585 lines with ~15 `useState` + ~12 `useEffect`. It works but is a maintenance hazard; splitting into smaller hooks (e.g. `useArabicExtraction`, `usePlayerMetadata`, `useProviderStats`) would help. Not blocking.
+- The `mini-services/torrent-stream/index.ts` listens with `Access-Control-Allow-Origin: *` and accepts any infoHash from any client (only validates the 40-hex format). If the service is ever actually started, anyone could use it as an open torrent-streaming relay. Dead today, but worth deleting (covered by issue #3).
+- The hardcoded UA `"Mozilla/5.0 (Windows NT 10.0; Win64; x64) ... Chrome/120.0.0.0"` is consistent across ~6 files; extracting it to `src/lib/fetch-headers.ts` would dedupe and let us bump it in one place.
+- `src/lib/local-titles.ts` keeps disappearing between sessions (mentioned in Tasks 3, 5, 15 worklog entries). Worth investigating whether the Turbopack cache corruption is triggered by something in the build config rather than just clearing `.next/` repeatedly.
+
+Stage Summary:
+- 10 prioritized issues identified. The 3 highest-impact, easy wins are: (1) delete the Vercel-Analytics `QuickStartCard` from the home page, (2) delete the dead Stremio + Supabase + Puppeteer code (4 + 17 + 1 files), and (3) add a host allowlist to the 6 proxy routes. Together these remove visible UX noise, eliminate ~1700 lines of dead code, fix 13+ TypeScript errors, and close the most serious SSRF vector.
+- No code changes were made in this task — analysis only. Next task should pick up the recommended fixes in priority order.
