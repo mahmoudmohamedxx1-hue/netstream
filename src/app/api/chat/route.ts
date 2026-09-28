@@ -222,6 +222,7 @@ async function callLLM7(messages: { role: string; content: string }[]): Promise<
 }
 
 // GLM via Z.ai SDK — only works in sandbox (internal-api.z.ai is 403 from Vercel)
+// On Vercel/production, this will fail fast (5s timeout) and fall back to Pollinations
 async function callGLM(messages: { role: string; content: string }[]): Promise<string> {
   const ZAI = (await import("z-ai-web-dev-sdk")).default
   const zai = await ZAI.create()
@@ -230,6 +231,11 @@ async function callGLM(messages: { role: string; content: string }[]): Promise<s
     thinking: { type: "disabled" },
   })
   return completion.choices[0]?.message?.content ?? ""
+}
+
+// Detect if we're running on Vercel/production (where GLM doesn't work)
+function isProduction(): boolean {
+  return process.env.VERCEL === "1" || process.env.NODE_ENV === "production"
 }
 
 // GET /api/chat — health check / model list
@@ -268,17 +274,29 @@ export async function POST(req: NextRequest) {
       { role: "user", content: message },
     ]
 
-    // Determine which model to use — GLM 5.3 Flash is the default
-    const requestedModel = model || "glm"
+    // Determine which model to use
+    // - In sandbox: GLM 5.3 Flash is default (works via internal-api.z.ai)
+    // - On Vercel/production: GLM doesn't work (403), so default to Pollinations
+    const production = isProduction()
+    const requestedModel = model || (production ? "pollinations" : "glm")
     let aiText = ""
     let usedModel = ""
 
-    // Try the requested model first, then fall back to others
-    const modelOrder = requestedModel === "glm"
-      ? ["glm", "pollinations", "llm7"]
-      : requestedModel === "llm7"
-      ? ["llm7", "pollinations", "glm"]
-      : ["pollinations", "llm7", "glm"]
+    // Build the model order — skip GLM entirely on production since it always fails
+    let modelOrder: string[]
+    if (production) {
+      // On Vercel: Pollinations first, LLM7 fallback, no GLM (it always times out)
+      modelOrder = requestedModel === "llm7"
+        ? ["llm7", "pollinations"]
+        : ["pollinations", "llm7"]
+    } else {
+      // In sandbox: try requested model first, then fallbacks
+      modelOrder = requestedModel === "glm"
+        ? ["glm", "pollinations", "llm7"]
+        : requestedModel === "llm7"
+        ? ["llm7", "pollinations", "glm"]
+        : ["pollinations", "llm7", "glm"]
+    }
 
     for (const m of modelOrder) {
       try {

@@ -25,8 +25,8 @@ interface ChatMessage {
 
 // ── Model definitions ─────────────────────────────────────────────────────
 const MODELS = [
-  { id: "glm", name: "GLM 5.3 Flash", desc: "High Quality · Default", icon: Brain, color: "text-violet-400" },
-  { id: "pollinations", name: "GPT-OSS 20B", desc: "Keyless · Fast", icon: Zap, color: "text-amber-400" },
+  { id: "pollinations", name: "GPT-OSS 20B", desc: "Keyless · Default", icon: Zap, color: "text-amber-400" },
+  { id: "glm", name: "GLM 5.3 Flash", desc: "High Quality · Sandbox only", icon: Brain, color: "text-violet-400" },
   { id: "llm7", name: "Codestral", desc: "Keyless · Balanced", icon: Globe, color: "text-sky-400" },
 ] as const
 
@@ -43,7 +43,7 @@ const MODEL_KEY = "netstream:ai-model"
 
 export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => void }) {
   const [open, setOpen] = React.useState(false)
-  const [model, setModel] = React.useState<string>("glm") // GLM 5.3 Flash is default
+  const [model, setModel] = React.useState<string>("pollinations") // Default to Pollinations (works everywhere)
   const [modelMenuOpen, setModelMenuOpen] = React.useState(false)
   const [messages, setMessages] = React.useState<ChatMessage[]>([])
   const [historyLoaded, setHistoryLoaded] = React.useState(false)
