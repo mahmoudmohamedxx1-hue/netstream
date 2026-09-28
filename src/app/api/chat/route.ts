@@ -268,8 +268,8 @@ export async function POST(req: NextRequest) {
       { role: "user", content: message },
     ]
 
-    // Determine which model to use
-    const requestedModel = model || "pollinations"
+    // Determine which model to use — GLM 5.3 Flash is the default
+    const requestedModel = model || "glm"
     let aiText = ""
     let usedModel = ""
 
