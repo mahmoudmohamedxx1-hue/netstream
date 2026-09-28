@@ -1,10 +1,10 @@
 // IndexedDB-based chat history persistence.
-// Stores chat messages in the 'netstream-client' database, 'ai-chat' store.
+// Uses a SEPARATE database from watch history to avoid version conflicts.
 // Messages persist across sessions so users can continue conversations.
 
-const DB_NAME = "netstream-client"
-const DB_VERSION = 2
-const STORE_NAME = "ai-chat"
+const DB_NAME = "netstream-chat"
+const DB_VERSION = 1
+const STORE_NAME = "messages"
 
 let dbPromise: Promise<IDBDatabase> | null = null
 
@@ -20,12 +20,15 @@ function openDB(): Promise<IDBDatabase> {
     req.onsuccess = () => resolve(req.result)
     req.onupgradeneeded = (e) => {
       const db = (e.target as IDBOpenDBRequest).result
-      // Create the ai-chat store if it doesn't exist (keyPath: auto-increment id)
+      // Create the messages store if it doesn't exist
       if (!db.objectStoreNames.contains(STORE_NAME)) {
         const store = db.createObjectStore(STORE_NAME, { keyPath: "id", autoIncrement: true })
         store.createIndex("timestamp", "timestamp", { unique: false })
       }
     }
+    // Timeout — if IndexedDB hangs (e.g. blocked by another connection),
+    // reject after 3s so the chat UI doesn't freeze
+    setTimeout(() => reject(new Error("IndexedDB timeout")), 3000)
   })
   return dbPromise
 }
