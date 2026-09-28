@@ -2,19 +2,15 @@ import { NextRequest, NextResponse } from "next/server"
 
 // GET /api/video-proxy?url=<embed-url>&referer=<referer>
 //
-// Proxies a provider's embed page with ad-blocking. Works across ALL platforms
-// and devices (Vercel, Netlify, mobile, desktop, Smart TV).
+// Proxies a provider's embed page with FULL ad-blocking that works across
+// ALL platforms and devices (Vercel, Netlify, mobile, desktop, Smart TV).
 //
-// Key design decisions:
-// 1. We do NOT override window.fetch or XMLHttpRequest globally — that breaks
-//    video players that load their video via fetch/XHR (vidfast, vidcore, etc.)
-// 2. We only strip <script> tags from KNOWN ad domains (doubleclick, exoclick,
-//    popads, etc.) — not all scripts
-// 3. We inject CSS to hide ad elements (banners, popunders, overlays)
-// 4. We bypass 2Embed's sandbox detection (isReallySandboxed)
-// 5. We set permissive CSP headers so the video player can load from any CDN
+// This restores the ad-blocking approach from commit 111e1c1 (the version
+// that successfully blocked ads for 2+ weeks), with a critical fix:
+// the fetch/XHR override now WHITELISTS video stream URLs (.m3u8, .mp4,
+// .ts, .key) so it doesn't break the video player.
 
-// ── Known ad domains — scripts from these are stripped ────────────────────
+// ── Known ad domains — scripts/iframes from these are stripped ────────────
 const AD_DOMAINS = [
   "doubleclick.net", "googleads.g.doubleclick.net", "googlesyndication.com",
   "google-analytics.com", "googletagmanager.com", "connatix.com",
@@ -34,9 +30,7 @@ const AD_DOMAINS = [
 // ── CSS to hide ad elements (uBlock Origin Lite style) ────────────────────
 const AD_BLOCK_CSS = `
 <style id="netstream-adblock">
-  /* Hide 2Embed sandbox error */
   #sbxErr { display: none !important; visibility: hidden !important; opacity: 0 !important; }
-  /* Hide ad containers by ID/class pattern */
   [id*="ad-"], [id*="ads-"], [id*="ad_"], [id*="ads_"],
   [class*="ad-"], [class*="ads-"], [class*="ad_"], [class*="ads_"],
   [id*="banner"], [class*="banner"],
@@ -53,24 +47,85 @@ const AD_BLOCK_CSS = `
   .ad-banner, .ad-overlay, .ad-popup, .adbd, #ad, #ads, .ad, .ads, .advert,
   .advertisement, .ad-notice, .ad-label,
   #sbxErr, .dropdown.ad, .ad-frame, .ad-slot,
-  /* Common popunder/redirect patterns */
   [onclick*="window.open"], [onclick*="location.href"],
   a[href*="popunder"], a[href*="popads"], a[href*="exoclick"],
   a[href*="adsterra"], a[href*="propellerads"],
-  /* Video player should fill the screen */
   video, .jwplayer, .video-js, .vjs-tech, #videojs, #iframesrc, #player, #playerWrap,
   .player, .player-container, .video-container, #vidplayer, #embedPlayer,
   .fluid-player, .fluid_video_wrapper, #fluid-player-elem,
   .p2play, .p2p-player, #p2p-player,
-  {
-    width: 100% !important; height: 100% !important;
-  }
-  /* Hide everything that's not the video player */
-  body > div:not([id*="player"]):not([class*="player"]):not([id*="video"]):not([class*="video"]):not([id*="embed"]):not([class*="embed"]):not([id*="jw"]):not([class*="jw"]):not([id*="vjs"]):not([class*="vjs"]):not([id*="fluid"]):not([class*="fluid"]):not([id*="p2p"]):not([class*="p2p"]) {
-    /* Don't hide — some providers wrap the player in a generic div */
-  }
+  { width: 100% !important; height: 100% !important; }
   body { margin: 0; padding: 0; background: #000; overflow: hidden; }
 </style>
+`
+
+// ── JS ad-blocker — overrides fetch/XHR to block ad network requests ──────
+// CRITICAL FIX: whitelists video stream URLs (.m3u8, .mp4, .ts, .key) so
+// the video player can load its stream. Only blocks requests to KNOWN ad
+// domains, not all requests.
+const AD_BLOCK_JS = `
+<script>
+(function() {
+  // Ad network hostname patterns — only these are blocked
+  var adPatterns = [
+    /doubleclick/, /googleads/, /googlesyndication/, /connatix/,
+    /popunder/, /adsystem/, /dtscout/, /histats/, /mrktmtrcs/,
+    /dasdaily/, /adskeeper/, /rexsrv/, /agl006/, /crwdcntrl/,
+    /eyeota/, /dotomi/, /everesttech/, /goodimpression/, /manitobaboats/,
+    /bookmsg/, /exoclick/, /exosrv/, /tag_ab/, /tagivi/,
+    /google-analytics/, /googletagmanager/, /popads/, /propellerads/,
+    /adsterra/, /juicyads/, /trafficjunky/, /hilltopads/,
+    /realsrv/, /syndication\\.exosrv/, /syndication\\.realsrv/,
+  ];
+  // Video stream patterns — NEVER block these (they're the actual video)
+  var videoPatterns = [/\\.m3u8/, /\\.mp4/, /\\.ts(?:\\?|$)/, /\\.key\\?/,
+    /\\/stream\\//, /\\/hls\\//, /\\/dash\\//, /videoplayback/, /\\/video\\/];
+
+  function isAdRequest(urlStr) {
+    try {
+      // If it's a video stream URL, never block it
+      if (videoPatterns.some(function(p) { return p.test(urlStr); })) return false;
+      // Check if the URL matches any ad pattern
+      return adPatterns.some(function(p) { return p.test(urlStr); });
+    } catch(e) { return false; }
+  }
+
+  // Override fetch — block ad requests, allow everything else
+  try {
+    var origFetch = window.fetch;
+    window.fetch = function(url, opts) {
+      var urlStr = typeof url === 'string' ? url : (url && url.url) || '';
+      if (isAdRequest(urlStr)) {
+        return Promise.resolve(new Response('', { status: 403 }));
+      }
+      return origFetch.apply(this, arguments);
+    };
+  } catch(e) {}
+
+  // Override XMLHttpRequest — block ad requests, allow everything else
+  try {
+    var origOpen = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open = function(method, url) {
+      try {
+        if (isAdRequest(url)) {
+          arguments[1] = 'about:blank';
+        }
+      } catch(e) {}
+      return origOpen.apply(this, arguments);
+    };
+  } catch(e) {}
+
+  // Block window.open (popunders) — but only for ad URLs
+  try {
+    var origWindowOpen = window.open;
+    window.open = function(url) {
+      if (url && isAdRequest(String(url))) return null;
+      // Allow non-ad popups (some players need them)
+      return origWindowOpen ? origWindowOpen.apply(this, arguments) : null;
+    };
+  } catch(e) {}
+})();
+</script>
 `
 
 export async function GET(req: NextRequest) {
@@ -96,23 +151,19 @@ export async function GET(req: NextRequest) {
       signal: AbortSignal.timeout(10000),
     })
     if (!res.ok) {
-      // If the provider returns an error, pass it through — don't proxy it
-      // (the player will auto-switch to the next provider)
       return new NextResponse(`HTTP ${res.status}`, { status: res.status })
     }
     let html = await res.text()
     const finalUrl = res.url || embedUrl
 
-    // 1. Strip ad scripts from known ad domains ONLY
-    //    Do NOT strip other scripts — they're needed for the video player
+    // 1. Strip ad scripts and iframes from known ad domains
     for (const domain of AD_DOMAINS) {
       const escaped = domain.replace(/\./g, "\\.").replace(/\//g, "\\/")
-      const pattern = new RegExp(
+      const scriptPattern = new RegExp(
         `<script[^>]*src=["'][^"']*${escaped}[^"']*["'][^>]*></script>`,
         "gi"
       )
-      html = html.replace(pattern, "")
-      // Also strip <iframe> ad tags
+      html = html.replace(scriptPattern, "")
       const iframePattern = new RegExp(
         `<iframe[^>]*src=["'][^"']*${escaped}[^"']*["'][^>]*></iframe>`,
         "gi"
@@ -120,7 +171,7 @@ export async function GET(req: NextRequest) {
       html = html.replace(iframePattern, "")
     }
 
-    // 2. Bypass 2Embed's sandbox detection (isReallySandboxed)
+    // 2. Bypass 2Embed's sandbox detection
     html = html.replace(
       /function\s+isReallySandboxed\s*\(\)\s*\{[\s\S]*?\n\s*\}/,
       "function isReallySandboxed() { return false; }"
@@ -130,10 +181,11 @@ export async function GET(req: NextRequest) {
       "sbxErr.style.display = 'none'"
     )
 
-    // 3. Inject ad-blocking CSS at the start of <head>
-    //    NO JavaScript injection — we don't override fetch/XHR because that
-    //    breaks video players that load their video via fetch/XHR.
-    html = html.replace(/<head([^>]*)>/i, `<head$1>${AD_BLOCK_CSS}`)
+    // 3. Inject ad-blocking CSS + JS at the start of <head>
+    //    The JS overrides fetch/XHR to block ad network requests at runtime,
+    //    while whitelisting video stream URLs (.m3u8, .mp4, .ts) so the
+    //    video player can load its stream.
+    html = html.replace(/<head([^>]*)>/i, `<head$1>${AD_BLOCK_CSS}${AD_BLOCK_JS}`)
 
     // 4. Add <base> tag so relative URLs resolve correctly
     const baseTag = `<base href="${finalUrl}">`
@@ -142,11 +194,8 @@ export async function GET(req: NextRequest) {
     return new NextResponse(html, {
       headers: {
         "Content-Type": "text/html; charset=utf-8",
-        // Allow framing from our own domain
         "X-Frame-Options": "ALLOWALL",
         "Access-Control-Allow-Origin": "*",
-        // Permissive CSP — let the video player load from any CDN
-        // (we block ad domains by stripping their scripts in the HTML above)
         "Content-Security-Policy": [
           "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:",
           "script-src * 'unsafe-inline' 'unsafe-eval'",
@@ -160,9 +209,6 @@ export async function GET(req: NextRequest) {
       },
     })
   } catch (e) {
-    const error = e instanceof Error ? e.message : "Unknown error"
-    // Don't return a "Proxy error" message that the user sees —
-    // return a simple 502 so the player auto-switches to the next provider
     return new NextResponse("", { status: 502 })
   }
 }

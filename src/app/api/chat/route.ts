@@ -222,16 +222,26 @@ async function callLLM7(messages: { role: string; content: string }[]): Promise<
 }
 
 // GLM via Z.ai SDK — the DEFAULT model.
-// In sandbox: works directly via internal-api.z.ai
-// On Vercel: uses the .z-ai-config file in the project root (deployed with the app)
+// In sandbox: works directly via internal-api.z.ai (keyless)
+// On Vercel: the .z-ai-config file is deployed but internal-api.z.ai is
+// blocked from Vercel's network. GLM will fail fast (3s timeout) and
+// fall back to Pollinations automatically. The model badge shows which
+// model actually responded.
 async function callGLM(messages: { role: string; content: string }[]): Promise<string> {
   const ZAI = (await import("z-ai-web-dev-sdk")).default
   const zai = await ZAI.create()
-  const completion = await zai.chat.completions.create({
-    messages: messages as any,
-    thinking: { type: "disabled" },
-  })
-  return completion.choices[0]?.message?.content ?? ""
+  // 3-second timeout — if GLM doesn't respond (e.g. on Vercel where
+  // internal-api.z.ai is blocked), fail fast so the fallback kicks in
+  const completion = await Promise.race([
+    zai.chat.completions.create({
+      messages: messages as any,
+      thinking: { type: "disabled" },
+    }),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("GLM timeout")), 3000)
+    ),
+  ])
+  return (completion as any).choices[0]?.message?.content ?? ""
 }
 
 // GET /api/chat — health check / model list

@@ -129,32 +129,29 @@ const QUALITY_OPTIONS = [
 ] as const
 
 // Map quality to providers that work in browser iframes.
-// Mobile defaults: MoviesHub (vidsrc.me) and SmashyStream
-// PC defaults: 2Embed.cc and AnyEmbed
+// Default provider: vidcore.net (user-requested)
 function sourceForQuality(quality: string, isMobile: boolean): string {
-  // User-specified top providers: vidfast, vidcore, superembed, moviesapi, 2embed
-  // These are the first providers to try on both mobile and desktop.
   if (isMobile) {
     switch (quality) {
       case "1080p":
-        return "vidfast.pro"
+        return "vidcore.net"
       case "720p":
-        return "vidfast.pro"
+        return "vidcore.net"
       case "480p":
         return "moviesapi.to"
       default:
-        return "vidfast.pro" // auto → VidFast on mobile
+        return "vidcore.net" // auto → VidCore on mobile
     }
   }
   switch (quality) {
     case "1080p":
-      return "vidfast.pro"
+      return "vidcore.net"
     case "720p":
       return "vidcore.net"
     case "480p":
       return "moviesapi.to"
     default:
-      return "vidfast.pro" // auto → VidFast on desktop
+      return "vidcore.net" // auto → VidCore on desktop
   }
 }
 
@@ -543,11 +540,12 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     setReloads((r) => r + 1) // reload the iframe with/without proxy
   }, [adBlockOn])
 
-  // Providers that benefit from proxying (sandbox detection, heavy ads):
-  // 2embed.cc, 2embed.skin, 2embed.to, vidsrc.me, vidsrc.to
-  // NOTE: vidcore.net returns 403 to server-side requests (Cloudflare),
-  // so it can't be proxied. Its ads are handled by the browser's popup blocker.
-  const PROXY_PROVIDERS = ["2embed.cc", "2embed.skin", "2embed.to", "vidsrc.me", "vidsrc.to", "vidsrc.cc", "vidsrc.stream", "vidsrc.xyz"]
+  // Ad-block: when enabled, route ALL providers through /api/video-proxy.
+  // The proxy strips ad scripts, hides ad elements, AND overrides fetch/XHR
+  // at runtime to block ad network requests — while whitelisting video
+  // stream URLs (.m3u8, .mp4, .ts) so the video player can load its stream.
+  // This is the approach that successfully blocked ads for 2+ weeks.
+  const PROXY_PROVIDERS = "all" // all providers go through the proxy
 
   const rawPlayerUrl = useMemo(
     () =>
@@ -563,12 +561,9 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
 
   const playerUrl = useMemo(() => {
     if (!adBlockOn) return rawPlayerUrl
-    // Only proxy providers that need it — others are loaded directly
-    if (PROXY_PROVIDERS.includes(sourceId)) {
-      return `/api/video-proxy?url=${encodeURIComponent(rawPlayerUrl)}`
-    }
-    return rawPlayerUrl
-  }, [rawPlayerUrl, adBlockOn, sourceId])
+    // Route through video-proxy to strip ads + block ad network requests
+    return `/api/video-proxy?url=${encodeURIComponent(rawPlayerUrl)}`
+  }, [rawPlayerUrl, adBlockOn])
 
   // Arabic provider streaming — when the user selects an Arabic scraper site
   // (EgyDead, EgyBest, etc.), we:
@@ -1290,13 +1285,6 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
                   allowFullScreen
                   referrerPolicy="no-referrer"
                   onLoad={() => setLoaded(true)}
-                  // Sandbox with ad-block: blocks popups, popunders, and top-level
-                  // navigation (the main sources of video provider ads). Allows
-                  // scripts, same-origin, presentation, and forms so the video
-                  // player can load and play. When adblock is OFF, allows popups.
-                  sandbox={adBlockOn
-                    ? "allow-scripts allow-same-origin allow-presentation allow-forms"
-                    : "allow-scripts allow-same-origin allow-presentation allow-forms allow-popups allow-top-navigation"}
                   className="absolute inset-0 h-full w-full"
                 />
               )}

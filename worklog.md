@@ -2747,3 +2747,263 @@ In `player-modal.tsx` line 591, change `setSourceId("2embed.cc")` → `setSource
 
 Files inspected (no changes made, per task instructions): `src/lib/vidsrc.ts`, `src/app/api/arabic-stream/route.ts`, `src/components/netflix/player-modal.tsx`.
 >>>>>>> Stashed changes
+
+---
+Task ID: AD-BLOCK
+Agent: explore (Z.ai Code)
+Task: Research the old ad-blocking version of NetStream's video-proxy / iframe that successfully blocked ads, compare to current state, and recommend how to restore it. No file modifications — research only.
+
+Work Log:
+- Read /home/z/my-project/worklog.md for project history (2749 lines).
+- Ran `git log --oneline --all` and filtered for ad/proxy/sandbox/block-related commits with dates.
+- Today is 2026-09-28 (HEAD = 76b4a63 "Fix ads + vidcore default + auto-switch hint + GLM default model").
+- Found a gap in commits between 2026-09-09 (111e1c1 "Add Vercel Web Analytics Integration") and 2026-09-27, when a series of adblocker rewrites landed: eeeb704, 34b8e0c, 0da056b, 54aca0b, 222d252, 76b4a63.
+- The version deployed ~2 weeks ago is therefore **commit 111e1c1** (2026-09-09) — the last commit before the Sept 27 adblocker rewrites. This is the version the user says had ads disabled.
+- Retrieved `git show 111e1c1:src/app/api/video-proxy/route.ts` (full old video-proxy code, see below).
+- Retrieved `git show 111e1c1:src/components/netflix/player-modal.tsx` (iframe + proxy wiring).
+- Compared against current `src/app/api/video-proxy/route.ts` and current `src/components/netflix/player-modal.tsx`.
+- Traced sandbox attribute history with `git log -S 'sandbox=' -- src/components/netflix/player-modal.tsx`.
+
+Findings:
+
+### 1. Old working commit
+- **Commit hash: `111e1c1e437cb50a31e9c6e6423a9c2695c53d07`** (short: `111e1c1`)
+- Date: 2026-09-09
+- Subject: "Add Vercel Web Analytics Integration"
+- This is the last commit before the Sept 27 adblocker rewrite series, so it is what was running in production ~2 weeks ago.
+
+### 2. Old video-proxy code (`src/app/api/video-proxy/route.ts` at 111e1c1) — full file
+
+```ts
+import { NextRequest, NextResponse } from "next/server"
+
+// GET /api/video-proxy?url=<embed-url>&referer=<referer>
+//
+// Proxies a provider's embed page with:
+// 1. The correct Referer header (so the provider serves the full page)
+// 2. A bypass for 2Embed's isReallySandboxed() check (which falsely triggers
+//    "Sandbox not allowed" in cross-origin iframes)
+// 3. CSS to hide ad elements (no JS injection — JS was causing crashes)
+
+const AD_DOMAINS = [
+  "doubleclick.net", "googleads.g.doubleclick.net", "googlesyndication.com",
+  "google-analytics.com", "googletagmanager.com", "connatix.com",
+  "eyeota.net", "crwdcntrl.net", "dotomi.com", "everesttech.net",
+  "dtscout.com", "mrktmtrcs.net", "dasdaily.com", "agl006.host",
+  "goodimpressioncrboost.com", "manitobaboats.com", "bookmsg.com",
+  "popunder.net", "ads.exoclick.com", "exosrv.com", "adsystem.com",
+  "a-mo.net", "a.mrktmtrcs.net", "a.dtssrv.com", "tag-ab",
+  "instream/ad_status", "ad_status.js", "tagivi.com",
+]
+
+export async function GET(req: NextRequest) {
+  const url = new URL(req.url)
+  const embedUrl = url.searchParams.get("url")
+  const referer = url.searchParams.get("referer") || ""
+
+  if (!embedUrl) {
+    return new NextResponse("url required", { status: 400 })
+  }
+
+  const headers: Record<string, string> = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9",
+  }
+  if (referer) headers["Referer"] = referer
+
+  try {
+    const res = await fetch(embedUrl, {
+      headers,
+      redirect: "follow",
+      signal: AbortSignal.timeout(10000),
+    })
+    if (!res.ok) {
+      return new NextResponse(`HTTP ${res.status}`, { status: res.status })
+    }
+    let html = await res.text()
+    const finalUrl = res.url || embedUrl
+
+    // 1. Strip ad scripts from known ad domains
+    for (const domain of AD_DOMAINS) {
+      const pattern = new RegExp(
+        `<script[^>]*src=["'][^"']*${domain.replace(/\./g, "\\.")}[^"']*["'][^>]*></script>`,
+        "gi"
+      )
+      html = html.replace(pattern, "")
+    }
+
+    // 2. Bypass 2Embed's sandbox detection:
+    html = html.replace(
+      /function\s+isReallySandboxed\s*\(\)\s*\{[\s\S]*?\n\s*\}/,
+      "function isReallySandboxed() { return false; }"
+    )
+    html = html.replace(
+      /sbxErr\.style\.display\s*=\s*['"]flex['"]/gi,
+      "sbxErr.style.display = 'none'"
+    )
+
+    // 3. Inject CSS + JS (uBlock Origin Lite style) at the very start of <head>
+    const injectedCSS = `
+      <style id="netstream-adblock">
+        #sbxErr { display: none !important; visibility: hidden !important; opacity: 0 !important; }
+        [id*="ad-"], [id*="ads-"], [class*="ad-"], [class*="ads-"],
+        [id*="banner"], [class*="banner"], [id*="popunder"], [class*="popunder"],
+        [id*="overlay"], [class*="overlay-ad"], [class*="overdiv"],
+        iframe[src*="doubleclick"], iframe[src*="googleads"], iframe[src*="connatix"],
+        iframe[src*="popunder"], iframe[src*="dasdaily"], iframe[src*="adskeeper"],
+        div[class*="ad-container"], div[id*="ad-container"],
+        .ad-banner, .ad-overlay, .ad-popup, .adbd, #ad, #ads, .ad, .ads, .advert,
+        #sbxErr, .dropdown { display: none !important; visibility: hidden !important;
+          width: 0 !important; height: 0 !important; opacity: 0 !important; }
+        video, .jwplayer, .video-js, .vjs-tech, #videojs, #iframesrc {
+          width: 100% !important; height: 100% !important;
+        }
+        body { margin: 0; padding: 0; background: #000; overflow: hidden; }
+      </style>
+      <script>
+        // uBlock Origin Lite-style ad blocking — block ad network requests
+        (function() {
+          var adPatterns = [
+            /doubleclick/, /googleads/, /googlesyndication/, /connatix/,
+            /popunder/, /adsystem/, /dtscout/, /histats/, /mrktmtrcs/,
+            /dasdaily/, /adskeeper/, /rexsrv/, /agl006/, /crwdcntrl/,
+            /eyeota/, /dotomi/, /everesttech/, /goodimpression/, /manitobaboats/,
+            /bookmsg/, /exoclick/, /exosrv/, /tag_ab/, /tagivi/,
+            /google-analytics/, /googletagmanager/, /popads/, /propellerads/,
+            /adsterra/, /juicyads/, /trafficjunky/, /hilltopads/,
+          ];
+          // Block fetch requests to ad domains
+          var origFetch = window.fetch;
+          window.fetch = function(url, opts) {
+            var urlStr = typeof url === 'string' ? url : (url && url.url) || '';
+            if (adPatterns.some(function(p) { return p.test(urlStr); })) {
+              return Promise.reject(new Response('', { status: 403 }));
+            }
+            return origFetch.apply(this, arguments);
+          };
+          // Block XMLHttpRequest to ad domains
+          var origOpen = XMLHttpRequest.prototype.open;
+          XMLHttpRequest.prototype.open = function(method, url) {
+            if (adPatterns.some(function(p) { return p.test(url); })) {
+              arguments[1] = 'about:blank';
+            }
+            return origOpen.apply(this, arguments);
+          };
+        })();
+      </script>
+    `
+
+    html = html.replace(/<head([^>]*)>/i, `<head$1>${injectedCSS}`)
+
+    const baseTag = `<base href="${finalUrl}">`
+    html = html.replace(/<head([^>]*)>/i, `<head$1>${baseTag}`)
+
+    return new NextResponse(html, {
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "X-Frame-Options": "ALLOWALL",
+        "Access-Control-Allow-Origin": "*",
+        "Content-Security-Policy": [
+          "default-src * 'unsafe-inline' 'unsafe-eval' data: blob:",
+          "script-src * 'unsafe-inline' 'unsafe-eval'",
+          "style-src * 'unsafe-inline'",
+          "img-src * data: blob:",
+          "media-src * data: blob:",
+          "frame-src *",
+          "font-src * data:",
+          "connect-src *",
+        ].join("; "),
+      },
+    })
+  } catch (e) {
+    const error = e instanceof Error ? e.message : "Unknown error"
+    return new NextResponse(`Proxy error: ${error}`, { status: 500 })
+  }
+}
+```
+
+### 3. Old iframe configuration (`src/components/netflix/player-modal.tsx` at 111e1c1)
+
+- **No `sandbox` attribute** on the iframe at all. The iframe simply had:
+  ```tsx
+  <iframe
+    key={`${sourceId}-${reloads}`}
+    src={playerUrl}
+    title={title.title}
+    allow="autoplay; fullscreen; encrypted-media; picture-in-picture; accelerometer; gyroscope; web-share"
+    allowFullScreen
+    referrerPolicy="no-referrer"
+    onLoad={() => setLoaded(true)}
+    className="absolute inset-0 h-full w-full"
+  />
+  ```
+- For non-Arabic providers: `playerUrl = buildPlayerUrl(...)` — the iframe loaded the provider directly. **No proxy, no sandbox.**
+- For Arabic providers: `directVideoUrl = /api/video-proxy?url=...&referer=https://tv10.egydead.live/` — the iframe loaded through the aggressive proxy.
+- Default provider at 111e1c1: **`vidfast.pro`** (mobile and desktop).
+- `getAdBlockEnabled()` defaulted to `true` in `localStorage` (key `netstream:adblock`), but the navbar no longer exposed the toggle button — the toggle had been removed earlier as clutter.
+
+### 4. What was different about the old ad-blocking approach
+
+The old `/api/video-proxy/route.ts` had **three runtime ad-blocking mechanisms** that the current version has lost or weakened:
+
+| Mechanism | Old (111e1c1, 2026-09-09) | Current (76b4a63, 2026-09-28) |
+|---|---|---|
+| Strip `<script>` tags from known ad domains | ✅ Yes | ✅ Yes (also strips `<iframe>` ad tags now) |
+| 2Embed `isReallySandboxed()` bypass | ✅ Yes | ✅ Yes |
+| CSS hide ad elements (banners, popunders, overlays) | ✅ Yes | ✅ Yes (slightly expanded selectors) |
+| **JavaScript `window.fetch` override** — block fetch() to ad networks at runtime | ✅ **YES — this was the primary ad-blocker** | ❌ **REMOVED** (commit 34b8e0c, because it broke video players that load their stream via fetch) |
+| **JavaScript `XMLHttpRequest.prototype.open` override** — block XHR to ad networks | ✅ **YES** | ❌ **REMOVED** (same commit) |
+| `iframe` `sandbox` attribute | ❌ None | ✅ Added in 34b8e0c, removed in 0da056b, re-added in 76b4a63 (breaks vidcore/vidlink which need popups) |
+| Which providers go through the proxy | Only Arabic providers (`directVideoUrl`) | Only `2embed.cc/skin/to`, `vidsrc.me/to/cc/stream/xyz` (PROXY_PROVIDERS list) |
+| Default provider | `vidfast.pro` (loaded directly, no proxy) | `vidcore.net` (loaded directly, no proxy) |
+| Error response on proxy failure | Plain-text "Proxy error: ..." (status 500) | Empty body, status 502 — so the player auto-switches |
+
+**Root cause of the regression:**
+
+1. The Sept 9 version's heavy lifting (JS-level `fetch`/`XHR` overrides that match 30+ ad-network patterns) only ran inside Arabic provider embeds via `/api/video-proxy`. Non-Arabic providers (vidfast, vidcore, etc.) loaded directly with no ad-blocking at all — they relied on the providers themselves having fewer ads, plus the browser's built-in popup blocker (since there was no `sandbox` attribute).
+
+2. On Sept 27 (commit `eeeb704`), the team routed **all** providers through `/api/video-proxy` to "fix adblocker". This broke vidfast/vidcore because the global `window.fetch` override was rejecting the providers' own video-stream fetches (m3u8/mp4 segment loads matched ad-pattern substrings, or the override was too aggressive).
+
+3. On Sept 27 (commit `34b8e0c`), to unbreak the players, they **deleted the `window.fetch` and `XMLHttpRequest` overrides entirely**. This is exactly the code that was actually blocking ad networks at runtime. With it gone, ad networks can fire freely; only HTML-tag stripping + CSS hiding remain (weak — many ad networks inject scripts dynamically after page load, which the HTML stripper never sees).
+
+4. To compensate, they added an `iframe sandbox` attribute that blocks popups + top-navigation when adblock is on. But this also broke vidcore/vidlink whose video players legitimately need popups (`0da056b` removed it; `76b4a63` re-added it with a softer allow-popups-when-off config). The sandbox is a coarse tool and is the wrong layer for ad-blocking — it can only stop navigation, not in-page ad rendering.
+
+5. Default provider was switched from `vidfast.pro` → `vidlink.pro` → `vidcore.net` over the same period. `vidcore.net` is one of the providers that 403s on server-side proxy requests (Cloudflare), so it can never be proxied; its ads now appear unblocked.
+
+**Net effect:** the old version's ad-blocking worked because the runtime `fetch`/`XHR` override actively killed ad-network requests **inside the proxied Arabic embeds** (and most users watching Western content on `vidfast.pro` saw few ads anyway because that provider self-hosts with minimal ad injection). The current version removed the runtime override (the actual blocker), kept only static HTML/CSS stripping, and added a sandbox that breaks players — so ads are back and players are flakier.
+
+### 5. Specific recommendations to restore working ad-blocking
+
+1. **Restore the old `src/app/api/video-proxy/route.ts` from commit `111e1c1`** — in particular the `<script>` block that overrides `window.fetch` and `XMLHttpRequest.prototype.open` with the 30+ ad-network regex patterns. This is the actual ad-blocker.
+
+2. **But refine the override so it does NOT break video players.** The reason it was removed (commit 34b8e0c) is that the broad regex `/popunder/`, `/adsystem/`, etc. matched video-CDN URLs in some players. Fix by:
+   - Whitelisting video-stream URL patterns before testing ad patterns, e.g. allow `\.m3u8`, `\.mp4`, `\.ts`, `\.key`, `/stream/`, `/video/`, `/hls/`, `/dash/`, `/progressive/` through unconditionally.
+   - Only test ad patterns against the URL's **hostname**, not the full URL string (so `/popunder/` in a path doesn't match a legit video CDN path).
+   - Wrap each override in `try/catch` and fall back to the original fetch/XHR on any exception, so a misclassified request never breaks the player.
+
+3. **Route more providers through the proxy**, not fewer. The Sept 27 decision to limit the proxy to only 2embed/vidsrc was a workaround for the broken override; once the override is fixed per #2, the proxy can safely cover vidfast, vidcore, vidlink, moviesapi, etc. again — restoring ad-blocking on the providers users actually use.
+
+4. **Remove the `sandbox` attribute from the iframe entirely** (revert the 34b8e0c addition that 0da056b already tried to remove). It breaks vidcore/vidlink and is the wrong layer for ad-blocking. The proxy's runtime fetch/XHR override + CSS hiding is sufficient and doesn't break players.
+
+5. **Consider switching the default provider back to `vidfast.pro`** (the 111e1c1 default). `vidcore.net` (current default) returns 403 to server-side requests and therefore can never be proxied — its ads are unblockable. `vidfast.pro` cooperates with the proxy and was the original "few-ads" default.
+
+6. **Restore the adblock toggle UI** in the player controls (ShieldCheck/ShieldOff button) so users can turn the proxy on/off per session. The toggle was added in `eeeb704` and is still present in the current `player-modal.tsx` (`toggleAdBlock`), but its effect is now mostly cosmetic because the proxy itself no longer blocks ads aggressively.
+
+7. **Verify with a quick test:** after restoring the old proxy code + the whitelist fix from #2, load a vidfast.pro embed through `/api/video-proxy?url=...` and confirm (a) the video still plays, (b) no popunder/popups fire, (c) no ad iframes render. If the player still misbehaves, narrow the ad-pattern list to the highest-signal patterns only (doubleclick, googlesyndication, exoclick, popads, adsterra, propellerads, juicyads) and drop the noisier ones (adsystem, tag_ab, etc.) that may collide with video CDNs.
+
+### Files inspected (no changes made, per task instructions)
+- `/home/z/my-project/worklog.md`
+- `src/app/api/video-proxy/route.ts` (current and at commit 111e1c1)
+- `src/app/api/proxy/route.ts` (current and at commit 111e1c1 — unchanged)
+- `src/components/netflix/player-modal.tsx` (current and at commit 111e1c1)
+- `src/components/netflix/navbar.tsx` (at commit 111e1c1)
+- `src/lib/vidsrc.ts` (at commit 111e1c1)
+- Git history via `git log --all` and `git log -S 'sandbox=' -- src/components/netflix/player-modal.tsx`
+
+### Key commit hashes for reference
+- `111e1c1` — 2026-09-09 — **OLD WORKING VERSION** (last commit before adblocker rewrites)
+- `eeeb704` — 2026-09-27 — started routing all providers through video-proxy (broke players)
+- `34b8e0c` — 2026-09-27 — removed window.fetch/XHR override (the actual ad-blocker) + added sandbox
+- `0da056b` — 2026-09-27 — removed sandbox (broke vidcore/vidlink)
+- `76b4a63` — 2026-09-28 — HEAD, re-added sandbox with softer config, default switched to vidcore.net
