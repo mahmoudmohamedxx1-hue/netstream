@@ -3,6 +3,7 @@
 import * as React from "react"
 import { Sparkles, X, Send, Film, Tv, User, ChevronDown, Check, Zap, Globe, Brain, Trash2, Plus, MessageSquare, Clock, ArrowLeft } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { AIOrbAvatar } from "./ai-orb-avatar"
 import {
   createConversation, listConversations, loadMessages, addChatMessage,
   deleteConversation, clearAllHistory,
@@ -264,14 +265,14 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
 
   return (
     <>
-      {/* Floating button */}
+      {/* Floating button — animated AI orb avatar */}
       {!open && (
         <button
           onClick={() => setOpen(true)}
-          className="fixed bottom-6 right-6 z-[100] flex size-14 items-center justify-center rounded-full bg-gradient-to-br from-violet-600 to-indigo-700 text-white shadow-2xl shadow-violet-600/30 transition-all hover:scale-110 hover:shadow-violet-600/50 active:scale-95"
+          className="fixed bottom-6 right-6 z-[100] flex size-14 items-center justify-center rounded-full transition-all hover:scale-110 active:scale-95"
           aria-label="Open AI Assistant"
         >
-          <Sparkles className="size-6" />
+          <AIOrbAvatar size="lg" />
           <span className="absolute -top-1 -right-1 flex size-4">
             <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
             <span className="relative inline-flex size-4 rounded-full bg-emerald-500" />
@@ -300,9 +301,7 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
                     <ArrowLeft className="size-4" />
                   </button>
                 )}
-                <div className="flex size-8 items-center justify-center rounded-xl bg-gradient-to-br from-violet-600 to-indigo-700 shadow-lg sm:size-9">
-                  <Sparkles className="size-4 text-white sm:size-5" />
-                </div>
+                <AIOrbAvatar size="sm" />
                 <div>
                   <h2 className="text-sm font-semibold text-white">
                     {view === "history" ? "Chat History" : "NetStream AI"}

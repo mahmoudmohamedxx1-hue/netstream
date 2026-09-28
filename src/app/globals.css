@@ -518,3 +518,24 @@ input, textarea, [contenteditable] {
   -moz-user-select: text !important;
   user-select: text !important;
 }
+
+/* ── AI Orb Avatar animations ───────────────────────────────────────────── */
+@keyframes ai-orb-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.4; }
+  50% { transform: scale(1.15); opacity: 0.6; }
+}
+
+@keyframes ai-orb-breathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.03); }
+}
+
+@keyframes ai-orb-blink {
+  0%, 90%, 100% { transform: scaleY(1); }
+  93%, 97% { transform: scaleY(0.1); }
+}
+
+@keyframes ai-orb-shine {
+  0%, 100% { opacity: 0.3; transform: translate(0, 0); }
+  50% { opacity: 0.5; transform: translate(1px, 1px); }
+}
