@@ -400,8 +400,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     // No-op — manual server switching only
   }, [health, sourceId])
 
-  // Pre-check ref — moved here; the actual effect is after isArabicProvider
-  // and toast are defined (see "Pre-check" effect below).
+  // Pre-check ref — used by the disabled pre-check effect below.
   const precheckDoneRef = useRef(false)
   // Auto-filled metadata from the local IMDb dataset (best 11k titles).
   const [meta, setMeta] = useState<{
@@ -574,90 +573,12 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   //   This bypasses iframes entirely — no ads, no cross-origin issues.
   const isArabicProvider = source.region === "Arabic" && source.tier === 3
 
-  // ── Pre-check: verify the current provider actually responds with 200 ──
-  // before loading it in the iframe. If it returns 502/403/etc., auto-switch
-  // to the next preferred provider. This prevents the user from seeing a
-  // broken page icon when a provider is down for a specific title.
-  // Only runs ONCE per title (not on every reload) and only if the user
-  // hasn't manually picked a server.
+  // ── Pre-check DISABLED per user request ──────────────────────────────────
+  // The user wants to stay on the selected server — no auto-switching.
+  // The user can manually switch servers via the dropdown or "Next" button.
   useEffect(() => {
-    if (precheckDoneRef.current) return
-    if (userInteractedRef.current) return
-    if (isArabicProvider) return
+    // No-op — pre-check auto-switch disabled
     precheckDoneRef.current = true
-    setPrechecking(true)
-
-    const checkAndSwitch = async () => {
-      // Build the fallback chain: favorites first, then preferred, then tier 1
-      // For TMDB-only titles (no IMDB ID), use TMDB-supporting providers
-      const favSources = favorites
-        .map(id => VIDEO_SOURCES.find(s => s.id === id))
-        .filter((s): s is VideoSource => !!s && s.tier < 5)
-      const preferredList = isTmdbOnly ? TMDB_PROVIDERS : PREFERRED_PROVIDERS
-      const preferredSources = preferredList
-        .map(id => VIDEO_SOURCES.find(s => s.id === id))
-        .filter((s): s is VideoSource => !!s)
-      const tier1Sources = VIDEO_SOURCES.filter(s => s.tier === 1)
-      let chain = [...favSources, ...preferredSources, ...tier1Sources]
-        .filter((s, i, arr) => arr.findIndex(x => x.id === s.id) === i)
-      // For TMDB-only titles, filter to only TMDB-supporting providers
-      if (isTmdbOnly) {
-        chain = chain.filter((s) => s.useTmdbId)
-      }
-      chain = chain.slice(0, 8)
-
-      // Check the current provider first
-      const currentSource = VIDEO_SOURCES.find(s => s.id === sourceId)
-      if (!currentSource) { setPrechecking(false); return }
-      const currentUrl = buildPlayerUrl({
-        imdbId: title.imdbId,
-        type: title.type,
-        season: season ?? 1,
-        episode: episode ?? 1,
-        sourceId: currentSource.id,
-      })
-
-      try {
-        const res = await fetch(`/api/provider-check?url=${encodeURIComponent(currentUrl)}`, { cache: "no-store" })
-        const data = await res.json()
-        if (data.ok) { setPrechecking(false); return } // current provider works
-      } catch {
-        // check failed, try switching anyway
-      }
-
-      // Current provider failed — check the others in parallel
-      if (userInteractedRef.current) { setPrechecking(false); return }
-      const checks = await Promise.all(
-        chain.filter(s => s.id !== sourceId).slice(0, 6).map(async (s) => {
-          const url = buildPlayerUrl({
-            imdbId: title.imdbId,
-            type: title.type,
-            season: season ?? 1,
-            episode: episode ?? 1,
-            sourceId: s.id,
-          })
-          try {
-            const r = await fetch(`/api/provider-check?url=${encodeURIComponent(url)}`, { cache: "no-store" })
-            const d = await r.json()
-            return { source: s, ok: d.ok }
-          } catch {
-            return { source: s, ok: false }
-          }
-        })
-      )
-      const firstWorking = checks.find(c => c.ok)
-      if (firstWorking && !userInteractedRef.current && firstWorking.source.id !== sourceIdRef.current) {
-        setSourceId(firstWorking.source.id)
-        lastProvider.set(title.imdbId, firstWorking.source.id)
-        setReloads(r => r + 1)
-        toast({
-          title: `Switched to ${firstWorking.source.name}`,
-          description: "Previous server was unavailable",
-        })
-      }
-      setPrechecking(false)
-    }
-    checkAndSwitch()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [title.imdbId, title.type, season, episode])
   type ArabicSource = { url: string; host: string; originalUrl: string }
@@ -924,58 +845,13 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     }
   }, [sourceId, health, title.imdbId, lastProvider, toast, reportProvider])
 
-  // ── Reliable auto-fallback ──────────────────────────────────────────────
-  // When the video doesn't start playing within 8s, try the next preferred
-  // provider. We DON'T cancel this when onLoad fires — onLoad just means the
-  // HTML page loaded, not that the video is actually playing. Cross-origin
-  // iframes block us from detecting playback, so we use a timer instead.
-  // Uses a ref-based timer that survives re-renders (the old useEffect approach
-  // kept getting cleared by re-renders from setLoaded/setPrechecking).
+  // ── Auto-fallback DISABLED per user request ──────────────────────────────
+  // The user wants to stay on the selected server — no auto-switching.
+  // The user can manually switch servers via the dropdown or "Next" button.
   const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => {
-    if (isArabicProvider) return
-    // Start the fallback timer on mount / when sourceId changes
-    if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current)
-    fallbackTimerRef.current = setTimeout(() => {
-      if (userInteractedRef.current) return
-      fallbackIdxRef.current += 1
-      if (fallbackIdxRef.current > 3) return
-      // Build the fallback chain: favorites first, then preferred, then tier 1
-      // For TMDB-only titles (no IMDB ID), use TMDB-supporting providers
-      const favSources = favorites
-        .map(id => VIDEO_SOURCES.find(s => s.id === id))
-        .filter((s): s is VideoSource => !!s && s.tier < 5)
-      const preferredList = isTmdbOnly ? TMDB_PROVIDERS : PREFERRED_PROVIDERS
-      const preferredSources = preferredList
-        .map(id => VIDEO_SOURCES.find(s => s.id === id))
-        .filter((s): s is VideoSource => !!s)
-      const tier1Sources = VIDEO_SOURCES.filter(s => s.tier === 1)
-      let chain = [...favSources, ...preferredSources, ...tier1Sources]
-        .filter((s, i, arr) => arr.findIndex(x => x.id === s.id) === i)
-      // For TMDB-only titles, filter to only TMDB-supporting providers
-      if (isTmdbOnly) {
-        chain = chain.filter((s) => s.useTmdbId)
-      }
-      if (chain.length === 0) return
-      const currentIdx = chain.findIndex(s => s.id === sourceIdRef.current)
-      const nextIdx = (currentIdx + 1) % chain.length
-      const next = chain[nextIdx]
-      if (next && next.id !== sourceIdRef.current) {
-        setLoaded(false)
-        setSourceId(next.id)
-        lastProvider.set(title.imdbId, next.id)
-        setReloads(r => r + 1)
-        toast({
-          title: `Trying ${next.name}…`,
-          description: `Server ${fallbackIdxRef.current + 1} of ${chain.length}`,
-        })
-      }
-    }, 5000)
-    return () => {
-      if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sourceId, reloads, title.imdbId])
+    // No-op — auto-fallback disabled
+  }, [sourceId, title.imdbId])
   // A4 — 30-second watch-success reporter.
   const reportedOkRef = useRef<Set<string>>(new Set())
   useEffect(() => {
@@ -1258,36 +1134,27 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
                   </p>
                 </div>
               )}
-              {/* "Not playing?" helper — auto-switches to next server instead of opening a new tab */}
+              {/* "Not playing?" helper — manual switch to next server */}
               <div className="pointer-events-none absolute left-3 top-3 z-20 flex gap-2">
                 <button
                   onClick={() => handleNextServer()}
                   className="pointer-events-auto inline-flex items-center gap-1.5 rounded-md bg-black/70 px-3 py-1.5 text-[11px] font-semibold text-white transition hover:bg-black/90"
-                  title="Switch to the next working server"
+                  title="Switch to the next server"
                 >
                   <SkipForward className="h-3 w-3" />
-                  Not playing? Try next server
+                  Not playing? Switch server
                 </button>
               </div>
-              {prechecking ? (
-                <div className="absolute inset-0 flex items-center justify-center bg-black">
-                  <div className="flex flex-col items-center gap-3">
-                    <div className="h-10 w-10 animate-spin rounded-full border-2 border-white/20 border-t-white" />
-                    <p className="text-xs text-white/50">Finding the best server…</p>
-                  </div>
-                </div>
-              ) : (
-                <iframe
-                  key={`${sourceId}-${reloads}`}
-                  src={playerUrl}
-                  title={title.title}
-                  allow="autoplay; fullscreen; encrypted-media; picture-in-picture; accelerometer; gyroscope; web-share"
-                  allowFullScreen
-                  referrerPolicy="no-referrer"
-                  onLoad={() => setLoaded(true)}
-                  className="absolute inset-0 h-full w-full"
-                />
-              )}
+              <iframe
+                key={`${sourceId}-${reloads}`}
+                src={playerUrl}
+                title={title.title}
+                allow="autoplay; fullscreen; encrypted-media; picture-in-picture; accelerometer; gyroscope; web-share"
+                allowFullScreen
+                referrerPolicy="no-referrer"
+                onLoad={() => setLoaded(true)}
+                className="absolute inset-0 h-full w-full"
+              />
           {/* Watched-progress bar (Netflix-style red strip at bottom of video) */}
           {watchProgress > 0 && (
             <div className="absolute bottom-0 left-0 z-20 h-1 w-full bg-white/10">
