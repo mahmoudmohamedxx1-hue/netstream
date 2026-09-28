@@ -69,7 +69,7 @@ function toggleFavorite(id: string): string[] {
 
 // ── Preferred providers (user-specified top 5) ──────────────────────────────
 // These are tried first by the auto-switch logic, in this order.
-const PREFERRED_PROVIDERS = ["vidlink.pro", "vidfast.pro", "moviesapi.to", "superembed", "2embed.cc"]
+const PREFERRED_PROVIDERS = ["vidcore.net", "vidlink.pro", "moviesapi.to", "superembed", "2embed.cc"]
 // TMDB-supporting providers — used when a title has no IMDB ID (tmdb- prefix).
 // These providers can play titles using TMDB IDs directly.
 const TMDB_PROVIDERS = ["vidlink.pro", "vidfast.pro", "videasy.net"]
@@ -281,18 +281,16 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   const isMobile = useIsMobile()
   const lastProvider = useLastProvider()
   const { t } = useLang()
-  // Default provider: vidfast.pro on both mobile and desktop.
+  // Default provider: vidcore.net — user-requested default.
   // If the user has a saved sourceId from watch history (resume), use that.
   const [quality, setQuality] = useState<string>("auto")
   const savedSourceId = title.sourceId ?? undefined
   // If the title has no IMDB ID (tmdb- prefix), default to a TMDB-supporting
   // provider (vidlink.pro) so it can play without needing an IMDB ID.
-  // vidlink.pro is also the default for all titles because it has fewer ads
-  // than vidfast/vidcore and supports both IMDB and TMDB IDs.
   const isTmdbOnly = title.imdbId?.startsWith("tmdb-")
   const defaultSource = savedSourceId
     || lastProvider.get(title.imdbId)
-    || "vidlink.pro"
+    || (isTmdbOnly ? "vidlink.pro" : "vidcore.net")
   const [sourceId, setSourceId] = useState<string>(defaultSource)
   const [season, setSeason] = useState<number>(title.season ?? 1)
   const [episode, setEpisode] = useState<number>(title.episode ?? 1)
@@ -977,7 +975,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
           description: `Server ${fallbackIdxRef.current + 1} of ${chain.length}`,
         })
       }
-    }, 8000)
+    }, 5000)
     return () => {
       if (fallbackTimerRef.current) clearTimeout(fallbackTimerRef.current)
     }
@@ -1265,19 +1263,16 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
                   </p>
                 </div>
               )}
-              {/* "Not playing?" helper — always visible, overlaid at top-left */}
+              {/* "Not playing?" helper — auto-switches to next server instead of opening a new tab */}
               <div className="pointer-events-none absolute left-3 top-3 z-20 flex gap-2">
-                <a
-                  href={playerUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  referrerPolicy="no-referrer"
+                <button
+                  onClick={() => handleNextServer()}
                   className="pointer-events-auto inline-flex items-center gap-1.5 rounded-md bg-black/70 px-3 py-1.5 text-[11px] font-semibold text-white transition hover:bg-black/90"
-                  title={t("openInTab")}
+                  title="Switch to the next working server"
                 >
-                  <ExternalLink className="h-3 w-3" />
-                  {t("openInTab")}
-                </a>
+                  <SkipForward className="h-3 w-3" />
+                  Not playing? Try next server
+                </button>
               </div>
               {prechecking ? (
                 <div className="absolute inset-0 flex items-center justify-center bg-black">
@@ -1295,6 +1290,13 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
                   allowFullScreen
                   referrerPolicy="no-referrer"
                   onLoad={() => setLoaded(true)}
+                  // Sandbox with ad-block: blocks popups, popunders, and top-level
+                  // navigation (the main sources of video provider ads). Allows
+                  // scripts, same-origin, presentation, and forms so the video
+                  // player can load and play. When adblock is OFF, allows popups.
+                  sandbox={adBlockOn
+                    ? "allow-scripts allow-same-origin allow-presentation allow-forms"
+                    : "allow-scripts allow-same-origin allow-presentation allow-forms allow-popups allow-top-navigation"}
                   className="absolute inset-0 h-full w-full"
                 />
               )}
