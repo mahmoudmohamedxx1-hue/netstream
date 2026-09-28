@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils"
 // Inspired by the OdysseyUI avatar component on 21st.dev.
 //
 // Features:
-// - Glowing gradient orb body (violet → indigo)
+// - Glowing gradient orb body (dark red → crimson)
 // - Two animated "eyes" that blink periodically
 // - Subtle breathing/pulse animation
 // - Outer glow ring
@@ -52,7 +52,7 @@ export function AIOrbAvatar({
       {/* Outer glow — pulsing ring */}
       <div
         className={cn(
-          "absolute rounded-full bg-gradient-to-br from-violet-500 to-indigo-600 opacity-40 blur-md",
+          "absolute rounded-full bg-gradient-to-br from-red-700 to-red-900 opacity-40 blur-md",
           s.glow
         )}
         style={{
@@ -64,7 +64,7 @@ export function AIOrbAvatar({
       <div
         className={cn(
           "relative flex items-center justify-center overflow-hidden rounded-full",
-          "bg-gradient-to-br from-violet-500 via-violet-600 to-indigo-700",
+          "bg-gradient-to-br from-red-600 via-red-800 to-red-950",
           s.container
         )}
         style={{
