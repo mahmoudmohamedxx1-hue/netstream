@@ -15,20 +15,28 @@ function openDB(): Promise<IDBDatabase> {
       reject(new Error("IndexedDB not available"))
       return
     }
-    const req = indexedDB.open(DB_NAME, DB_VERSION)
-    req.onerror = () => reject(req.error)
-    req.onsuccess = () => resolve(req.result)
-    req.onupgradeneeded = (e) => {
-      const db = (e.target as IDBOpenDBRequest).result
-      // Create the messages store if it doesn't exist
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        const store = db.createObjectStore(STORE_NAME, { keyPath: "id", autoIncrement: true })
-        store.createIndex("timestamp", "timestamp", { unique: false })
+    try {
+      const req = indexedDB.open(DB_NAME, DB_VERSION)
+      req.onerror = () => {
+        console.error("[chat-history] IndexedDB open error:", req.error)
+        reject(req.error)
       }
+      req.onblocked = () => {
+        console.error("[chat-history] IndexedDB open blocked")
+        reject(new Error("IndexedDB blocked"))
+      }
+      req.onsuccess = () => resolve(req.result)
+      req.onupgradeneeded = (e) => {
+        const db = (e.target as IDBOpenDBRequest).result
+        if (!db.objectStoreNames.contains(STORE_NAME)) {
+          const store = db.createObjectStore(STORE_NAME, { keyPath: "id", autoIncrement: true })
+          store.createIndex("timestamp", "timestamp", { unique: false })
+        }
+      }
+    } catch (e) {
+      console.error("[chat-history] IndexedDB open threw:", e)
+      reject(e)
     }
-    // Timeout — if IndexedDB hangs (e.g. blocked by another connection),
-    // reject after 3s so the chat UI doesn't freeze
-    setTimeout(() => reject(new Error("IndexedDB timeout")), 3000)
   })
   return dbPromise
 }
@@ -56,9 +64,13 @@ export async function loadChatHistory(): Promise<StoredChatMessage[]> {
         )
         resolve(messages)
       }
-      req.onerror = () => reject(req.error)
+      req.onerror = () => {
+        console.error("[chat-history] getAll error:", req.error)
+        resolve([]) // resolve empty instead of reject — don't block UI
+      }
     })
-  } catch {
+  } catch (e) {
+    console.error("[chat-history] loadChatHistory failed:", e)
     return []
   }
 }
@@ -72,10 +84,13 @@ export async function addChatMessage(msg: Omit<StoredChatMessage, "id" | "timest
       const store = tx.objectStore(STORE_NAME)
       store.add({ ...msg, timestamp: Date.now() })
       tx.oncomplete = () => resolve()
-      tx.onerror = () => reject(tx.error)
+      tx.onerror = () => {
+        console.error("[chat-history] add error:", tx.error)
+        resolve() // resolve instead of reject — don't block UI
+      }
     })
-  } catch {
-    // silently fail — chat history is non-critical
+  } catch (e) {
+    console.error("[chat-history] addChatMessage failed:", e)
   }
 }
 
@@ -88,9 +103,12 @@ export async function clearChatHistory(): Promise<void> {
       const store = tx.objectStore(STORE_NAME)
       store.clear()
       tx.oncomplete = () => resolve()
-      tx.onerror = () => reject(tx.error)
+      tx.onerror = () => {
+        console.error("[chat-history] clear error:", tx.error)
+        resolve()
+      }
     })
-  } catch {
-    // silently fail
+  } catch (e) {
+    console.error("[chat-history] clearChatHistory failed:", e)
   }
 }

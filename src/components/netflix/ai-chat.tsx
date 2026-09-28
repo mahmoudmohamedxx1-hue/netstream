@@ -43,7 +43,7 @@ const MODEL_KEY = "netstream:ai-model"
 
 export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => void }) {
   const [open, setOpen] = React.useState(false)
-  const [model, setModel] = React.useState<string>("pollinations") // Default to Pollinations (works everywhere)
+  const [model, setModel] = React.useState<string>("pollinations")
   const [modelMenuOpen, setModelMenuOpen] = React.useState(false)
   const [messages, setMessages] = React.useState<ChatMessage[]>([])
   const [historyLoaded, setHistoryLoaded] = React.useState(false)
@@ -51,7 +51,6 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
   const [loading, setLoading] = React.useState(false)
   const scrollRef = React.useRef<HTMLDivElement>(null)
   const inputRef = React.useRef<HTMLInputElement>(null)
-  const sidebarRef = React.useRef<HTMLDivElement>(null)
 
   // Load saved model preference and chat history from IndexedDB on mount
   React.useEffect(() => {
@@ -70,10 +69,9 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
           model: s.model,
         })))
       } else {
-        // First time — show welcome message
         setMessages([{
           role: "assistant",
-          content: "Hi! I'm NetStream AI 🎬 — your personal movie & series assistant. Ask me for recommendations and I'll find something great for you to watch!",
+          content: "Hi! I'm NetStream AI 🎬 — your personal movie & series assistant. Ask me for recommendations!",
         }])
       }
       setHistoryLoaded(true)
@@ -111,7 +109,7 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
 
   const sendMessage = async (text: string) => {
     const trimmed = text.trim()
-    if (!trimmed || loading) return
+    if (!trimmed || loading || !historyLoaded) return
 
     const userMsg: ChatMessage = { role: "user", content: trimmed }
     const newMessages = [...messages, userMsg]
@@ -119,7 +117,6 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
     setInput("")
     setLoading(true)
 
-    // Save user message to IndexedDB
     addChatMessage({ role: "user", content: trimmed })
 
     try {
@@ -142,7 +139,6 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
         model: data.model,
       }
       setMessages((prev) => [...prev, aiMsg])
-      // Save AI message to IndexedDB
       addChatMessage({
         role: "assistant",
         content: aiMsg.content,
@@ -200,26 +196,24 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
         </button>
       )}
 
-      {/* ── Sidebar (pro/neat, 1/3 width) ── */}
+      {/* ── Sidebar ── */}
       {open && (
         <>
-          {/* Backdrop — dims the main content */}
+          {/* Backdrop */}
           <div
             className="fixed inset-0 z-[100] bg-black/50 backdrop-blur-sm transition-opacity"
             onClick={() => setOpen(false)}
           />
 
-          {/* Sidebar — slides in from the right, takes 1/3 of the page */}
+          {/* Sidebar — responsive: full width on mobile, ~1/3 on desktop (min 380px, max 480px) */}
           <aside
-            ref={sidebarRef}
-            className="fixed right-0 top-0 z-[101] flex h-full w-full max-w-[420px] flex-col border-l border-white/10 bg-[#131316] shadow-2xl"
-            style={{ width: "min(33.333vw, 420px)" }}
+            className="fixed right-0 top-0 z-[101] flex h-full w-full flex-col border-l border-white/10 bg-[#131316] shadow-2xl sm:w-[33.333vw] sm:min-w-[380px] sm:max-w-[480px]"
           >
-            {/* ── Header (pro, minimal) ── */}
-            <div className="flex items-center justify-between border-b border-white/5 px-5 py-4">
-              <div className="flex items-center gap-3">
-                <div className="flex size-9 items-center justify-center rounded-xl bg-gradient-to-br from-violet-600 to-indigo-700 shadow-lg">
-                  <Sparkles className="size-5 text-white" />
+            {/* ── Header ── */}
+            <div className="flex shrink-0 items-center justify-between border-b border-white/5 px-4 py-3 sm:px-5 sm:py-4">
+              <div className="flex items-center gap-2.5 sm:gap-3">
+                <div className="flex size-8 items-center justify-center rounded-xl bg-gradient-to-br from-violet-600 to-indigo-700 shadow-lg sm:size-9">
+                  <Sparkles className="size-4 text-white sm:size-5" />
                 </div>
                 <div>
                   <h2 className="text-sm font-semibold text-white">NetStream AI</h2>
@@ -230,8 +224,8 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
                 </div>
               </div>
 
-              <div className="flex items-center gap-1.5">
-                {/* New chat / clear history */}
+              <div className="flex items-center gap-1">
+                {/* Clear history */}
                 <button
                   onClick={handleClearHistory}
                   className="flex size-8 items-center justify-center rounded-lg text-white/40 transition hover:bg-white/10 hover:text-white"
@@ -245,7 +239,7 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
                 <div className="relative" data-model-menu>
                   <button
                     onClick={() => setModelMenuOpen((v) => !v)}
-                    className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-[11px] font-medium text-white/80 transition hover:bg-white/10"
+                    className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-[11px] font-medium text-white/80 transition hover:bg-white/10"
                   >
                     <currentModel.icon className={cn("size-3.5", currentModel.color)} />
                     <span className="hidden sm:inline">{currentModel.name}</span>
@@ -288,14 +282,14 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
               </div>
             </div>
 
-            {/* ── Messages ── */}
-            <div ref={scrollRef} className="flex-1 overflow-y-auto px-5 py-6">
+            {/* ── Messages (scrollable area) ── */}
+            <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-4 sm:px-5 sm:py-6">
               {!historyLoaded ? (
                 <div className="flex items-center justify-center py-12">
                   <div className="h-8 w-8 animate-spin rounded-full border-2 border-white/20 border-t-white" />
                 </div>
               ) : (
-                <div className="space-y-6">
+                <div className="space-y-5">
                   {messages.map((msg, i) => (
                     <div key={i} className={cn("flex gap-3", msg.role === "user" && "flex-row-reverse")}>
                       {/* Avatar */}
@@ -313,10 +307,10 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
                       </div>
 
                       {/* Message content */}
-                      <div className={cn("flex max-w-[82%] flex-col gap-3", msg.role === "user" && "items-end")}>
+                      <div className={cn("flex min-w-0 flex-1 flex-col gap-2.5", msg.role === "user" && "items-end")}>
                         {/* Text bubble */}
                         <div className={cn(
-                          "rounded-2xl px-4 py-3 text-sm leading-relaxed",
+                          "max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed sm:px-4 sm:py-3",
                           msg.role === "assistant"
                             ? "rounded-tl-md bg-white/[0.06] text-white/90"
                             : "rounded-tr-md bg-violet-600 text-white"
@@ -328,7 +322,7 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
 
                         {/* Title suggestion cards */}
                         {msg.suggestions && msg.suggestions.length > 0 && (
-                          <div className="space-y-2">
+                          <div className="w-full space-y-2">
                             <p className="text-[10px] font-bold uppercase tracking-wider text-white/30">
                               🎬 Tap to watch
                             </p>
@@ -336,10 +330,10 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
                               <button
                                 key={j}
                                 onClick={() => onPlayTitle(s)}
-                                className="group flex w-full items-center gap-3 rounded-xl border border-white/5 bg-white/[0.03] p-2.5 text-left transition hover:border-violet-500/30 hover:bg-white/[0.06]"
+                                className="group flex w-full items-center gap-3 rounded-xl border border-white/5 bg-white/[0.03] p-2 text-left transition hover:border-violet-500/30 hover:bg-white/[0.06]"
                               >
                                 {/* Poster */}
-                                <div className="size-14 shrink-0 overflow-hidden rounded-lg bg-neutral-800">
+                                <div className="size-12 shrink-0 overflow-hidden rounded-lg bg-neutral-800 sm:size-14">
                                   {s.poster ? (
                                     <img
                                       src={s.poster}
@@ -361,7 +355,7 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
                                 {/* Info */}
                                 <div className="min-w-0 flex-1">
                                   <p className="truncate text-xs font-semibold text-white">{s.title}</p>
-                                  <div className="mt-0.5 flex items-center gap-2 text-[10px] text-white/40">
+                                  <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-white/40">
                                     <span className="flex items-center gap-0.5">
                                       {s.type === "series" ? "📺" : "🎬"} {s.type}
                                     </span>
@@ -371,14 +365,14 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
                                     )}
                                   </div>
                                   {s.overview && (
-                                    <p className="mt-1 line-clamp-2 text-[10px] leading-snug text-white/30">
+                                    <p className="mt-1 line-clamp-1 text-[10px] leading-snug text-white/30 sm:line-clamp-2">
                                       {s.overview}
                                     </p>
                                   )}
                                 </div>
 
                                 {/* Play icon */}
-                                <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-violet-600/20 text-violet-400 transition group-hover:bg-violet-600 group-hover:text-white">
+                                <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-violet-600/20 text-violet-400 transition group-hover:bg-violet-600 group-hover:text-white sm:size-8">
                                   <Send className="size-3 -rotate-45" />
                                 </div>
                               </button>
@@ -415,7 +409,7 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
 
             {/* ── Suggestion chips (show only on first message) ── */}
             {historyLoaded && messages.length <= 1 && !loading && (
-              <div className="flex flex-wrap gap-1.5 border-t border-white/5 px-5 py-3">
+              <div className="flex shrink-0 flex-wrap gap-1.5 border-t border-white/5 px-4 py-3 sm:px-5">
                 {SUGGESTION_CHIPS.map((chip) => (
                   <button
                     key={chip}
@@ -429,8 +423,8 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
             )}
 
             {/* ── Input ── */}
-            <form onSubmit={handleSubmit} className="border-t border-white/5 p-4">
-              <div className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-2 transition focus-within:border-violet-500/40">
+            <form onSubmit={handleSubmit} className="shrink-0 border-t border-white/5 p-3 sm:p-4">
+              <div className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 transition focus-within:border-violet-500/40 sm:px-4">
                 <input
                   ref={inputRef}
                   value={input}
@@ -438,7 +432,7 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
                   placeholder="Ask for a recommendation…"
                   disabled={loading}
                   maxLength={1000}
-                  className="flex-1 bg-transparent py-1.5 text-sm text-white placeholder:text-white/30 focus:outline-none disabled:opacity-50"
+                  className="min-w-0 flex-1 bg-transparent py-1.5 text-sm text-white placeholder:text-white/30 focus:outline-none disabled:opacity-50"
                 />
                 <button
                   type="submit"
