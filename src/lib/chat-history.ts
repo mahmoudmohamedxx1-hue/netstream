@@ -1,10 +1,11 @@
-// IndexedDB-based chat history persistence.
+// IndexedDB-based chat history persistence with multiple conversation support.
 // Uses a SEPARATE database from watch history to avoid version conflicts.
-// Messages persist across sessions so users can continue conversations.
+// Supports multiple conversations — users can start new chats, browse history.
 
 const DB_NAME = "netstream-chat"
 const DB_VERSION = 1
-const STORE_NAME = "messages"
+const CONVERSATIONS_STORE = "conversations"
+const MESSAGES_STORE = "messages"
 
 let dbPromise: Promise<IDBDatabase> | null = null
 
@@ -17,32 +18,40 @@ function openDB(): Promise<IDBDatabase> {
     }
     try {
       const req = indexedDB.open(DB_NAME, DB_VERSION)
-      req.onerror = () => {
-        console.error("[chat-history] IndexedDB open error:", req.error)
-        reject(req.error)
-      }
-      req.onblocked = () => {
-        console.error("[chat-history] IndexedDB open blocked")
-        reject(new Error("IndexedDB blocked"))
-      }
+      req.onerror = () => reject(req.error)
+      req.onblocked = () => reject(new Error("IndexedDB blocked"))
       req.onsuccess = () => resolve(req.result)
       req.onupgradeneeded = (e) => {
         const db = (e.target as IDBOpenDBRequest).result
-        if (!db.objectStoreNames.contains(STORE_NAME)) {
-          const store = db.createObjectStore(STORE_NAME, { keyPath: "id", autoIncrement: true })
-          store.createIndex("timestamp", "timestamp", { unique: false })
+        // Conversations store — one entry per conversation
+        if (!db.objectStoreNames.contains(CONVERSATIONS_STORE)) {
+          const cStore = db.createObjectStore(CONVERSATIONS_STORE, { keyPath: "id" })
+          cStore.createIndex("updatedAt", "updatedAt", { unique: false })
+        }
+        // Messages store — all messages across all conversations
+        if (!db.objectStoreNames.contains(MESSAGES_STORE)) {
+          const mStore = db.createObjectStore(MESSAGES_STORE, { keyPath: "id", autoIncrement: true })
+          mStore.createIndex("conversationId", "conversationId", { unique: false })
+          mStore.createIndex("timestamp", "timestamp", { unique: false })
         }
       }
     } catch (e) {
-      console.error("[chat-history] IndexedDB open threw:", e)
       reject(e)
     }
   })
   return dbPromise
 }
 
+export interface Conversation {
+  id: string
+  title: string
+  createdAt: number
+  updatedAt: number
+}
+
 export interface StoredChatMessage {
   id?: number
+  conversationId: string
   role: "user" | "assistant"
   content: string
   suggestions?: any[]
@@ -50,65 +59,166 @@ export interface StoredChatMessage {
   timestamp: number
 }
 
-// Load all chat messages (ordered by timestamp ascending)
-export async function loadChatHistory(): Promise<StoredChatMessage[]> {
+// Generate a unique conversation ID
+function generateId(): string {
+  return `conv-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
+}
+
+// ── Conversation operations ───────────────────────────────────────────────
+
+// Create a new conversation
+export async function createConversation(title: string = "New Chat"): Promise<Conversation> {
+  const conv: Conversation = {
+    id: generateId(),
+    title,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  }
+  try {
+    const db = await openDB()
+    await new Promise<void>((resolve, reject) => {
+      const tx = db.transaction(CONVERSATIONS_STORE, "readwrite")
+      tx.objectStore(CONVERSATIONS_STORE).add(conv)
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => reject(tx.error)
+    })
+  } catch (e) {
+    console.error("[chat-history] createConversation failed:", e)
+  }
+  return conv
+}
+
+// List all conversations (newest first)
+export async function listConversations(): Promise<Conversation[]> {
   try {
     const db = await openDB()
     return new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE_NAME, "readonly")
-      const store = tx.objectStore(STORE_NAME)
-      const req = store.getAll()
+      const tx = db.transaction(CONVERSATIONS_STORE, "readonly")
+      const req = tx.objectStore(CONVERSATIONS_STORE).getAll()
       req.onsuccess = () => {
-        const messages = (req.result as StoredChatMessage[]).sort(
-          (a, b) => a.timestamp - b.timestamp
-        )
-        resolve(messages)
+        const convs = (req.result as Conversation[]).sort((a, b) => b.updatedAt - a.updatedAt)
+        resolve(convs)
       }
-      req.onerror = () => {
-        console.error("[chat-history] getAll error:", req.error)
-        resolve([]) // resolve empty instead of reject — don't block UI
-      }
+      req.onerror = () => resolve([])
     })
-  } catch (e) {
-    console.error("[chat-history] loadChatHistory failed:", e)
+  } catch {
     return []
   }
 }
 
-// Add a single message to the chat history
-export async function addChatMessage(msg: Omit<StoredChatMessage, "id" | "timestamp">): Promise<void> {
+// Update conversation title and timestamp
+export async function updateConversation(id: string, title?: string): Promise<void> {
+  try {
+    const db = await openDB()
+    const tx = db.transaction(CONVERSATIONS_STORE, "readwrite")
+    const store = tx.objectStore(CONVERSATIONS_STORE)
+    const getReq = store.get(id)
+    getReq.onsuccess = () => {
+      const conv = getReq.result as Conversation | undefined
+      if (conv) {
+        if (title) conv.title = title
+        conv.updatedAt = Date.now()
+        store.put(conv)
+      }
+    }
+  } catch (e) {
+    console.error("[chat-history] updateConversation failed:", e)
+  }
+}
+
+// Delete a conversation and all its messages
+export async function deleteConversation(id: string): Promise<void> {
+  try {
+    const db = await openDB()
+    // Delete conversation
+    await new Promise<void>((resolve) => {
+      const tx = db.transaction(CONVERSATIONS_STORE, "readwrite")
+      tx.objectStore(CONVERSATIONS_STORE).delete(id)
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => resolve()
+    })
+    // Delete all messages in this conversation
+    await new Promise<void>((resolve) => {
+      const tx = db.transaction(MESSAGES_STORE, "readwrite")
+      const store = tx.objectStore(MESSAGES_STORE)
+      const idx = store.index("conversationId")
+      const req = idx.openCursor(IDBKeyRange.only(id))
+      req.onsuccess = () => {
+        const cursor = req.result
+        if (cursor) { cursor.delete(); cursor.continue() }
+      }
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => resolve()
+    })
+  } catch (e) {
+    console.error("[chat-history] deleteConversation failed:", e)
+  }
+}
+
+// ── Message operations ────────────────────────────────────────────────────
+
+// Load all messages for a conversation (ordered by timestamp)
+export async function loadMessages(conversationId: string): Promise<StoredChatMessage[]> {
   try {
     const db = await openDB()
     return new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE_NAME, "readwrite")
-      const store = tx.objectStore(STORE_NAME)
-      store.add({ ...msg, timestamp: Date.now() })
-      tx.oncomplete = () => resolve()
-      tx.onerror = () => {
-        console.error("[chat-history] add error:", tx.error)
-        resolve() // resolve instead of reject — don't block UI
+      const tx = db.transaction(MESSAGES_STORE, "readonly")
+      const idx = tx.objectStore(MESSAGES_STORE).index("conversationId")
+      const req = idx.getAll(IDBKeyRange.only(conversationId))
+      req.onsuccess = () => {
+        const msgs = (req.result as StoredChatMessage[]).sort((a, b) => a.timestamp - b.timestamp)
+        resolve(msgs)
       }
+      req.onerror = () => resolve([])
     })
+  } catch {
+    return []
+  }
+}
+
+// Add a message to a conversation
+export async function addChatMessage(
+  conversationId: string,
+  msg: { role: "user" | "assistant"; content: string; suggestions?: any[]; model?: string }
+): Promise<void> {
+  try {
+    const db = await openDB()
+    await new Promise<void>((resolve) => {
+      const tx = db.transaction(MESSAGES_STORE, "readwrite")
+      tx.objectStore(MESSAGES_STORE).add({
+        ...msg,
+        conversationId,
+        timestamp: Date.now(),
+      })
+      tx.oncomplete = () => resolve()
+      tx.onerror = () => resolve()
+    })
+    // Update conversation timestamp
+    await updateConversation(conversationId)
   } catch (e) {
     console.error("[chat-history] addChatMessage failed:", e)
   }
 }
 
-// Clear all chat history
-export async function clearChatHistory(): Promise<void> {
+// Clear ALL history (all conversations + messages)
+export async function clearAllHistory(): Promise<void> {
   try {
     const db = await openDB()
-    return new Promise((resolve, reject) => {
-      const tx = db.transaction(STORE_NAME, "readwrite")
-      const store = tx.objectStore(STORE_NAME)
-      store.clear()
-      tx.oncomplete = () => resolve()
-      tx.onerror = () => {
-        console.error("[chat-history] clear error:", tx.error)
-        resolve()
-      }
-    })
+    await Promise.all([
+      new Promise<void>((resolve) => {
+        const tx = db.transaction(CONVERSATIONS_STORE, "readwrite")
+        tx.objectStore(CONVERSATIONS_STORE).clear()
+        tx.oncomplete = () => resolve()
+        tx.onerror = () => resolve()
+      }),
+      new Promise<void>((resolve) => {
+        const tx = db.transaction(MESSAGES_STORE, "readwrite")
+        tx.objectStore(MESSAGES_STORE).clear()
+        tx.oncomplete = () => resolve()
+        tx.onerror = () => resolve()
+      }),
+    ])
   } catch (e) {
-    console.error("[chat-history] clearChatHistory failed:", e)
+    console.error("[chat-history] clearAllHistory failed:", e)
   }
 }
