@@ -520,11 +520,14 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   const displayGenres = meta?.genres ?? []
   const displayPoster = meta?.poster ?? title.poster ?? null
 
-  // Built-in popup blocker: when enabled, ALL providers load directly (no proxy)
-  // and the iframe uses the sandbox attribute to block popups, popunders, and
-  // top-level navigation — the main sources of video provider ads.
-  // The sandbox allows scripts, same-origin, presentation, and forms so the
-  // video player can load and play. When adblock is OFF, allows popups too.
+  // Built-in ad blocker: when enabled, ALL providers load through /api/video-proxy
+  // which serves the page same-origin (bypassing frame-blocking) and strips:
+  // - Ad scripts from known ad domains (doubleclick, exoclick, popads, etc.)
+  // - Ad iframes from known ad domains
+  // - Ad elements hidden via CSS (uBlock Origin Lite style)
+  // - 2Embed sandbox detection bypass
+  // The proxy does NOT override fetch/XHR (that broke video players).
+  // Popups are blocked by the browser's built-in popup blocker.
   const [adBlockOn, setAdBlockOn] = useState(true)
   useEffect(() => {
     setAdBlockOn(getAdBlockEnabled())
@@ -536,9 +539,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     setReloads((r) => r + 1)
   }, [adBlockOn])
 
-  // ALL providers load directly — no proxy. The built-in popup blocker
-  // (sandbox attribute) handles ads for all providers uniformly.
-  const playerUrl = useMemo(
+  const rawPlayerUrl = useMemo(
     () =>
       buildPlayerUrl({
         imdbId: title.imdbId,
@@ -549,6 +550,12 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
       }),
     [title, season, episode, sourceId]
   )
+
+  const playerUrl = useMemo(() => {
+    if (!adBlockOn) return rawPlayerUrl
+    // Route through video-proxy for ad blocking (uBlock style)
+    return `/api/video-proxy?url=${encodeURIComponent(rawPlayerUrl)}`
+  }, [rawPlayerUrl, adBlockOn])
 
   // Arabic provider streaming — when the user selects an Arabic scraper site
   // (EgyDead, EgyBest, etc.), we:
@@ -1139,14 +1146,6 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
                 allowFullScreen
                 referrerPolicy="no-referrer"
                 onLoad={() => setLoaded(true)}
-                // Built-in popup blocker: when adblock is ON, the sandbox blocks
-                // popups, popunders, and top-level navigation (the main sources of
-                // video provider ads) while allowing scripts, same-origin,
-                // presentation, and forms so the video player can load and play.
-                // When adblock is OFF, allows popups and top-navigation.
-                sandbox={adBlockOn
-                  ? "allow-scripts allow-same-origin allow-presentation allow-forms"
-                  : "allow-scripts allow-same-origin allow-presentation allow-forms allow-popups allow-top-navigation"}
                 className="absolute inset-0 h-full w-full"
               />
           {/* Watched-progress bar (Netflix-style red strip at bottom of video) */}
