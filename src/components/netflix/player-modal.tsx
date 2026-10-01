@@ -69,7 +69,7 @@ function toggleFavorite(id: string): string[] {
 
 // ── Preferred providers (user-specified top 5) ──────────────────────────────
 // These are tried first by the auto-switch logic, in this order.
-const PREFERRED_PROVIDERS = ["vidlink.pro", "moviesapi.to", "superembed", "2embed.cc", "vidsrc.me"]
+const PREFERRED_PROVIDERS = ["vidcore.net", "vidlink.pro", "moviesapi.to", "superembed", "2embed.cc"]
 // TMDB-supporting providers — used when a title has no IMDB ID (tmdb- prefix).
 // These providers can play titles using TMDB IDs directly.
 const TMDB_PROVIDERS = ["vidlink.pro", "vidfast.pro", "videasy.net"]
@@ -129,31 +129,29 @@ const QUALITY_OPTIONS = [
 ] as const
 
 // Map quality to providers that work in browser iframes.
-// Default provider: vidlink.pro — works in all browsers, supports IMDB+TMDB,
-// and is NOT blocked by Cloudflare. Vidcore.net was the default but it's
-// Cloudflare-protected and blocks many users.
+// Default provider: vidcore.net — user-requested default.
 function sourceForQuality(quality: string, isMobile: boolean): string {
   if (isMobile) {
     switch (quality) {
       case "1080p":
-        return "vidlink.pro"
+        return "vidcore.net"
       case "720p":
-        return "vidlink.pro"
+        return "vidcore.net"
       case "480p":
         return "moviesapi.to"
       default:
-        return "vidlink.pro" // auto → VidLink on mobile
+        return "vidcore.net" // auto → VidCore on mobile
     }
   }
   switch (quality) {
     case "1080p":
-      return "vidlink.pro"
+      return "vidcore.net"
     case "720p":
-      return "vidlink.pro"
+      return "vidcore.net"
     case "480p":
       return "moviesapi.to"
     default:
-      return "vidlink.pro" // auto → VidLink on desktop
+      return "vidcore.net" // auto → VidCore on desktop
   }
 }
 
@@ -280,15 +278,13 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   const isMobile = useIsMobile()
   const lastProvider = useLastProvider()
   const { t } = useLang()
-  // Default provider: vidlink.pro — works in all browsers, NOT Cloudflare-blocked.
-  // Supports both IMDB and TMDB IDs. Has fewer ads than vidfast/vidcore.
-  // If the user has a saved sourceId from watch history (resume), use that.
+  // Default provider: vidcore.net — user-requested default.
   const [quality, setQuality] = useState<string>("auto")
   const savedSourceId = title.sourceId ?? undefined
   const isTmdbOnly = title.imdbId?.startsWith("tmdb-")
   const defaultSource = savedSourceId
     || lastProvider.get(title.imdbId)
-    || "vidlink.pro"
+    || (isTmdbOnly ? "vidlink.pro" : "vidcore.net")
   const [sourceId, setSourceId] = useState<string>(defaultSource)
   const [season, setSeason] = useState<number>(title.season ?? 1)
   const [episode, setEpisode] = useState<number>(title.episode ?? 1)
@@ -524,11 +520,11 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   const displayGenres = meta?.genres ?? []
   const displayPoster = meta?.poster ?? title.poster ?? null
 
-  // Ad-block: when enabled, route the iframe through /api/video-proxy which
-  // strips ad scripts and hides ad elements. Only proxy providers that are
-  // known to have sandbox detection or heavy popunder ads. Other providers
-  // (vidfast, vidcore, etc.) are loaded directly because the proxy can break
-  // their JavaScript video player loading.
+  // Built-in popup blocker: when enabled, ALL providers load directly (no proxy)
+  // and the iframe uses the sandbox attribute to block popups, popunders, and
+  // top-level navigation — the main sources of video provider ads.
+  // The sandbox allows scripts, same-origin, presentation, and forms so the
+  // video player can load and play. When adblock is OFF, allows popups too.
   const [adBlockOn, setAdBlockOn] = useState(true)
   useEffect(() => {
     setAdBlockOn(getAdBlockEnabled())
@@ -537,19 +533,12 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     const next = !adBlockOn
     setAdBlockOn(next)
     setAdBlockEnabled(next)
-    setReloads((r) => r + 1) // reload the iframe with/without proxy
+    setReloads((r) => r + 1)
   }, [adBlockOn])
 
-  // Ad-block: when enabled, route providers through /api/video-proxy.
-  // The proxy strips ad scripts, hides ad elements, AND overrides fetch/XHR
-  // at runtime to block ad network requests.
-  // HOWEVER: some providers must be loaded DIRECTLY:
-  // - Cloudflare-protected (vidcore, vidfast, vidsrc.to, vidsrc.cc): 403 on proxy
-  // - Anti-iframe protection (vidlink, videasy): show "Disable Sandbox" when proxied
-  // For direct-loaded providers, ads are handled by the browser's popup blocker.
-  const DIRECT_LOAD_PROVIDERS = ["vidcore.net", "vidfast.pro", "vidsrc.to", "vidsrc.cc", "vidlink.pro", "videasy.net"]
-
-  const rawPlayerUrl = useMemo(
+  // ALL providers load directly — no proxy. The built-in popup blocker
+  // (sandbox attribute) handles ads for all providers uniformly.
+  const playerUrl = useMemo(
     () =>
       buildPlayerUrl({
         imdbId: title.imdbId,
@@ -560,14 +549,6 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
       }),
     [title, season, episode, sourceId]
   )
-
-  const playerUrl = useMemo(() => {
-    if (!adBlockOn) return rawPlayerUrl
-    // Load directly if the provider doesn't work through the proxy
-    if (DIRECT_LOAD_PROVIDERS.includes(sourceId)) return rawPlayerUrl
-    // Route through video-proxy to strip ads
-    return `/api/video-proxy?url=${encodeURIComponent(rawPlayerUrl)}`
-  }, [rawPlayerUrl, adBlockOn, sourceId])
 
   // Arabic provider streaming — when the user selects an Arabic scraper site
   // (EgyDead, EgyBest, etc.), we:
@@ -1158,6 +1139,14 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
                 allowFullScreen
                 referrerPolicy="no-referrer"
                 onLoad={() => setLoaded(true)}
+                // Built-in popup blocker: when adblock is ON, the sandbox blocks
+                // popups, popunders, and top-level navigation (the main sources of
+                // video provider ads) while allowing scripts, same-origin,
+                // presentation, and forms so the video player can load and play.
+                // When adblock is OFF, allows popups and top-navigation.
+                sandbox={adBlockOn
+                  ? "allow-scripts allow-same-origin allow-presentation allow-forms"
+                  : "allow-scripts allow-same-origin allow-presentation allow-forms allow-popups allow-top-navigation"}
                 className="absolute inset-0 h-full w-full"
               />
           {/* Watched-progress bar (Netflix-style red strip at bottom of video) */}
