@@ -69,7 +69,7 @@ function toggleFavorite(id: string): string[] {
 
 // ── Preferred providers (user-specified top 5) ──────────────────────────────
 // These are tried first by the auto-switch logic, in this order.
-const PREFERRED_PROVIDERS = ["vidcore.net", "vidlink.pro", "moviesapi.to", "superembed", "2embed.cc"]
+const PREFERRED_PROVIDERS = ["vidlink.pro", "moviesapi.to", "superembed", "2embed.cc", "vidsrc.me"]
 // TMDB-supporting providers — used when a title has no IMDB ID (tmdb- prefix).
 // These providers can play titles using TMDB IDs directly.
 const TMDB_PROVIDERS = ["vidlink.pro", "vidfast.pro", "videasy.net"]
@@ -129,29 +129,31 @@ const QUALITY_OPTIONS = [
 ] as const
 
 // Map quality to providers that work in browser iframes.
-// Default provider: vidcore.net (user-requested)
+// Default provider: vidlink.pro — works in all browsers, supports IMDB+TMDB,
+// and is NOT blocked by Cloudflare. Vidcore.net was the default but it's
+// Cloudflare-protected and blocks many users.
 function sourceForQuality(quality: string, isMobile: boolean): string {
   if (isMobile) {
     switch (quality) {
       case "1080p":
-        return "vidcore.net"
+        return "vidlink.pro"
       case "720p":
-        return "vidcore.net"
+        return "vidlink.pro"
       case "480p":
         return "moviesapi.to"
       default:
-        return "vidcore.net" // auto → VidCore on mobile
+        return "vidlink.pro" // auto → VidLink on mobile
     }
   }
   switch (quality) {
     case "1080p":
-      return "vidcore.net"
+      return "vidlink.pro"
     case "720p":
-      return "vidcore.net"
+      return "vidlink.pro"
     case "480p":
       return "moviesapi.to"
     default:
-      return "vidcore.net" // auto → VidCore on desktop
+      return "vidlink.pro" // auto → VidLink on desktop
   }
 }
 
@@ -278,16 +280,15 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   const isMobile = useIsMobile()
   const lastProvider = useLastProvider()
   const { t } = useLang()
-  // Default provider: vidcore.net — user-requested default.
+  // Default provider: vidlink.pro — works in all browsers, NOT Cloudflare-blocked.
+  // Supports both IMDB and TMDB IDs. Has fewer ads than vidfast/vidcore.
   // If the user has a saved sourceId from watch history (resume), use that.
   const [quality, setQuality] = useState<string>("auto")
   const savedSourceId = title.sourceId ?? undefined
-  // If the title has no IMDB ID (tmdb- prefix), default to a TMDB-supporting
-  // provider (vidlink.pro) so it can play without needing an IMDB ID.
   const isTmdbOnly = title.imdbId?.startsWith("tmdb-")
   const defaultSource = savedSourceId
     || lastProvider.get(title.imdbId)
-    || (isTmdbOnly ? "vidlink.pro" : "vidcore.net")
+    || "vidlink.pro"
   const [sourceId, setSourceId] = useState<string>(defaultSource)
   const [season, setSeason] = useState<number>(title.season ?? 1)
   const [episode, setEpisode] = useState<number>(title.episode ?? 1)
