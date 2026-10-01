@@ -520,14 +520,11 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   const displayGenres = meta?.genres ?? []
   const displayPoster = meta?.poster ?? title.poster ?? null
 
-  // Built-in ad blocker: when enabled, ALL providers load through /api/video-proxy
-  // which serves the page same-origin (bypassing frame-blocking) and strips:
-  // - Ad scripts from known ad domains (doubleclick, exoclick, popads, etc.)
-  // - Ad iframes from known ad domains
-  // - Ad elements hidden via CSS (uBlock Origin Lite style)
-  // - 2Embed sandbox detection bypass
-  // The proxy does NOT override fetch/XHR (that broke video players).
-  // Popups are blocked by the browser's built-in popup blocker.
+  // Built-in ad blocker (uBlock Origin Lite style):
+  // - Non-Cloudflare providers → route through /api/video-proxy which strips
+  //   ad scripts, hides ad elements, bypasses sandbox detection
+  // - Cloudflare-protected providers (vidcore, vidfast, etc.) → load directly
+  //   (proxy gets 403 from Cloudflare). Ads handled by browser popup blocker.
   const [adBlockOn, setAdBlockOn] = useState(true)
   useEffect(() => {
     setAdBlockOn(getAdBlockEnabled())
@@ -538,6 +535,9 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     setAdBlockEnabled(next)
     setReloads((r) => r + 1)
   }, [adBlockOn])
+
+  // Cloudflare-protected providers can't be proxied (403 on server-side fetch)
+  const CLOUDFLARE_BLOCKED = ["vidcore.net", "vidfast.pro", "vidsrc.to", "vidsrc.cc"]
 
   const rawPlayerUrl = useMemo(
     () =>
@@ -553,9 +553,11 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
 
   const playerUrl = useMemo(() => {
     if (!adBlockOn) return rawPlayerUrl
-    // Route through video-proxy for ad blocking (uBlock style)
+    // Cloudflare-protected providers load directly (proxy gets 403)
+    if (CLOUDFLARE_BLOCKED.includes(sourceId)) return rawPlayerUrl
+    // All other providers route through proxy for ad blocking
     return `/api/video-proxy?url=${encodeURIComponent(rawPlayerUrl)}`
-  }, [rawPlayerUrl, adBlockOn])
+  }, [rawPlayerUrl, adBlockOn, sourceId])
 
   // Arabic provider streaming — when the user selects an Arabic scraper site
   // (EgyDead, EgyBest, etc.), we:
