@@ -543,11 +543,11 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   // Ad-block: when enabled, route providers through /api/video-proxy.
   // The proxy strips ad scripts, hides ad elements, AND overrides fetch/XHR
   // at runtime to block ad network requests.
-  // HOWEVER: some providers (vidcore, vidfast) use Cloudflare which blocks
-  // server-side requests (403). These providers must be loaded DIRECTLY.
-  // For direct-loaded providers, ads are handled by the browser's built-in
-  // popup blocker + the user's adblocker extension.
-  const CLOUDFLARE_BLOCKED = ["vidcore.net", "vidfast.pro", "vidsrc.to", "vidsrc.cc"]
+  // HOWEVER: some providers must be loaded DIRECTLY:
+  // - Cloudflare-protected (vidcore, vidfast, vidsrc.to, vidsrc.cc): 403 on proxy
+  // - Anti-iframe protection (vidlink, videasy): show "Disable Sandbox" when proxied
+  // For direct-loaded providers, ads are handled by the browser's popup blocker.
+  const DIRECT_LOAD_PROVIDERS = ["vidcore.net", "vidfast.pro", "vidsrc.to", "vidsrc.cc", "vidlink.pro", "videasy.net"]
 
   const rawPlayerUrl = useMemo(
     () =>
@@ -563,8 +563,8 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
 
   const playerUrl = useMemo(() => {
     if (!adBlockOn) return rawPlayerUrl
-    // Don't proxy Cloudflare-protected providers — they 403 on server-side
-    if (CLOUDFLARE_BLOCKED.includes(sourceId)) return rawPlayerUrl
+    // Load directly if the provider doesn't work through the proxy
+    if (DIRECT_LOAD_PROVIDERS.includes(sourceId)) return rawPlayerUrl
     // Route through video-proxy to strip ads
     return `/api/video-proxy?url=${encodeURIComponent(rawPlayerUrl)}`
   }, [rawPlayerUrl, adBlockOn, sourceId])
