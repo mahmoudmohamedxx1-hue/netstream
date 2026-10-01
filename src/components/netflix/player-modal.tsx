@@ -539,12 +539,14 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     setReloads((r) => r + 1) // reload the iframe with/without proxy
   }, [adBlockOn])
 
-  // Ad-block: when enabled, route ALL providers through /api/video-proxy.
+  // Ad-block: when enabled, route providers through /api/video-proxy.
   // The proxy strips ad scripts, hides ad elements, AND overrides fetch/XHR
-  // at runtime to block ad network requests — while whitelisting video
-  // stream URLs (.m3u8, .mp4, .ts) so the video player can load its stream.
-  // This is the approach that successfully blocked ads for 2+ weeks.
-  const PROXY_PROVIDERS = "all" // all providers go through the proxy
+  // at runtime to block ad network requests.
+  // HOWEVER: some providers (vidcore, vidfast) use Cloudflare which blocks
+  // server-side requests (403). These providers must be loaded DIRECTLY.
+  // For direct-loaded providers, ads are handled by the browser's built-in
+  // popup blocker + the user's adblocker extension.
+  const CLOUDFLARE_BLOCKED = ["vidcore.net", "vidfast.pro", "vidsrc.to", "vidsrc.cc"]
 
   const rawPlayerUrl = useMemo(
     () =>
@@ -560,9 +562,11 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
 
   const playerUrl = useMemo(() => {
     if (!adBlockOn) return rawPlayerUrl
-    // Route through video-proxy to strip ads + block ad network requests
+    // Don't proxy Cloudflare-protected providers — they 403 on server-side
+    if (CLOUDFLARE_BLOCKED.includes(sourceId)) return rawPlayerUrl
+    // Route through video-proxy to strip ads
     return `/api/video-proxy?url=${encodeURIComponent(rawPlayerUrl)}`
-  }, [rawPlayerUrl, adBlockOn])
+  }, [rawPlayerUrl, adBlockOn, sourceId])
 
   // Arabic provider streaming — when the user selects an Arabic scraper site
   // (EgyDead, EgyBest, etc.), we:
