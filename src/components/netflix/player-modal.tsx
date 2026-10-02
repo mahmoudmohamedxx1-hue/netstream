@@ -129,18 +129,19 @@ const QUALITY_OPTIONS = [
 ] as const
 
 // Map quality to providers that work in browser iframes.
-// Default provider: vidcore.net — user-requested default.
+// Default provider: vidcore.net on desktop, moviesapi.to on mobile.
+// MoviesApi works better on mobile (no Cloudflare bot detection, mobile-optimized player).
 function sourceForQuality(quality: string, isMobile: boolean): string {
   if (isMobile) {
     switch (quality) {
       case "1080p":
-        return "vidcore.net"
+        return "moviesapi.to"
       case "720p":
-        return "vidcore.net"
+        return "moviesapi.to"
       case "480p":
         return "moviesapi.to"
       default:
-        return "vidcore.net" // auto → VidCore on mobile
+        return "moviesapi.to" // auto → MoviesApi on mobile
     }
   }
   switch (quality) {
@@ -284,7 +285,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   const isTmdbOnly = title.imdbId?.startsWith("tmdb-")
   const defaultSource = savedSourceId
     || lastProvider.get(title.imdbId)
-    || (isTmdbOnly ? "vidlink.pro" : "vidcore.net")
+    || (isTmdbOnly ? "vidlink.pro" : isMobile ? "moviesapi.to" : "vidcore.net")
   const [sourceId, setSourceId] = useState<string>(defaultSource)
   const [season, setSeason] = useState<number>(title.season ?? 1)
   const [episode, setEpisode] = useState<number>(title.episode ?? 1)
@@ -552,11 +553,13 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
 
   const playerUrl = useMemo(() => {
     if (!adBlockOn) return rawPlayerUrl
-    // Cloudflare-protected providers load directly (proxy gets 403)
+    // On mobile: load ALL providers directly (proxy breaks mobile video players)
+    if (isMobile) return rawPlayerUrl
+    // On desktop: Cloudflare-protected providers load directly (proxy gets 403)
     if (CLOUDFLARE_BLOCKED.includes(sourceId)) return rawPlayerUrl
-    // All other providers route through proxy with Kuro Ads Killer
+    // Desktop non-Cloudflare: route through proxy with Kuro Ads Killer
     return `/api/video-proxy?url=${encodeURIComponent(rawPlayerUrl)}`
-  }, [rawPlayerUrl, adBlockOn, sourceId])
+  }, [rawPlayerUrl, adBlockOn, sourceId, isMobile])
 
   // Arabic provider streaming — when the user selects an Arabic scraper site
   // (EgyDead, EgyBest, etc.), we:
