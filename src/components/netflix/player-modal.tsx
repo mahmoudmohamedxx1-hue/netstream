@@ -520,15 +520,20 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   const displayGenres = meta?.genres ?? []
   const displayPoster = meta?.poster ?? title.poster ?? null
 
-  // Built-in ad blocker (uBlock Origin Lite style):
-  // - Non-Cloudflare providers → route through /api/video-proxy which strips
-  //   ad scripts, hides ad elements, bypasses sandbox detection
-  // - Cloudflare-protected providers (vidcore, vidfast, etc.) → load directly
-  //   (proxy gets 403 from Cloudflare). Ads handled by browser popup blocker.
+  // Built-in ad blocker: ALL providers load directly (no proxy, no sandbox).
+  // Popup/popunder ads are blocked via a click-capture overlay that intercepts
+  // the first click on the iframe (popunders typically fire on first click).
+  // The overlay captures the click, prevents window.open, then removes itself
+  // so the second click goes through to the actual video player.
   const [adBlockOn, setAdBlockOn] = useState(true)
+  const [showClickOverlay, setShowClickOverlay] = useState(true)
   useEffect(() => {
     setAdBlockOn(getAdBlockEnabled())
   }, [])
+  useEffect(() => {
+    // Reset the click overlay when source or reload changes
+    setShowClickOverlay(true)
+  }, [sourceId, reloads])
   const toggleAdBlock = useCallback(() => {
     const next = !adBlockOn
     setAdBlockOn(next)
@@ -536,10 +541,8 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     setReloads((r) => r + 1)
   }, [adBlockOn])
 
-  // Cloudflare-protected providers can't be proxied (403 on server-side fetch)
-  const CLOUDFLARE_BLOCKED = ["vidcore.net", "vidfast.pro", "vidsrc.to", "vidsrc.cc"]
-
-  const rawPlayerUrl = useMemo(
+  // ALL providers load directly — no proxy, no sandbox
+  const playerUrl = useMemo(
     () =>
       buildPlayerUrl({
         imdbId: title.imdbId,
@@ -550,14 +553,6 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
       }),
     [title, season, episode, sourceId]
   )
-
-  const playerUrl = useMemo(() => {
-    if (!adBlockOn) return rawPlayerUrl
-    // Cloudflare-protected providers load directly (proxy gets 403)
-    if (CLOUDFLARE_BLOCKED.includes(sourceId)) return rawPlayerUrl
-    // All other providers route through proxy for ad blocking
-    return `/api/video-proxy?url=${encodeURIComponent(rawPlayerUrl)}`
-  }, [rawPlayerUrl, adBlockOn, sourceId])
 
   // Arabic provider streaming — when the user selects an Arabic scraper site
   // (EgyDead, EgyBest, etc.), we:
@@ -1150,6 +1145,22 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
                 onLoad={() => setLoaded(true)}
                 className="absolute inset-0 h-full w-full"
               />
+              {/* Click-capture overlay — blocks popunder ads.
+                  Popunders fire on the first click on the iframe. This overlay
+                  captures that click (preventing the popunder from opening),
+                  then removes itself so the next click goes to the video player.
+                  Only shows when adblock is ON. */}
+              {adBlockOn && showClickOverlay && (
+                <div
+                  className="absolute inset-0 z-10 cursor-pointer"
+                  onClick={() => {
+                    // Intercept the click — the popunder ad won't fire
+                    // because the click landed on our overlay, not the iframe.
+                    // Remove the overlay so the next click hits the player.
+                    setShowClickOverlay(false)
+                  }}
+                />
+              )}
           {/* Watched-progress bar (Netflix-style red strip at bottom of video) */}
           {watchProgress > 0 && (
             <div className="absolute bottom-0 left-0 z-20 h-1 w-full bg-white/10">
