@@ -520,11 +520,9 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   const displayGenres = meta?.genres ?? []
   const displayPoster = meta?.poster ?? title.poster ?? null
 
-  // Built-in ad blocker: ALL providers load directly (no proxy).
-  // Two-layer popunder defense:
-  // 1. Sandbox (blocks window.open) — ONLY for providers that don't detect it.
-  //    Vidcore/vidlink detect sandbox and show "Disable Sandbox" — no sandbox for them.
-  // 2. Click-capture overlay — captures first 2 clicks to block popunders.
+  // iFrame Ad Blocker (based on https://github.com/kananinirav/iFrame-ad-blocker)
+  // sandbox='allow-same-origin allow-scripts' blocks popups/popunders.
+  // Providers that detect sandbox (vidcore, vidlink, vidfast, videasy) get NO sandbox.
   const [adBlockOn, setAdBlockOn] = useState(true)
   useEffect(() => {
     setAdBlockOn(getAdBlockEnabled())
@@ -536,7 +534,9 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     setReloads((r) => r + 1)
   }, [adBlockOn])
 
-  // ALL providers load directly — no proxy
+  const SANDBOX_DETECTING = ["vidcore.net", "vidlink.pro", "videasy.net", "vidfast.pro"]
+  const useSandbox = adBlockOn && !SANDBOX_DETECTING.includes(sourceId)
+  // ALL providers load directly
   const playerUrl = useMemo(
     () =>
       buildPlayerUrl({
@@ -1138,11 +1138,10 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
                 allowFullScreen
                 referrerPolicy="no-referrer"
                 onLoad={() => setLoaded(true)}
-                // iFrame Ad Blocker: sandbox blocks popups/popunders (window.open)
-                // while allowing scripts and same-origin so the video player works.
-                // Uses the exact value from the iFrame-ad-blocker repo which
-                // doesn't trigger "Disable Sandbox" on vidcore.
-                sandbox={adBlockOn ? "allow-same-origin allow-scripts" : undefined}
+                // iFrame Ad Blocker: sandbox blocks popups/popunders (window.open).
+                // Only applied to providers that DON'T detect sandbox.
+                // Vidcore/vidlink/vidfast/videasy get no sandbox (they detect it).
+                sandbox={useSandbox ? "allow-same-origin allow-scripts" : undefined}
                 className="absolute inset-0 h-full w-full"
               />
           {/* Watched-progress bar (Netflix-style red strip at bottom of video) */}
