@@ -1,60 +1,207 @@
 import { NextRequest, NextResponse } from "next/server"
 
-// GET /api/video-proxy?url=<embed-url>&referer=<referer>
+// GET /api/video-proxy?url=<embed-url>
 //
-// Proxies a provider's embed page with uBlock-style ad blocking.
-// Serves the page same-origin so providers can't block framing.
+// Proxies a provider's embed page with Kuro Ads Killer logic integrated.
+// Based on https://github.com/KuroShonenJPN/Ads-Block
 //
-// Ad blocking approach (uBlock Origin Lite style):
-// 1. Strip <script> tags from known ad domains (static HTML removal)
-// 2. Strip <iframe> tags from known ad domains
-// 3. Inject CSS to hide ad elements (banners, popunders, overlays)
-// 4. Bypass 2Embed's sandbox detection
-// 5. Do NOT override fetch/XHR — that breaks video players
-// 6. Popups are blocked by the browser's built-in popup blocker
+// The injected script:
+// 1. Removes ad overlays, modals, popups (clicks close buttons, hides elements)
+// 2. Removes ad iframes (doubleclick, googlesyndication, etc.)
+// 3. Overrides window.open to block popunders
+// 4. Runs a MutationObserver to catch dynamically added ads
+// 5. Scans after user clicks (aggressive mode)
+// 6. Does NOT break video players (checks for <video> before removing elements)
 
 const AD_DOMAINS = [
   "doubleclick.net", "googleads.g.doubleclick.net", "googlesyndication.com",
   "google-analytics.com", "googletagmanager.com", "connatix.com",
-  "eyeota.net", "crwdcntrl.net", "dotomi.com", "everesttech.net",
-  "dtscout.com", "mrktmtrcs.net", "dasdaily.com", "agl006.host",
-  "goodimpressioncrboost.com", "manitobaboats.com", "bookmsg.com",
-  "popunder.net", "ads.exoclick.com", "exosrv.com", "adsystem.com",
-  "a-mo.net", "a.mrktmtrcs.net", "a.dtssrv.com", "tag-ab",
-  "instream/ad_status", "ad_status.js", "tagivi.com",
+  "popunder.net", "ads.exoclick.com", "exosrv.com",
   "popads.net", "propellerads.com", "adsterra.com",
   "juicyads.com", "trafficjunky.net", "hilltopads.com",
-  "histats.com", "rexsrv.com", "adskeeper.com",
-  "syndication.exoclick.com", "main.exosrv.com",
-  "a.realsrv.com", "syndication.realsrv.com",
+  "histats.com", "adskeeper.com", "syndication.exoclick.com",
+  "main.exosrv.com", "a.realsrv.com", "syndication.realsrv.com",
+  "taboola.com", "outbrain.com", "adnxs.com",
 ]
 
+// Kuro Ads Killer content script — adapted for non-extension use
+const KURO_ADS_SCRIPT = `
+<script id="kuro-ads-killer">
+(function() {
+  // === CONFIG (all features ON) ===
+  var config = {
+    blockPopups: true,
+    blockOverlays: true,
+    blockTabs: true,
+    blockIframes: true,
+    aggressiveMode: true
+  };
+
+  // === SELECTORS ===
+  var CLOSE_BUTTON_SELECTORS = [
+    'button[aria-label*="close" i]', 'button[aria-label*="dismiss" i]',
+    'button[aria-label*="skip" i]', '[role="button"][aria-label*="close" i]',
+    '[role="button"][aria-label*="dismiss" i]', '[title*="close" i]',
+    '[title*="dismiss" i]', '.close', '.close-btn', '.close-button',
+    '.btn-close', '.modal-close', '.popup-close', '.overlay-close',
+    '.lightbox-close', '.interstitial-close', '.mfp-close'
+  ];
+
+  var OVERLAY_SELECTORS = [
+    '[aria-modal="true"]', '[role="dialog"]',
+    '[class*="popup" i]', '[id*="popup" i]',
+    '[class*="modal" i]', '[id*="modal" i]',
+    '[class*="overlay" i]', '[id*="overlay" i]',
+    '[class*="lightbox" i]', '[id*="lightbox" i]',
+    '[class*="backdrop" i]', '[id*="backdrop" i]',
+    '[class*="interstitial" i]', '[id*="interstitial" i]'
+  ];
+
+  // === HELPERS ===
+  function isVisible(el) {
+    if (!el || !(el instanceof Element)) return false;
+    var style = window.getComputedStyle(el);
+    var rect = el.getBoundingClientRect();
+    return style.display !== "none" && style.visibility !== "hidden" &&
+           style.opacity !== "0" && rect.width > 0 && rect.height > 0;
+  }
+
+  function isSafeToRemove(el) {
+    if (!el || !(el instanceof Element)) return false;
+    var tag = el.tagName.toLowerCase();
+    if (["video","img","svg","canvas","iframe"].includes(tag)) return false;
+    if (el.closest("video")) return false;
+    if (el.querySelector("video")) return false;
+    return true;
+  }
+
+  function isLikelyOverlay(el) {
+    var rect = el.getBoundingClientRect();
+    if (rect.width < window.innerWidth * 0.5 || rect.height < window.innerHeight * 0.5) return false;
+    var style = window.getComputedStyle(el);
+    if (style.position === "fixed" || style.position === "absolute") return true;
+    return false;
+  }
+
+  // === BLOCK POPUPS — click close buttons ===
+  function tryClickCloseButtons() {
+    var clicked = false;
+    for (var i = 0; i < CLOSE_BUTTON_SELECTORS.length; i++) {
+      var buttons = document.querySelectorAll(CLOSE_BUTTON_SELECTORS[i]);
+      for (var j = 0; j < buttons.length; j++) {
+        if (isVisible(buttons[j]) && isSafeToRemove(buttons[j])) {
+          try { buttons[j].click(); clicked = true; } catch(e) {}
+        }
+      }
+    }
+    return clicked;
+  }
+
+  // === BLOCK OVERLAYS — remove overlay elements ===
+  function removeOverlayLikeElements() {
+    var removed = false;
+    for (var i = 0; i < OVERLAY_SELECTORS.length; i++) {
+      var nodes = document.querySelectorAll(OVERLAY_SELECTORS[i]);
+      for (var j = 0; j < nodes.length; j++) {
+        if (!isVisible(nodes[j])) continue;
+        if (!isSafeToRemove(nodes[j])) continue;
+        if (!isLikelyOverlay(nodes[j]) && !config.aggressiveMode) continue;
+        try {
+          nodes[j].style.setProperty("display","none","important");
+          nodes[j].style.setProperty("visibility","hidden","important");
+          nodes[j].style.setProperty("pointer-events","none","important");
+          removed = true;
+        } catch(e) {}
+      }
+    }
+    return removed;
+  }
+
+  // === BLOCK AD IFRAMES ===
+  function removeAdIframes() {
+    var iframes = document.getElementsByTagName("iframe");
+    var removed = false;
+    for (var i = iframes.length - 1; i >= 0; i--) {
+      var iframe = iframes[i];
+      if (!isVisible(iframe)) continue;
+      var src = (iframe.src || "").toLowerCase();
+      var suspicious = src.includes("doubleclick") || src.includes("adservice") ||
+        src.includes("googlesyndication") || src.includes("adnxs") ||
+        src.includes("taboola") || src.includes("outbrain") ||
+        src.includes("exoclick") || src.includes("popads") || src.includes("popunder");
+      if (suspicious) { iframe.remove(); removed = true; }
+    }
+    return removed;
+  }
+
+  // === UNLOCK SCROLL ===
+  function unlockScroll() {
+    document.body.style.setProperty("overflow","auto","important");
+    document.documentElement.style.setProperty("overflow","auto","important");
+  }
+
+  // === SCAN AND KILL ===
+  function scanAndKill() {
+    var didClick = tryClickCloseButtons();
+    var removedOverlay = removeOverlayLikeElements();
+    var removedIframes = removeAdIframes();
+    if (didClick || removedOverlay || removedIframes) {
+      unlockScroll();
+    }
+  }
+
+  // === MUTATION OBSERVER — catch dynamically added ads ===
+  var observer = new MutationObserver(function() { scanAndKill(); });
+  observer.observe(document.documentElement || document.body, {
+    childList: true, subtree: true, attributes: true
+  });
+
+  // === CLICK HANDLER — scan after user clicks (aggressive mode) ===
+  document.addEventListener("click", function(e) {
+    var target = e.target;
+    if (target instanceof Element && (target.closest("video") || target.matches("video"))) return;
+    setTimeout(scanAndKill, 80);
+    setTimeout(scanAndKill, 250);
+    setTimeout(scanAndKill, 600);
+  }, true);
+
+  // === BLOCK POPUNDERS — override window.open ===
+  var origOpen = window.open;
+  window.open = function(url) {
+    if (url) {
+      var urlStr = String(url).toLowerCase();
+      var adPatterns = ["popunder","popads","exoclick","adsterra","propellerads",
+        "doubleclick","googlesyndication","taboola","outbrain","adnxs","redirect"];
+      for (var i = 0; i < adPatterns.length; i++) {
+        if (urlStr.includes(adPatterns[i])) return null;
+      }
+    }
+    // Allow non-ad popups (some players need them)
+    return origOpen ? origOpen.apply(this, arguments) : null;
+  };
+
+  // === INITIAL SCAN ===
+  scanAndKill();
+  setTimeout(scanAndKill, 500);
+  setTimeout(scanAndKill, 1500);
+  setTimeout(scanAndKill, 3000);
+})();
+</script>
+`
+
+// CSS to hide ad elements
 const AD_BLOCK_CSS = `
 <style id="netstream-adblock">
-  #sbxErr { display: none !important; visibility: hidden !important; opacity: 0 !important; }
-  [id*="ad-"], [id*="ads-"], [id*="ad_"], [id*="ads_"],
-  [class*="ad-"], [class*="ads-"], [class*="ad_"], [class*="ads_"],
-  [id*="banner"], [class*="banner"],
-  [id*="popunder"], [class*="popunder"], [class*="pop-under"],
-  [id*="overlay-ad"], [class*="overlay-ad"], [class*="overdiv"],
-  [id*="popup"], [class*="popup-ad"],
-  iframe[src*="doubleclick"], iframe[src*="googleads"], iframe[src*="connatix"],
-  iframe[src*="popunder"], iframe[src*="dasdaily"], iframe[src*="adskeeper"],
-  iframe[src*="exoclick"], iframe[src*="exosrv"], iframe[src*="popads"],
-  iframe[src*="adsterra"], iframe[src*="juicyads"], iframe[src*="trafficjunky"],
-  iframe[src*="hilltopads"], iframe[src*="propellerads"],
-  div[class*="ad-container"], div[id*="ad-container"],
-  div[class*="ad-wrapper"], div[id*="ad-wrapper"],
-  .ad-banner, .ad-overlay, .ad-popup, .adbd, #ad, #ads, .ad, .ads, .advert,
-  .advertisement, .ad-notice, .ad-label,
-  #sbxErr, .dropdown.ad, .ad-frame, .ad-slot,
-  [onclick*="window.open"], [onclick*="location.href"],
-  a[href*="popunder"], a[href*="popads"], a[href*="exoclick"],
-  a[href*="adsterra"], a[href*="propellerads"],
-  video, .jwplayer, .video-js, .vjs-tech, #videojs, #iframesrc, #player, #playerWrap,
-  .player, .player-container, .video-container, #vidplayer, #embedPlayer,
-  .fluid-player, .fluid_video_wrapper, #fluid-player-elem,
-  .p2play, .p2p-player, #p2p-player,
+  #sbxErr { display: none !important; }
+  [id*="ad-"], [id*="ads-"], [class*="ad-"], [class*="ads-"],
+  [id*="banner"], [class*="banner"], [id*="popunder"], [class*="popunder"],
+  [id*="overlay-ad"], [class*="overlay-ad"],
+  iframe[src*="doubleclick"], iframe[src*="googleads"], iframe[src*="exoclick"],
+  iframe[src*="popads"], iframe[src*="adsterra"], iframe[src*="popunder"],
+  .ad-banner, .ad-overlay, .ad-popup, #ad, #ads, .ad, .ads, .advert,
+  #sbxErr, .ad-frame, .ad-slot,
+  video, .jwplayer, .video-js, .vjs-tech, #videojs, #player, .player,
+  .fluid-player, .fluid_video_wrapper, .p2play,
   { width: 100% !important; height: 100% !important; }
   body { margin: 0; padding: 0; background: #000; overflow: hidden; }
 </style>
@@ -63,55 +210,43 @@ const AD_BLOCK_CSS = `
 export async function GET(req: NextRequest) {
   const url = new URL(req.url)
   const embedUrl = url.searchParams.get("url")
-  const referer = url.searchParams.get("referer") || ""
-
   if (!embedUrl) return new NextResponse("url required", { status: 400 })
 
   const headers: Record<string, string> = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.9",
   }
-  if (referer) headers["Referer"] = referer
 
   try {
     const res = await fetch(embedUrl, {
-      headers,
-      redirect: "follow",
-      signal: AbortSignal.timeout(10000),
+      headers, redirect: "follow", signal: AbortSignal.timeout(10000),
     })
     if (!res.ok) return new NextResponse(`HTTP ${res.status}`, { status: res.status })
 
     let html = await res.text()
     const finalUrl = res.url || embedUrl
 
-    // 1. Strip ad scripts and iframes from known ad domains
+    // 1. Strip ad scripts/iframes from known ad domains
     for (const domain of AD_DOMAINS) {
       const escaped = domain.replace(/\./g, "\\.").replace(/\//g, "\\/")
       html = html.replace(
-        new RegExp(`<script[^>]*src=["'][^"']*${escaped}[^"']*["'][^>]*></script>`, "gi"),
-        ""
+        new RegExp(`<script[^>]*src=["'][^"']*${escaped}[^"']*["'][^>]*></script>`, "gi"), ""
       )
       html = html.replace(
-        new RegExp(`<iframe[^>]*src=["'][^"']*${escaped}[^"']*["'][^>]*></iframe>`, "gi"),
-        ""
+        new RegExp(`<iframe[^>]*src=["'][^"']*${escaped}[^"']*["'][^>]*></iframe>`, "gi"), ""
       )
     }
 
-    // 2. Bypass 2Embed's sandbox detection
+    // 2. Bypass 2Embed sandbox detection
     html = html.replace(
       /function\s+isReallySandboxed\s*\(\)\s*\{[\s\S]*?\n\s*\}/,
       "function isReallySandboxed() { return false; }"
     )
-    html = html.replace(
-      /sbxErr\.style\.display\s*=\s*['"]flex['"]/gi,
-      "sbxErr.style.display = 'none'"
-    )
 
-    // 3. Inject ad-blocking CSS (NO JavaScript — doesn't break video players)
-    html = html.replace(/<head([^>]*)>/i, `<head$1>${AD_BLOCK_CSS}`)
+    // 3. Inject Kuro Ads Killer script + CSS
+    html = html.replace(/<head([^>]*)>/i, `<head$1>${AD_BLOCK_CSS}${KURO_ADS_SCRIPT}`)
 
-    // 4. Add <base> tag so relative URLs resolve correctly
+    // 4. Add <base> tag
     html = html.replace(/<head([^>]*)>/i, `<head$1><base href="${finalUrl}">`)
 
     return new NextResponse(html, {
@@ -125,9 +260,7 @@ export async function GET(req: NextRequest) {
           "style-src * 'unsafe-inline'",
           "img-src * data: blob:",
           "media-src * data: blob:",
-          "frame-src *",
-          "font-src * data:",
-          "connect-src *",
+          "frame-src *", "font-src * data:", "connect-src *",
         ].join("; "),
       },
     })

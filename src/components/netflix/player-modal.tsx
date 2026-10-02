@@ -520,9 +520,11 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   const displayGenres = meta?.genres ?? []
   const displayPoster = meta?.poster ?? title.poster ?? null
 
-  // iFrame Ad Blocker (based on https://github.com/kananinirav/iFrame-ad-blocker)
-  // sandbox='allow-same-origin allow-scripts' blocks popups/popunders.
-  // Providers that detect sandbox (vidcore, vidlink, vidfast, videasy) get NO sandbox.
+  // Kuro Ads Killer integration (https://github.com/KuroShonenJPN/Ads-Block)
+  // Non-Cloudflare providers route through /api/video-proxy which injects
+  // the Kuro Ads Killer script to remove ads, overlays, popunders.
+  // Cloudflare-protected providers (vidcore, vidfast) load directly.
+  // NO sandbox anywhere — no 'Disable Sandbox' error.
   const [adBlockOn, setAdBlockOn] = useState(true)
   useEffect(() => {
     setAdBlockOn(getAdBlockEnabled())
@@ -534,10 +536,9 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     setReloads((r) => r + 1)
   }, [adBlockOn])
 
-  const SANDBOX_DETECTING = ["vidcore.net", "vidlink.pro", "videasy.net", "vidfast.pro"]
-  const useSandbox = adBlockOn && !SANDBOX_DETECTING.includes(sourceId)
-  // ALL providers load directly
-  const playerUrl = useMemo(
+  // Cloudflare-protected providers can't be proxied (403)
+  const CLOUDFLARE_BLOCKED = ["vidcore.net", "vidfast.pro", "vidsrc.to", "vidsrc.cc"]
+  const rawPlayerUrl = useMemo(
     () =>
       buildPlayerUrl({
         imdbId: title.imdbId,
@@ -548,6 +549,14 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
       }),
     [title, season, episode, sourceId]
   )
+
+  const playerUrl = useMemo(() => {
+    if (!adBlockOn) return rawPlayerUrl
+    // Cloudflare-protected providers load directly (proxy gets 403)
+    if (CLOUDFLARE_BLOCKED.includes(sourceId)) return rawPlayerUrl
+    // All other providers route through proxy with Kuro Ads Killer
+    return `/api/video-proxy?url=${encodeURIComponent(rawPlayerUrl)}`
+  }, [rawPlayerUrl, adBlockOn, sourceId])
 
   // Arabic provider streaming — when the user selects an Arabic scraper site
   // (EgyDead, EgyBest, etc.), we:
@@ -1138,10 +1147,6 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
                 allowFullScreen
                 referrerPolicy="no-referrer"
                 onLoad={() => setLoaded(true)}
-                // iFrame Ad Blocker: sandbox blocks popups/popunders (window.open).
-                // Only applied to providers that DON'T detect sandbox.
-                // Vidcore/vidlink/vidfast/videasy get no sandbox (they detect it).
-                sandbox={useSandbox ? "allow-same-origin allow-scripts" : undefined}
                 className="absolute inset-0 h-full w-full"
               />
           {/* Watched-progress bar (Netflix-style red strip at bottom of video) */}
