@@ -24,7 +24,7 @@ import {
 } from "@/lib/movies-data"
 import { useLibrary, type SavedTitle } from "@/lib/library-store"
 import { useLang } from "@/lib/lang-context"
-import { Play, Bookmark, History, Search as SearchIcon, Film, Tv, Download, Globe, ExternalLink } from "lucide-react"
+import { Play, Bookmark, History, Search as SearchIcon, Film, Tv, Download } from "lucide-react"
 
 type NavKey = "home" | "series" | "movies" | "mylist"
 
@@ -104,7 +104,7 @@ function HomeContent() {
       if (initialDetailId.startsWith("tmdb-")) {
         const tmdbId = initialDetailId.replace("tmdb-", "")
         // Fetch title details from TMDB directly
-        fetch(`https://api.themoviedb.org/3/tv/${tmdbId}?api_key=1c5d8fc6971ccb06fcc873d748bcba92&language=en-US`)
+        fetch(`/api/tmdb/lookup?tmdbId=${tmdbId}&type=tv`)
           .then((r) => r.ok ? r.json() : null)
           .then((data) => {
             if (data) {
@@ -145,7 +145,7 @@ function HomeContent() {
       if (initialPlayId.startsWith("tmdb-")) {
         const tmdbId = initialPlayId.replace("tmdb-", "")
         // Try TV first, then movie
-        fetch(`https://api.themoviedb.org/3/tv/${tmdbId}?api_key=1c5d8fc6971ccb06fcc873d748bcba92&language=en-US`)
+        fetch(`/api/tmdb/lookup?tmdbId=${tmdbId}&type=tv`)
           .then((r) => r.ok ? r.json() : null)
           .then((data) => {
             if (data) {
@@ -162,7 +162,7 @@ function HomeContent() {
               })
             } else {
               // Try movie
-              return fetch(`https://api.themoviedb.org/3/movie/${tmdbId}?api_key=1c5d8fc6971ccb06fcc873d748bcba92&language=en-US`)
+              return fetch(`/api/tmdb/lookup?tmdbId=${tmdbId}&type=movie`)
                 .then((r) => r.ok ? r.json() : null)
                 .then((movieData) => {
                   if (movieData) {

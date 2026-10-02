@@ -212,67 +212,6 @@ export function PlayerModal({ title, onClose }: Props) {
 // Video URLs are proxied through /api/stream-video to add the correct Referer
 // header (video CDNs like MixDrop require Referer from their domain).
 // This bypasses iframes entirely — no ads, no cross-origin issues.
-function NativeVideoPlayer({ src, type, poster, referer }: {
-  src: string
-  type: "mp4" | "hls" | null
-  poster?: string
-  referer?: string
-}) {
-  const videoRef = useRef<HTMLVideoElement>(null)
-
-  useEffect(() => {
-    const video = videoRef.current
-    if (!video) return
-
-    let hls: any = null
-
-    // Use the combined extract+stream endpoint — pass the EMBED URL and let the
-  // server extract the video URL and stream it in one request (avoids token expiration).
-  // The `src` is the embed URL (e.g. https://mixdrop.top/e/xxx), not the direct video URL.
-  const proxiedUrl = `/api/stream-video?embed=${encodeURIComponent(src)}&referer=${encodeURIComponent("https://tv10.egydead.live/")}`
-
-    if (type === "hls" || src.includes(".m3u8")) {
-      // HLS.js for m3u8 streams (not natively supported in Chrome)
-      if (video.canPlayType("application/vnd.apple.mpegurl")) {
-        // Safari supports HLS natively
-        video.src = proxiedUrl
-      } else {
-        // Use HLS.js for Chrome/Firefox
-        import("hls.js").then((Hls) => {
-          if (Hls.default.isSupported()) {
-            hls = new Hls.default()
-            hls.loadSource(proxiedUrl)
-            hls.attachMedia(video)
-            hls.on(Hls.default.Events.MANIFEST_PARSED, () => {
-              video.play().catch(() => {})
-            })
-          }
-        })
-      }
-    } else {
-      // Direct MP4 — play natively via the proxy
-      video.src = proxiedUrl
-      video.play().catch(() => {})
-    }
-
-    return () => {
-      if (hls) hls.destroy()
-    }
-  }, [src, type, referer])
-
-  return (
-    <video
-      ref={videoRef}
-      controls
-      autoPlay
-      muted
-      playsInline
-      poster={poster}
-      className="absolute inset-0 h-full w-full bg-black"
-      style={{ objectFit: "contain" }}
-    />
-  )
-}
 
 function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => void }) {
   // Detect mobile so we can default to a mobile-optimized provider (touch UI).

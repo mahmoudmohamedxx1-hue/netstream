@@ -3290,3 +3290,307 @@ Top 5 to fix first:
 5. AUDIT-6 + AUDIT-9 — Delete the ~130 lines of dead Arabic-stream code in player-modal.tsx and the 9 unused /api routes.
 
 No files were modified. This is a report-only audit per task instructions.
+
+---
+
+Task ID: AUDIT2
+Agent: explore (Z.ai Code)
+Task: Second deep audit — find ALL remaining bugs not fixed in the first audit (QuickStartCard, BackupSites, dead API routes, and custom-video-player.tsx were already removed).
+
+Work Log:
+- Read first-audit report (AUDIT-1 through AUDIT-28) and compared current state against each finding.
+- Verified which first-audit findings were RESOLVED vs NOT RESOLVED.
+- Ran `npx tsc --noEmit` and `bun run lint`.
+- Manually audited player-modal.tsx (1617 lines), vidsrc.ts (715 lines), movies-data.ts (321 lines), local-titles.ts (67 lines), library-store.ts, client-history.ts, use-imdb.ts, use-playback-progress.ts, use-client-watch-history.ts, page.tsx, tmdb.ts, imdb.ts (350 lines), video-extract.ts, all /api routes.
+- Live-tested HTTP reachability of every provider URL in vidsrc.ts (40+ URLs).
+- Did NOT modify any files — report-only audit per task instructions.
+
+═══════════════════════════════════════════════════════════════════════════════
+RESOLVED from first audit (verified)
+═══════════════════════════════════════════════════════════════════════════════
+- AUDIT-3 (QuickStartCard): removed.
+- AUDIT-8 (custom-video-player.tsx): removed (verified `src/components/netflix/custom-video-player.tsx` no longer exists).
+- AUDIT-9 (dead /api routes): `arabic-search`, `proxy`, `youtube-embed`, `server-health`, `provider-check`, `provider-latency`, `2embed-servers`, `imdb/discover`, `imdb/search` all removed. Note: `arabic-stream`, `extract-video`, `stream-video` routes are still present but their only callers are dead code (see AUDIT2-4 below).
+- AUDIT-12 (watchlist/history regex now allows tmdb- IDs): `IMDB_ID_RE = /^(tt\d{7,8}|tmdb-\d+)$/` — confirmed in both `src/app/api/watchlist/route.ts:5` and `src/app/api/history/route.ts:5`.
+- AUDIT-11 (AI chat GLM 3s timeout on Vercel): server-side fix applied at `src/app/api/chat/route.ts:287-297` (`isProduction` check skips GLM on Vercel). HOWEVER, the client UI still defaults to "glm" (see AUDIT2-15) and the GET /api/chat health endpoint still lies (see AUDIT2-14).
+- AUDIT-24 (TS errors from custom-video-player.tsx): gone. `npx tsc --noEmit` shows only 4 errors, all in examples/ and skills/ (not src/).
+
+═══════════════════════════════════════════════════════════════════════════════
+NOT RESOLVED from first audit (still present)
+═══════════════════════════════════════════════════════════════════════════════
+- AUDIT-1 (TMDB API key leaked to client): `src/app/page.tsx:107, 148, 165` still hardcode `api_key=1c5d8fc6971ccb06fcc873d748bcba92` in client-side `fetch()` calls. CRITICAL — still leaked.
+- AUDIT-2 (SSF in proxy routes — no host allowlist): still no allowlists. Confirmed via `rg -n "ALLOWLIST|allowlist|allowedHosts|isAllowed" src/app/api/` returns no matches. Vulnerable routes: /api/video-proxy, /api/download, /api/download-info, /api/extract-download, /api/extract-video (dead), /api/stream-video (dead).
+- AUDIT-6 (dead Arabic-stream code): TIER_3 still empty (`src/lib/vidsrc.ts:494` `const TIER_3: VideoSource[] = []`). All Arabic branch logic in player-modal.tsx (lines 564-709, 1032-1117) is still dead.
+- AUDIT-10 (misleading "11k-title dataset"): comments still present at `src/components/netflix/player-modal.tsx:403,448`, `src/hooks/use-imdb.ts:33`, `src/hooks/use-language.ts:76,180,350`, `src/components/netflix/browse-grid.tsx:126` ("11,000"), `src/app/api/titles/[imdbId]/route.ts:4`. CATALOG has 141 entries (with duplicates) NOT 11k.
+- AUDIT-13 (provider health/latency state never populated): still dead state at `player-modal.tsx:353 (latency), 389-391 (health)`. No-op effects at 397-399 and 855-857. UI at 1282-1296 reads `h`/`lat` — always null. `handleNextServer` at 826-842 always takes the no-health fallback branch.
+- AUDIT-14 (ad-blocker disabled on mobile): `player-modal.tsx:554-562` still has `if (isMobile) return rawPlayerUrl` bypass. Toggle has no effect on mobile. ALSO: on desktop, the default provider is `vidcore.net` (line 288), which is in `CLOUDFLARE_BLOCKED` (line 541) — so the ad-block toggle has no effect for the DEFAULT desktop provider either.
+- AUDIT-15 (Continue Watching wall-clock timer runs when paused): `use-playback-progress.ts:52-113` — no pause-on-video-pause detection (still uses Date.now() delta, only pauses on tab hide).
+- AUDIT-16 (URL deep-links ?play= and ?detail= fail silently for TMDB misses): `page.tsx:121-129, 187-205` — still no error toast / fallback on `data?.title` null. ALSO: popstate handler at `page.tsx:230-271` doesn't handle `tmdb-` prefixed IDs at all (it calls `/api/tmdb/${newDetailId}` which fails for `tmdb-12345` because `getTmdbTitle` passes the raw string to `/find/tmdb-12345?external_source=imdb_id` — see AUDIT2-9).
+- AUDIT-17 (dead Arabic auto-fallback effect): `player-modal.tsx:632-641` — still present, gated by `if (!isArabicProvider) return` which always fires.
+- AUDIT-18 (unmount-save effect uses stale closure): `player-modal.tsx:903-921` — still has `[]` deps while reading `displayTitle`, `displayPoster`, `title.*`, `sourceId`, `season`, `episode` from closure. Initial values captured.
+- AUDIT-21 (/api/chat fetches 4 TMDB endpoints on every message): `src/app/api/chat/route.ts:60-68` — still fires 4 parallel TMDB fetches per message via `getPlatformContext()` at line 272. Not fixed.
+- AUDIT-22 (player-modal fires 3 parallel API calls on every open): `player-modal.tsx:368-383 (/api/provider-stats), 451-471 (/api/titles + /api/tmdb in parallel)` — still 3 round-trips on every open. `/api/provider-stats` is useless per AUDIT-13; `/api/titles` only has 141 entries.
+- AUDIT-23 (/api/posters N parallel TMDB /find calls): `src/app/api/posters/route.ts:15-32` — unchanged. Still fires 20 parallel TMDB /find calls per batch.
+- AUDIT-25 (examples/ and skills/ have TS errors): still present, tsconfig not updated to exclude them. `npx tsc --noEmit` shows 4 errors all in examples/websocket, skills/image-edit, skills/stock-analysis-skill.
+- AUDIT-26 (dead refs in player-modal.tsx): all confirmed dead. `PREFERRED_PROVIDERS` (line 72), `TMDB_PROVIDERS` (line 75), `fallbackTimerRef` (line 848), `precheckDoneRef` (line 402), `autoPickAppliedRef` (line 393), `userInteractedRef` (line 361). NOT removed.
+- AUDIT-27 (stale comment in vidsrc.ts TIER_1 header): `src/lib/vidsrc.ts:5` still says "Tier 1: User-confirmed best (PC: vidsrc.to/2Embed/AnyEmbed; Mobile: MultiEmbed/SmashyStream)" — vidsrc.to is in TIER_2 (line 411), MultiEmbed is in TIER_1D (line 323). Stale.
+- AUDIT-28 (Indonesian region has only one dead provider): `src/lib/vidsrc.ts:8` still has `Indonesian` in the Region type. `nonton.id` is still in TIER_5 (lines 542-552), still DNS-dead.
+
+═══════════════════════════════════════════════════════════════════════════════
+NEW ISSUES FOUND IN AUDIT2 (not in first audit)
+═══════════════════════════════════════════════════════════════════════════════
+
+[AUDIT2-1] /api/imdb/[imdbId] route does NOT EXIST — useImdbTitle hook fetches a 404
+  - File: `src/hooks/use-imdb.ts:74` (`fetch(\`/api/imdb/${encodeURIComponent(imdbId)}\`)`)
+  - Verified: `ls src/app/api` shows NO `imdb/[imdbId]` directory. Only `tmdb/`, `titles/`, `arabic-stream/`, `chat/`, etc.
+  - Flow: hook tries `/api/titles/[imdbId]` (line 55, returns null for non-catalog IDs) → catches → tries `/api/imdb/[imdbId]` (line 74) → returns 404 → catches → sets `configured: false` (line 101).
+  - Effect: In the IMDb Play dialog (`src/components/netflix/imdb-play-dialog.tsx:177-179`), any IMDB ID NOT in the ~141-title CATALOG shows "no IMDb API key set" instead of fetching real metadata from TMDB. The TMDB fallback is right there (used by player-modal.tsx) but the hook never tries it.
+  - Severity: HIGH. Users pasting an arbitrary IMDB ID into the dialog see a stripped-down "IMDB ttXXXXXXX" placeholder instead of the real title/poster. They can still play, but the UX is broken.
+  - Recommended fix: Either delete the `/api/imdb/${imdbId}` fetch and fall back to `/api/tmdb/${imdbId}` (which works for any title TMDB knows), OR create the missing route. The simplest fix is to point the hook at `/api/tmdb/[imdbId]` since the TMDB API is already used elsewhere for the same purpose.
+
+[AUDIT2-2] src/lib/imdb.ts (350 lines) is COMPLETELY DEAD CODE + 7.4 MB of dead AWS SDK
+  - File: `src/lib/imdb.ts` (entire file)
+  - Verified: `rg -n "fetchImdbTitle|searchImdbTitles|discoverTopTitles|imdbConfigured" src/` — NONE of the exports are imported anywhere in src/ (the `imdbConfigured` reference in `search-overlay.tsx:87,731,778` is a LOCAL useState variable, not the import).
+  - The file imports `@aws-sdk/client-dataexchange` — installed in node_modules, 7.4 MB.
+  - Severity: HIGH (dead code + heavy dependency). `@aws-sdk/client-dataexchange` bloats `node_modules` and any serverless bundle for no benefit.
+  - Recommended fix: Delete `src/lib/imdb.ts`. Remove `@aws-sdk/client-dataexchange` from `package.json` (only consumer is the dead file).
+
+[AUDIT2-3] Continue Watching row does NOT refresh when player closes
+  - Files: `src/components/netflix/tmdb-home.tsx:154` (`useClientWatchHistory()`), `src/hooks/use-client-watch-history.ts:38-42` (refresh only on mount).
+  - Flow: User plays title from home → player-modal writes to IndexedDB via `upsertWatchItem` (lines 432, 717, 882, 907) → user closes player → home page's `useClientWatchHistory` hook was mounted once at home mount and never re-runs.
+  - Note: `<main>` is hidden via `display: none` when player is open (`page.tsx:448`), so TmdbHome stays mounted — but the hook only fetches once.
+  - Effect: After watching a title, the user has to either refresh the page or navigate to another tab and back to see the new entry in Continue Watching.
+  - Severity: HIGH. Continue Watching is the most prominent feature on the home page; the staleness makes it feel broken.
+  - Recommended fix: Expose a `refresh` trigger from `useClientWatchHistory` (already exposed at line 84) and call it from `closePlayer` in `page.tsx`. Or, even simpler: subscribe to the IndexedDB `onversionchange`/storage events.
+
+[AUDIT2-4] 3 entire API routes are completely dead (only called from dead Arabic code)
+  - Files:
+    • `src/app/api/arabic-stream/route.ts` (236 lines) — only called from `player-modal.tsx:602`, which is inside the `useEffect` gated by `if (!isArabicProvider) return` (line 594). `isArabicProvider` is always false (TIER_3 empty, see AUDIT-6). DEAD.
+    • `src/app/api/extract-video/route.ts` — only called from `player-modal.tsx:674`, same dead Arabic branch. DEAD.
+    • `src/app/api/stream-video/route.ts` — only called from `player-modal.tsx:232`, which is inside the `NativeVideoPlayer` component (lines 215-275) that is NEVER rendered (no `<NativeVideoPlayer ... />` in any JSX). DEAD.
+  - Severity: HIGH. ~400 lines of dead API code, each with its own SSRF surface (per AUDIT-2).
+  - Recommended fix: Delete all 3 routes AND the dead Arabic code in player-modal.tsx (per AUDIT-6) AND the `NativeVideoPlayer` component (per AUDIT2-5).
+
+[AUDIT2-5] NativeVideoPlayer component (61 lines) is dead code
+  - File: `src/components/netflix/player-modal.tsx:215-275`
+  - Verified: `rg -n "<NativeVideoPlayer" src/` returns no matches. The component is declared but never rendered.
+  - It uses `hls.js` via dynamic `import("hls.js")` (line 241) — hls.js is in package.json (^1.7.0) but is ONLY used here. The whole dependency is dead.
+  - Severity: MEDIUM (dead code + dead dependency). hls.js is ~150 KB minified+gzipped.
+  - Recommended fix: Delete `NativeVideoPlayer`. Remove `hls.js` from `package.json` (only consumer is the dead component).
+
+[AUDIT2-6] Player-modal.tsx still has 4 dead imports
+  - File: `src/components/netflix/player-modal.tsx`
+  - Imports on lines 33-38:
+    • `PRIMARY_SOURCES` (line 33) — imported, never used in body
+    • `ADVANCED_SOURCES` (line 34) — imported, never used in body (and source data is empty per AUDIT-6 anyway)
+    • `MOBILE_FALLBACK_CHAIN` (line 38) — imported, never used in body
+  - Import on line 7: `Play` icon — only used in comments (line 569), never as JSX.
+  - Severity: LOW. Just dead imports.
+  - Recommended fix: Delete them.
+
+[AUDIT2-7] /api/extract-download/route.ts has 3 dead functions + 2 dead imports
+  - File: `src/app/api/extract-download/route.ts`
+  - Dead imports:
+    • `unpack` (line 2) — `rg -n "unpack\(" src/app/api/extract-download/route.ts` returns no matches.
+    • `extractPackedJs` (line 9) — imported, never used in this file.
+  - Dead functions:
+    • `extractFromAllArabicSites` (lines 176-273) — only called from the dead `if (isArabic)` branch at line 71 (isArabic always false per AUDIT-6).
+    • `estimateVariantSize` (lines 338-425) — `rg -n "estimateVariantSize" src/` shows only the declaration, never called.
+    • `getFileSizeViaEmbed` (lines 429-436) — `rg -n "getFileSizeViaEmbed" src/` shows only the declaration, never called.
+  - Dead constant: `ARABIC_SITES` (line 168) — only used by dead `extractFromAllArabicSites`.
+  - Dead import from AUDIT-6 fallout: `searchArabicSite` (line 6), `extractDirectFromEmbed` (line 7) — only used by dead `extractFromAllArabicSites`.
+  - Severity: MEDIUM. ~150 lines of dead code.
+  - Recommended fix: Delete all of the above. Keep `get2EmbedServers` (used at line 129), `getDownloadInfo` (used at line 431 inside dead `getFileSizeViaEmbed` — but ALSO used by `/api/download-info/route.ts:23`, so keep the import in lib/video-extract.ts).
+
+[AUDIT2-8] 5 providers in TIER_1 and TIER_2 are DNS-dead — should be moved to TIER_5 or removed
+  - File: `src/lib/vidsrc.ts`
+  - Live HTTP reachability tests (`curl -m 10 -A "Mozilla/5.0" -L <url>`) for the IMDB id tt0111161 (Shawshank Redemption):
+    • Tier 1 dead: `vidsrc.in` (line 78, DNS failure), `vidsrc.hair` (line 114, DNS failure), `cineby.hair` (line 126, 404), `111movies` (line 256, DNS failure).
+    • Tier 2 dead: `2embed.to` (line 275, DNS failure), `blackvid` (line 287, DNS failure), `embedsu` (line 299, DNS failure), `autoembed` (line 335, DNS failure), `2embed.org` (line 359, DNS failure).
+    • Tier 5 dead (already flagged): `gomo` (line 530, DNS failure), `nonton` (line 542, DNS failure), `sudostream` (line 554, DNS failure), `twojar` (line 518, 521 Cloudflare error).
+  - Tier 1 OK: 2embed.cc, anyembed, vidsrc.me (301), smashystream (301), vidcore.net (301), vidlink.pro, videasy.net (301), vidfast.pro (301), superembed (302), vidjoy.pro, multiembed.mov (403, Cloudflare).
+  - Tier 2 OK: vidsrc.dev (200, via "vidsrc.xyz" id), vidsrc.io (200, via "vidsrc.stream" id), moviesapi.to, 2embed.stream, 2embed.skin, vidsrc.pro (301).
+  - Cloudflare-blocked (403, OK in browser): vixsrc.to, vidsrc.cc.v2, vidsrc.to, vidsrc.cc, vidsrc.net.
+  - Severity: HIGH. 9 providers listed as tier 1 or 2 (alive) are DNS-dead. Users selecting them get a "loading" spinner forever (or a 404 iframe). They appear unverified in the dropdown with no "dead" badge.
+  - Recommended fix: Move all 9 DNS-dead providers from TIER_1/TIER_2 to TIER_5 (or delete them). Update the TIER comments.
+
+[AUDIT2-9] getTmdbTitle does NOT handle "tmdb-" prefixed IDs
+  - File: `src/lib/tmdb.ts:47-53`
+  - Flow: `getTmdbTitle("tmdb-12345")` → `cleaned = "tmdb-12345"` → fetches `/find/tmdb-12345?external_source=imdb_id` (line 53) → TMDB returns 0 results (the /find endpoint expects a real IMDB ID like `tt1234567`) → returns null.
+  - Effect: `/api/tmdb/[imdbId]` returns 404 for any `tmdb-` ID. This breaks the popstate handler at `page.tsx:230-271` (which calls `/api/tmdb/${newDetailId}` for back/forward navigation with tmdb- IDs — silently fails, player/detail never reopens).
+  - Note: The initial-mount handler at `page.tsx:101-212` correctly handles tmdb- IDs by directly fetching from TMDB (lines 107, 148, 165). But this duplicates the API key into the client (AUDIT-1) and only works for the initial mount — popstate is broken.
+  - Severity: HIGH. Browser back/forward navigation breaks silently for TMDB-only titles (e.g. user clicks Play on a trending TMDB-only series, navigates to Movies tab, then clicks back — the player doesn't reopen).
+  - Recommended fix: In `getTmdbTitle`, detect `tmdb-` prefix and branch: skip the /find call, use the numeric TMDB ID directly with `/movie/{id}` or `/tv/{id}` (try both). Update the popstate handler to also use this path.
+
+[AUDIT2-10] buildPlayerUrl silently builds broken URLs for tmdb- IDs on non-TMDB providers
+  - File: `src/lib/vidsrc.ts:694` (`const imdbId = opts.imdbId?.startsWith("tmdb-") ? "" : opts.imdbId`)
+  - Flow: For a `tmdb-` ID on a non-`useTmdbId` provider (e.g. user manually picks "2embed.cc"), `buildMovie("")` returns `https://www.2embed.cc/embed/` — a 404 page. The iframe loads the 404 page.
+  - The dropdown doesn't disable or grey-out non-TMDB providers for tmdb-only titles.
+  - Severity: MEDIUM. If the user manually picks an incompatible provider, they get a broken player with no error message.
+  - Recommended fix: Either disable non-`useTmdbId` providers in the dropdown when `isTmdbOnly === true`, or have `buildPlayerUrl` throw / return null and have the player show a "this server doesn't support TMDB-only titles" message.
+
+[AUDIT2-11] useClientWatchHistory exposes 4 functions that are NEVER called
+  - File: `src/hooks/use-client-watch-history.ts:84` — returns `{ items, loaded, error, refresh, saveProgress, removeItem, clearAll }`.
+  - Verified: `rg -n "saveProgress|removeItem|clearAll" src/` shows these are only declared in this file. `refresh` is also exposed but never called externally — only used internally on mount.
+  - The actual writes to IndexedDB happen via direct `upsertWatchItem`/`deleteWatchItem` imports in `player-modal.tsx` (lines 432, 717, 882, 907) — bypassing the hook.
+  - Effect: The hook's optimistic-update logic in `saveProgress` (lines 44-72) is dead. The UI never benefits from it.
+  - Severity: MEDIUM (dead code + the bug from AUDIT2-3 — if these were actually called, Continue Watching would refresh).
+  - Recommended fix: Either delete the unused functions, OR refactor player-modal to call `saveProgress` from a shared hook instance (so the UI refreshes automatically).
+
+[AUDIT2-12] library-store.ts has 4 dead methods + dead state field
+  - File: `src/lib/library-store.ts:28` (`history: SavedTitle[]`), `84-87` (`recordPlay`, `updateProgress`, `removeHistory`, `clearHistory` — all empty no-ops).
+  - Comment at lines 81-83 says "kept only to not break imports".
+  - `title-detail.tsx:49,78` still imports and reads `history` (always `[]`), so `watchProgress` is always `undefined`. The watch-progress UI at `title-detail.tsx:231-236` NEVER renders.
+  - Severity: HIGH (functional bug, not just dead code). The Title Detail page is supposed to show a red "X% watched" bar — it never does.
+  - Recommended fix: Delete the 4 no-op methods. In `title-detail.tsx`, replace `useLibrary().history` with `useClientWatchHistory().items` (and add a refresh trigger per AUDIT2-3).
+
+[AUDIT2-13] Subtitle "Upload .srt" tab is fake — never displays the uploaded subtitle
+  - File: `src/components/netflix/subtitle-helper.tsx:94-102` (handleUpload), `208-218` (success message).
+  - Flow: User uploads a .srt file → `setUploadedSub({name, content})` (line 99) → success message shown ("✓ {name} loaded. The subtitle overlay will appear on the video when playing.") → user closes dialog → `uploadedSub` state is lost (dialog unmounts) → no subtitle overlay is ever rendered on the iframe.
+  - Root cause: The video is a cross-origin iframe (vidsrc/2embed). There's no way to inject a subtitle overlay onto a cross-origin iframe without the provider's cooperation. The success message lies about this.
+  - Severity: HIGH (deceptive UI). Users waste time uploading subtitles that never appear.
+  - Recommended fix: Either (a) delete the Upload tab entirely (only keep Search Online), or (b) actually overlay the subtitle on top of the iframe using a separate `<video>`/`<track>` element positioned absolutely (won't work for cross-origin iframe — the subtitles would be on top of a black box), or (c) change the success message to "Subtitle file ready — open the player in a new tab and load it via your browser's subtitle feature" (which still won't work because the iframe is third-party).
+  - Most honest fix: remove the Upload tab.
+
+[AUDIT2-14] GET /api/chat health endpoint lies about model availability
+  - File: `src/app/api/chat/route.ts:247-258`
+  - The GET handler hardcodes `available: true` for all 3 models (pollinations, llm7, glm). On Vercel production, GLM is NOT available (server-side it's skipped per line 287-297). On any environment, LLM7 may or may not be up (no health check).
+  - Severity: MEDIUM. Any client that relies on this health check (none currently do, but it's exposed publicly) will be misled.
+  - Recommended fix: Either remove the GET handler (no one uses it), or actually probe each provider.
+
+[AUDIT2-15] AI chat client UI defaults to "glm" — but on Vercel, GLM silently falls back to Pollinations
+  - File: `src/components/netflix/ai-chat.tsx:52` (`const [model, setModel] = React.useState<string>("glm")`).
+  - The server detects production and skips GLM (`src/app/api/chat/route.ts:287-297`), responding with `model: "pollinations"`. But the client's model selector still shows "GLM 5.3 Flash" as the active selection. The response model badge does say "pollinations", but the selector stays on "glm".
+  - Effect: User sees "GLM 5.3 Flash" selected, asks a question, gets a response labeled "GPT-OSS 20B (Pollinations)". Confusing.
+  - Severity: MEDIUM. UX inconsistency.
+  - Recommended fix: Default client to `process.env.NEXT_PUBLIC_VERCEL === "1" ? "pollinations" : "glm"`, OR detect the model from the first response and update the selector to match.
+
+[AUDIT2-16] use-pip.ts has a stored XSS via the `label` parameter
+  - File: `src/hooks/use-pip.ts:86, 94` — `doc.head.innerHTML = \`<title>${label} — NetStream PiP</title>...\`` and `doc.body.innerHTML = \`...<span>NetStream · ${label}</span>...\``.
+  - `label` comes from `pip.open(playerUrl, title.title)` in `player-modal.tsx:924`. `title.title` is user-controlled via /api/watchlist POST (the only validation is length ≤ 300 chars in `src/app/api/watchlist/route.ts:15-17`).
+  - Attack: A malicious site can CSRF-POST to `/api/watchlist` with `title = "<img src=x onerror=alert(1)>"`. When the user opens that title and clicks PiP, the HTML is injected into the PiP window's document, executing the script in the PiP window's origin (which is the same as the main page's origin — `about:blank` for Document PiP, or the main page's origin for popup fallback).
+  - Severity: HIGH (stored XSS via CSRF, no SameSite cookie protection on the watchlist POST).
+  - Recommended fix: HTML-escape `label` before interpolating, OR use `doc.title = label` + `textContent` instead of innerHTML. Also add CSRF protection (SameSite=Strict cookies or a CSRF token) to the watchlist POST.
+
+[AUDIT2-17] Title-detail page is missing `<main>` top padding — content hidden under navbar
+  - File: `src/components/netflix/title-detail.tsx` (the entire component renders into a `motion.div` that overlays the page; the main page's `<main>` has `display: none` when `detail` is set, per `page.tsx:448`).
+  - The title detail's first content section starts at the top of the viewport, but the navbar is `fixed top-0 h-16` (`navbar.tsx:48-56`), so the navbar covers the top 64px of the title detail page.
+  - Looking at title-detail.tsx, the hero section uses `min-h-[60vh]` or similar, but there's no `pt-16` on the container. The close button is positioned at `top-3 right-3` (over the hero), which is fine — but the trailer/backdrop may be partially under the navbar.
+  - Severity: LOW-MEDIUM. Visual overlap with navbar; trailer iframe may have its top 64px obscured.
+  - Recommended fix: Add `pt-16` to the title-detail container, OR set the hero's `paddingTop` to clear the navbar.
+
+[AUDIT2-18] `src/lib/video-extract.ts` line 59: `signal: undefined` — fetch can hang forever
+  - File: `src/lib/video-extract.ts:56-60` — the `get2EmbedServers` fetch has `signal: undefined`, meaning no timeout. If 2embed.cc is slow to respond (or hangs), the entire `/api/extract-download` request hangs indefinitely until Vercel's function timeout (default 10s on hobby, 60s on pro).
+  - Other fetches in the same file use `AbortSignal.timeout(10000)` (e.g. line 478, 537), but this one was missed.
+  - Severity: MEDIUM. Download dialog can hang.
+  - Recommended fix: Add `signal: AbortSignal.timeout(10000)` to the fetch.
+
+[AUDIT2-19] /api/check-servers has no input validation on imdbId
+  - File: `src/app/api/check-servers/route.ts:10-13` — accepts any string as imdbId, passes to `buildPlayerUrl` which templates it into provider URLs.
+  - Not a critical SSRF (URLs go to known video provider hosts), but a malformed imdbId (e.g. `?foo=bar` or `../`) could alter the provider URL in unintended ways.
+  - Severity: LOW. Hardened provider hosts absorb the abuse.
+  - Recommended fix: Validate imdbId with the same regex as watchlist/history.
+
+[AUDIT2-20] /api/provider-stats POST has no imdbId validation
+  - File: `src/app/api/provider-stats/route.ts:38-46` — accepts any string for imdbId (no regex). The watchlist/history routes validate `/^(tt\d{7,8}|tmdb-\d+)$/` but provider-stats doesn't.
+  - Severity: LOW. Just inconsistent.
+  - Recommended fix: Add the same regex validation.
+
+[AUDIT2-21] Stale comment in `src/lib/video-extract.ts:5-7`
+  - File: `src/lib/video-extract.ts:5-7` — comment says "imported by: /api/2embed-servers/route.ts, /api/extract-download/route.ts". But `/api/2embed-servers/` was deleted in the first audit (AUDIT-9). Only `/api/extract-download` and `/api/download-info` import this module now.
+  - Severity: LOW.
+  - Recommended fix: Update the comment.
+
+[AUDIT2-22] 12 ESLint warnings — all "Unused eslint-disable directive"
+  - Output of `bun run lint`:
+    ```
+    src/app/page.tsx:211:5   Unused eslint-disable directive (react-hooks/exhaustive-deps)
+    src/components/netflix/player-modal.tsx:579:5   Unused eslint-disable directive (react-hooks/exhaustive-deps)
+    src/components/netflix/player-modal.tsx:754,756,768,770,806,808,940,942  Unused eslint-disable directive (react-hooks/immutability)
+    src/components/netflix/player-modal.tsx:872,921  Unused eslint-disable directive (react-hooks/exhaustive-deps)
+    ```
+  - The `react-hooks/immutability` rule doesn't exist (it's not a real ESLint rule) — these disable directives are no-ops. The `react-hooks/exhaustive-deps` directives on `[]` deps are unnecessary because the deps array is already exhaustive (empty).
+  - Severity: LOW. Just noise.
+  - Recommended fix: Remove all 12 `eslint-disable` comments. They're not suppressing any actual warnings.
+
+[AUDIT2-23] /api route.ts is the default Next.js "Hello, world!" placeholder
+  - File: `src/app/api/route.ts` — returns `{ message: "Hello, world!" }`.
+  - Useless but harmless. Doesn't leak anything.
+  - Severity: LOW.
+  - Recommended fix: Delete the file.
+
+═══════════════════════════════════════════════════════════════════════════════
+MOBILE-SPECIFIC CHECKS
+═══════════════════════════════════════════════════════════════════════════════
+- Player modal on mobile: `player-modal.tsx:992` — `my-0 w-full max-w-5xl ... sm:my-6 sm:rounded-xl` → full-width on mobile, OK.
+- Controls strip: `player-modal.tsx:1169` — `flex flex-wrap items-center gap-2 ... sm:px-6` → wraps on mobile, OK.
+- AI sidebar: `ai-chat.tsx:291` — `w-full ... sm:w-[33.333vw] sm:min-w-[380px] sm:max-w-[480px]` → full-width on mobile, OK.
+- Ad-block toggle on mobile: broken (AUDIT-14 above) — toggle does nothing.
+- Subtitles on mobile: works for "Search Online" (just opens new tab). "Upload" tab is fake (AUDIT2-13).
+- Download on mobile: should work (calls /api/download which proxies via fetch — no iframe required). NOT TESTED.
+- PiP on mobile: Document PiP is Chrome 116+ only; popup fallback works on all browsers.
+
+═══════════════════════════════════════════════════════════════════════════════
+SUMMARY BY SEVERITY (AUDIT2)
+═══════════════════════════════════════════════════════════════════════════════
+
+CRITICAL: 2
+  • AUDIT-1 (unfixed from first audit): TMDB API key leaked to client at `src/app/page.tsx:107, 148, 165`.
+  • AUDIT-2 (unfixed from first audit): No host allowlists on /api/video-proxy, /api/download, /api/download-info, /api/extract-download.
+
+HIGH: 14
+  • AUDIT2-1: /api/imdb/[imdbId] route doesn't exist → useImdbTitle hook always 404s for non-catalog IDs.
+  • AUDIT2-2: src/lib/imdb.ts (350 lines) is dead + 7.4 MB AWS SDK wasted.
+  • AUDIT2-3: Continue Watching row doesn't refresh when player closes.
+  • AUDIT2-4: 3 entire API routes (arabic-stream, extract-video, stream-video) are completely dead.
+  • AUDIT2-8: 9 providers in TIER_1/TIER_2 are DNS-dead (cineby.hair 404, vidsrc.in/vidsrc.hair/111movies/2embed.to/blackvid/embedsu/autoembed/2embed.org DNS-fail).
+  • AUDIT2-9: getTmdbTitle doesn't handle tmdb- IDs → breaks browser back/forward for TMDB-only titles.
+  • AUDIT2-12: title-detail.tsx watch-progress UI never renders (uses dead `history` field).
+  • AUDIT2-13: Subtitle "Upload .srt" tab is fake — never displays the subtitle.
+  • AUDIT2-16: Stored XSS via PiP `label` parameter + no CSRF protection on watchlist POST.
+  • AUDIT-6 (unfixed): Dead Arabic-stream code (~150 lines in player-modal.tsx).
+  • AUDIT-10 (unfixed): Misleading "11k-title dataset" comments in 7 files.
+  • AUDIT-14 (unfixed): Ad-blocker disabled on mobile (and on default desktop provider vidcore.net).
+  • AUDIT-15 (unfixed): Continue Watching timer runs while video is paused.
+  • AUDIT-16 (unfixed): URL deep-links fail silently for TMDB misses.
+
+MEDIUM: 11
+  • AUDIT2-5: NativeVideoPlayer component is dead + hls.js dependency wasted.
+  • AUDIT2-7: /api/extract-download has 3 dead functions + 2 dead imports + 2 dead constants.
+  • AUDIT2-10: buildPlayerUrl silently builds broken URLs for tmdb- IDs on non-TMDB providers.
+  • AUDIT2-11: useClientWatchHistory exposes 4 functions that are never called.
+  • AUDIT2-14: GET /api/chat health endpoint lies about model availability.
+  • AUDIT2-15: AI chat client defaults to "glm" but server silently uses Pollinations on Vercel.
+  • AUDIT2-17: Title-detail page has no top padding — content hidden under navbar.
+  • AUDIT2-18: get2EmbedServers fetch has no timeout — can hang forever.
+  • AUDIT-13 (unfixed): Provider health/latency state never populated; UI shows nulls.
+  • AUDIT-17 (unfixed): Dead Arabic auto-fallback effect.
+  • AUDIT-21 (unfixed): /api/chat fetches 4 TMDB endpoints on every message.
+  • AUDIT-22 (unfixed): Player-modal fires 3 parallel API calls on every open.
+
+LOW: 9
+  • AUDIT2-6: 4 dead imports in player-modal.tsx (PRIMARY_SOURCES, ADVANCED_SOURCES, MOBILE_FALLBACK_CHAIN, Play icon).
+  • AUDIT2-19: /api/check-servers has no imdbId validation.
+  • AUDIT2-20: /api/provider-stats POST has no imdbId validation.
+  • AUDIT2-21: Stale comment in video-extract.ts referencing deleted /api/2embed-servers.
+  • AUDIT2-22: 12 unused eslint-disable directives.
+  • AUDIT2-23: Default "Hello, world!" /api/route.ts placeholder.
+  • AUDIT-18 (unfixed): Unmount-save effect uses stale closure values.
+  • AUDIT-23 (unfixed): /api/posters N parallel TMDB /find calls.
+  • AUDIT-25 (unfixed): examples/ and skills/ pollute tsc output.
+  • AUDIT-26 (unfixed): 6 dead refs/constants in player-modal.tsx.
+  • AUDIT-27 (unfixed): Stale comment in vidsrc.ts TIER_1 header.
+  • AUDIT-28 (unfixed): Indonesian region has one dead provider.
+
+═══════════════════════════════════════════════════════════════════════════════
+TOP 7 TO FIX FIRST (AUDIT2)
+═══════════════════════════════════════════════════════════════════════════════
+1. AUDIT-1 — Rotate the leaked TMDB key, route client fetches through a server proxy. The key is exposed in client-side JS bundles at `src/app/page.tsx:107, 148, 165`.
+2. AUDIT-2 + AUDIT2-4 — Add host allowlists to /api/video-proxy, /api/download, /api/download-info, /api/extract-download. Delete the 3 fully-dead routes (/api/arabic-stream, /api/extract-video, /api/stream-video) which closes part of the SSRF surface.
+3. AUDIT2-1 + AUDIT2-2 — Point `useImdbTitle` at `/api/tmdb/[imdbId]` (which works) instead of the nonexistent `/api/imdb/[imdbId]`. Delete `src/lib/imdb.ts` and remove `@aws-sdk/client-dataexchange` from package.json.
+4. AUDIT2-9 — Fix `getTmdbTitle` to handle `tmdb-` prefixed IDs. This also fixes the popstate handler at `page.tsx:230-271`.
+5. AUDIT2-3 + AUDIT2-12 — Use `useClientWatchHistory` in title-detail.tsx (replaces dead `history` field) AND trigger refresh when player closes. Restores the watch-progress bar AND makes Continue Watching update live.
+6. AUDIT2-8 — Move 9 DNS-dead providers from TIER_1/TIER_2 to TIER_5 (or delete). Currently they show as "alive" in the dropdown with no warning.
+7. AUDIT2-16 — HTML-escape the PiP `label` parameter + add CSRF protection to /api/watchlist POST. Stored XSS via the title field.
+
+No files were modified. This is a report-only audit per task instructions.

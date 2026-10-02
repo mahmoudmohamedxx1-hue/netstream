@@ -75,8 +75,6 @@ const TIER_1: VideoSource[] = [
       `https://vidsrc.me/embed/tv?imdb=${id}&season=${s}&episode=${e}`,
   },
   {
-    id: "vidsrc.in",
-    name: "VidSrc.in",
     quality: "HD",
     tier: 1,
     logo: "VI",
@@ -111,8 +109,6 @@ const TIER_1: VideoSource[] = [
 // 2Embed embed, giving users more streaming + download options.
 const TIER_1B: VideoSource[] = [
   {
-    id: "vidsrc.hair",
-    name: "VidSrc.Hair",
     quality: "1080p",
     tier: 1,
     logo: "VH",
@@ -123,8 +119,6 @@ const TIER_1B: VideoSource[] = [
     buildSeries: (id, s, e) => `https://vidsrc.hair/embed/tv/${id}/${s}/${e}`,
   },
   {
-    id: "cineby.hair",
-    name: "Cineby",
     quality: "1080p",
     tier: 5,
     logo: "CB",
@@ -253,8 +247,6 @@ const TIER_1C: VideoSource[] = [
       `https://rivestream.xyz/embed/tv/${id}/${s}/${e}`,
   },
   {
-    id: "111movies",
-    name: "111movies",
     quality: "HD",
     tier: 1,
     logo: "1M",
@@ -272,8 +264,6 @@ const TIER_1C: VideoSource[] = [
 // source variety and redundancy.
 const TIER_1D: VideoSource[] = [
   {
-    id: "2embed.to",
-    name: "2Embed.to",
     quality: "1080p",
     tier: 5,
     logo: "2T",
@@ -284,8 +274,6 @@ const TIER_1D: VideoSource[] = [
     buildSeries: (id, s, e) => `https://www.2embed.to/embed/tmdb/tv/${id}/${s}/${e}`,
   },
   {
-    id: "blackvid",
-    name: "BlackVid",
     quality: "1080p",
     tier: 5,
     logo: "BV",
@@ -296,8 +284,6 @@ const TIER_1D: VideoSource[] = [
     buildSeries: (id, s, e) => `https://blackvid.space/embedtv/${id}&s=${s}&e=${e}`,
   },
   {
-    id: "embedsu",
-    name: "Embed.su",
     quality: "Multi",
     tier: 5,
     logo: "ES",
@@ -332,8 +318,6 @@ const TIER_1D: VideoSource[] = [
     buildSeries: (id, s, e) => `https://multiembed.mov/?video_id=${id}&s=${s}&e=${e}`,
   },
   {
-    id: "autoembed",
-    name: "AutoEmbed",
     quality: "1080p",
     tier: 5,
     logo: "AU",
@@ -356,8 +340,6 @@ const TIER_1D: VideoSource[] = [
     buildSeries: (id, s, e) => `https://vidsrc.io/embed/tv/${id}/${s}/${e}`,
   },
   {
-    id: "2embed.org",
-    name: "2Embed.org",
     quality: "1080p",
     tier: 5,
     logo: "2O",
@@ -574,7 +556,6 @@ const ALL_SOURCES = [
   ...TIER_1,
   ...TIER_1B,
   ...TIER_1C,
-  ...TIER_1D,
   ...TIER_2,
   ...TIER_3,
   ...TIER_5,

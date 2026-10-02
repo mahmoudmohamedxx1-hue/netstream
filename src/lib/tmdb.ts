@@ -48,8 +48,71 @@ export async function getTmdbTitle(imdbId: string, lang?: string): Promise<TmdbT
   const cleaned = imdbId.trim().toLowerCase()
   if (!cleaned) return null
 
-  // 1) Find by IMDB ID (the /find endpoint doesn't support language, but the
-  //    subsequent /details call does, so we fetch details in the desired lang)
+  // Handle tmdb- prefix (titles without IMDB ID)
+  if (cleaned.startsWith("tmdb-")) {
+    const tmdbIdNum = cleaned.replace("tmdb-", "")
+    // Try TV first, then movie
+    for (const type of ["tv", "movie"] as const) {
+      const data = await tmdbFetch(`/${type}/${tmdbIdNum}`)
+      if (data) {
+        const isMovie = type === "movie"
+        const titleType: "movie" | "series" = isMovie ? "movie" : "series"
+        const append = isMovie
+          ? "credits,similar,external_ids,images,release_dates"
+          : "credits,similar,external_ids,images,content_ratings"
+        const details = await tmdbFetch(`/${type}/${tmdbIdNum}?append_to_response=${append}&include_image_language=en,null`, lang)
+        if (!details) return null
+        // Build the result from details (same as below)
+        const result: TmdbTitle = {
+          tmdbId: Number(tmdbIdNum),
+          imdbId: details.external_ids?.imdb_id ?? cleaned,
+          title: details.title ?? details.name ?? "",
+          type: titleType,
+          year: (details.release_date ?? details.first_air_date ?? "").slice(0, 4),
+          overview: details.overview ?? "",
+          rating: details.vote_average ? String(details.vote_average) : null,
+          poster: details.poster_path ? `https://image.tmdb.org/t/p/w500${details.poster_path}` : null,
+          backdrop: details.backdrop_path ? `https://image.tmdb.org/t/p/original${details.backdrop_path}` : null,
+          logo: details.images?.logos?.[0]?.file_path
+            ? `https://image.tmdb.org/t/p/w500${details.images.logos[0].file_path}`
+            : null,
+          runtime: details.runtime ?? details.episode_run_time?.[0] ?? null,
+          genres: (details.genres ?? []).map((g: any) => g.name),
+          cast: (details.credits?.cast ?? []).slice(0, 15).map((c: any) => ({
+            id: c.id, name: c.name, character: c.character,
+            profile: c.profile_path ? `https://image.tmdb.org/t/p/w185${c.profile_path}` : null,
+            order: c.order ?? 0,
+          })),
+          trailerKey: null,
+          trailerSite: null,
+          maturityRating: null,
+          similar: (details.similar?.results ?? []).slice(0, 12).map((s: any) => ({
+            imdbId: null,
+            title: s.title ?? s.name ?? "",
+            poster: s.poster_path ? `https://image.tmdb.org/t/p/w500${s.poster_path}` : null,
+            year: (s.release_date ?? s.first_air_date ?? "").slice(0, 4),
+            type: titleType,
+          })),
+          tmdbSeasons: isMovie ? null : (details.seasons ?? []).map((s: any) => ({
+            season: s.season_number, episodes: s.episode_count,
+          })),
+        }
+        // Fetch trailer
+        const videos = await tmdbFetch(`/${type}/${tmdbIdNum}/videos`)
+        if (videos?.results?.length) {
+          const trailer = videos.results.find((v: any) => v.type === "Trailer" && v.site === "YouTube")
+          if (trailer) {
+            result.trailerKey = trailer.key
+            result.trailerSite = trailer.site
+          }
+        }
+        return result
+      }
+    }
+    return null
+  }
+
+  // 1) Find by IMDB ID
   const findData = await tmdbFetch(`/find/${cleaned}?external_source=imdb_id`)
   if (!findData) return null
 
