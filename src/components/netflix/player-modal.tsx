@@ -1143,22 +1143,22 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
                 allowFullScreen
                 referrerPolicy="no-referrer"
                 onLoad={() => setLoaded(true)}
+                // Sandbox blocks popunders (window.open) — the main source of
+                // popup ads. Allows scripts, same-origin, presentation, forms
+                // so the video player can load and play.
+                // When adblock is OFF, allows popups (no sandbox restrictions).
+                sandbox={adBlockOn
+                  ? "allow-scripts allow-same-origin allow-presentation allow-forms"
+                  : undefined}
                 className="absolute inset-0 h-full w-full"
               />
-              {/* Click-capture overlay — blocks popunder ads.
-                  Popunders fire on the first click on the iframe. This overlay
-                  captures that click (preventing the popunder from opening),
-                  then removes itself so the next click goes to the video player.
-                  Only shows when adblock is ON. */}
+              {/* Click-capture overlay — second layer of popunder defense.
+                  Catches clicks that might trigger window.open before the
+                  sandbox can block them. Removes itself after first click. */}
               {adBlockOn && showClickOverlay && (
                 <div
                   className="absolute inset-0 z-10 cursor-pointer"
-                  onClick={() => {
-                    // Intercept the click — the popunder ad won't fire
-                    // because the click landed on our overlay, not the iframe.
-                    // Remove the overlay so the next click hits the player.
-                    setShowClickOverlay(false)
-                  }}
+                  onClick={() => setShowClickOverlay(false)}
                 />
               )}
           {/* Watched-progress bar (Netflix-style red strip at bottom of video) */}
