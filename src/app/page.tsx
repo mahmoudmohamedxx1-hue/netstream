@@ -15,7 +15,6 @@ import { TitleDetail } from "@/components/netflix/title-detail"
 import { Footer } from "@/components/netflix/footer"
 import { PullToRefresh } from "@/components/netflix/pull-to-refresh"
 import { OfflineIndicator } from "@/components/netflix/offline-indicator"
-import { QuickStartCard } from "@/components/netflix/quick-start-card"
 import { AIChat } from "@/components/netflix/ai-chat"
 import { Poster } from "@/components/netflix/poster"
 import {
@@ -473,16 +472,10 @@ function HomeContent() {
             {/* IMDB quick-launch banner */}
             <ImdbBanner onOpen={openSearch} />
 
-            {/* Quick start onboarding card (3-step install guide) */}
-            <div className="mx-4 my-10 sm:mx-8">
-              <QuickStartCard />
-            </div>
           </>
         )}
       </main>
 
-      {/* Backup site links — if this deployment is down, users can try mirrors */}
-      {(!player && !detail) && <BackupSites />}
       {(!player && !detail) && <Footer />}
 
       {/* Title detail page (TMDB metadata, cast, trailer, similar) */}
@@ -677,50 +670,3 @@ function LibraryBanner({ onNav }: { onNav: (k: string) => void }) {
 }
 
 // ── Backup site links ────────────────────────────────────────────────────────
-// If this deployment goes down, users can click any of these mirror links to
-// access NetStream on a different host. All links open in a new tab.
-const BACKUP_SITES = [
-  { url: "https://netstream-navy.vercel.app/", label: "NetStream Navy", host: "netstream-navy.vercel.app" },
-  { url: "https://v0-netstreamz.vercel.app/", label: "NetStream v0", host: "v0-netstreamz.vercel.app" },
-  { url: "https://netstreamx.vercel.app/", label: "NetStream X", host: "netstreamx.vercel.app" },
-  { url: "https://netstream.space-z.ai", label: "NetStream Z.ai", host: "netstream.space-z.ai" },
-]
-
-function BackupSites() {
-  const { t: tr } = useLang()
-  return (
-    <section className="mx-4 my-10 overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-r from-white/[0.04] via-[#141414] to-[#0a0a0a] p-5 sm:mx-8 sm:p-6">
-      <div className="mb-4 flex items-center gap-2">
-        <Globe className="h-5 w-5 shrink-0 text-primary" />
-        <div className="min-w-0">
-          <h3 className="text-base font-bold text-white sm:text-lg">
-            {tr("backupSites")}
-          </h3>
-          <p className="text-xs text-white/50 sm:text-sm">
-            {tr("backupSitesDesc")}
-          </p>
-        </div>
-      </div>
-      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
-        {BACKUP_SITES.map((site) => (
-          <a
-            key={site.url}
-            href={site.url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="group flex h-14 items-center gap-3 rounded-lg border border-white/15 bg-white/[0.04] px-4 text-sm font-semibold text-white/80 transition hover:border-primary/40 hover:bg-white/[0.08] hover:text-white sm:h-12"
-            title={`Open ${site.label} in a new tab`}
-          >
-            <Globe className="h-4 w-4 shrink-0 text-primary/70 transition group-hover:text-primary" />
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-bold text-white">{site.label}</p>
-              <p className="truncate text-[11px] text-white/40">{site.host}</p>
-            </div>
-            <ExternalLink className="h-3.5 w-3.5 shrink-0 text-white/30 transition group-hover:text-white/70" />
-          </a>
-        ))}
-      </div>
-    </section>
-  )
-}
-

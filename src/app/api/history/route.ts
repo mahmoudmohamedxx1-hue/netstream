@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server"
 import { db } from "@/lib/db"
 
 // ── Input validation helpers ──────────────────────────────────────────────
-const IMDB_ID_RE = /^tt\d{7,8}$/
+const IMDB_ID_RE = /^(tt\d{7,8}|tmdb-\d+)$/
 const TYPE_RE = /^(movie|series)$/
 
 function validateHistoryInput(body: any) {

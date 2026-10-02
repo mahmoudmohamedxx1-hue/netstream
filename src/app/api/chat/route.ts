@@ -280,19 +280,21 @@ export async function POST(req: NextRequest) {
       { role: "user", content: message },
     ]
 
-    // Determine which model to use — GLM 5.3 Flash is the DEFAULT on all platforms.
-    // The .z-ai-config file is deployed with the app, so GLM works on Vercel too.
-    // If GLM fails, falls back to Pollinations, then LLM7.
-    const requestedModel = model || "glm"
+    // Determine which model to use
+    // GLM 5.3 Flash is the default in the UI, but on Vercel/production
+    // internal-api.z.ai is blocked (403). Skip GLM on production to avoid
+    // 3s latency from the timeout. Use Pollinations directly.
+    const isProduction = process.env.VERCEL === "1" || process.env.NODE_ENV === "production"
+    const requestedModel = model || (isProduction ? "pollinations" : "glm")
     let aiText = ""
     let usedModel = ""
 
-    // Build the model order — try requested model first, then fallbacks
-    const modelOrder: string[] = requestedModel === "glm"
-      ? ["glm", "pollinations", "llm7"]
-      : requestedModel === "llm7"
-      ? ["llm7", "pollinations", "glm"]
-      : ["pollinations", "llm7", "glm"]
+    // Build model order — skip GLM on production (always times out)
+    const modelOrder: string[] = isProduction
+      ? (requestedModel === "llm7" ? ["llm7", "pollinations"] : ["pollinations", "llm7"])
+      : (requestedModel === "glm" ? ["glm", "pollinations", "llm7"]
+        : requestedModel === "llm7" ? ["llm7", "pollinations", "glm"]
+        : ["pollinations", "llm7", "glm"])
 
     for (const m of modelOrder) {
       try {
