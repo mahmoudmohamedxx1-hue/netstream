@@ -526,25 +526,15 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   //    Vidcore/vidlink detect sandbox and show "Disable Sandbox" — no sandbox for them.
   // 2. Click-capture overlay — captures first 2 clicks to block popunders.
   const [adBlockOn, setAdBlockOn] = useState(true)
-  const [overlayClicks, setOverlayClicks] = useState(0)
   useEffect(() => {
     setAdBlockOn(getAdBlockEnabled())
   }, [])
-  useEffect(() => {
-    setOverlayClicks(0)
-  }, [sourceId, reloads])
   const toggleAdBlock = useCallback(() => {
     const next = !adBlockOn
     setAdBlockOn(next)
     setAdBlockEnabled(next)
     setReloads((r) => r + 1)
   }, [adBlockOn])
-
-  // Providers that detect sandbox and show "Disable Sandbox" — no sandbox for these
-  const SANDBOX_DETECTING = ["vidcore.net", "vidlink.pro", "videasy.net"]
-  const canUseSandbox = adBlockOn && !SANDBOX_DETECTING.includes(sourceId)
-  // Show overlay for first 2 clicks when adblock is ON (eats popunder clicks)
-  const showOverlay = adBlockOn && overlayClicks < 2
 
   // ALL providers load directly — no proxy
   const playerUrl = useMemo(
@@ -1148,23 +1138,13 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
                 allowFullScreen
                 referrerPolicy="no-referrer"
                 onLoad={() => setLoaded(true)}
-                // Sandbox blocks window.open (popunders). Only used for providers
-                // that DON'T detect sandbox. Vidcore/vidlink detect it and show
-                // "Disable Sandbox" — they get no sandbox but use click-capture.
-                sandbox={canUseSandbox
-                  ? "allow-scripts allow-same-origin allow-presentation allow-forms"
-                  : undefined}
+                // iFrame Ad Blocker: sandbox blocks popups/popunders (window.open)
+                // while allowing scripts and same-origin so the video player works.
+                // Uses the exact value from the iFrame-ad-blocker repo which
+                // doesn't trigger "Disable Sandbox" on vidcore.
+                sandbox={adBlockOn ? "allow-same-origin allow-scripts" : undefined}
                 className="absolute inset-0 h-full w-full"
               />
-              {/* Click-capture overlay — eats the first 2 clicks to block popunders.
-                  Popunders fire on click events; this overlay intercepts them.
-                  After 2 clicks, the overlay removes itself so the player works. */}
-              {showOverlay && (
-                <div
-                  className="absolute inset-0 z-10 cursor-pointer"
-                  onClick={() => setOverlayClicks((c) => c + 1)}
-                />
-              )}
           {/* Watched-progress bar (Netflix-style red strip at bottom of video) */}
           {watchProgress > 0 && (
             <div className="absolute bottom-0 left-0 z-20 h-1 w-full bg-white/10">
