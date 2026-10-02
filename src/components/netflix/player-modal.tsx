@@ -520,19 +520,18 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   const displayGenres = meta?.genres ?? []
   const displayPoster = meta?.poster ?? title.poster ?? null
 
-  // Built-in ad blocker: ALL providers load directly (no proxy, no sandbox).
-  // Popup/popunder ads are blocked via a click-capture overlay that intercepts
-  // the first click on the iframe (popunders typically fire on first click).
-  // The overlay captures the click, prevents window.open, then removes itself
-  // so the second click goes through to the actual video player.
+  // Built-in ad blocker: ALL providers load directly (no proxy).
+  // Two-layer popunder defense:
+  // 1. Sandbox (blocks window.open) — ONLY for providers that don't detect it.
+  //    Vidcore/vidlink detect sandbox and show "Disable Sandbox" — no sandbox for them.
+  // 2. Click-capture overlay — captures first 2 clicks to block popunders.
   const [adBlockOn, setAdBlockOn] = useState(true)
-  const [showClickOverlay, setShowClickOverlay] = useState(true)
+  const [overlayClicks, setOverlayClicks] = useState(0)
   useEffect(() => {
     setAdBlockOn(getAdBlockEnabled())
   }, [])
   useEffect(() => {
-    // Reset the click overlay when source or reload changes
-    setShowClickOverlay(true)
+    setOverlayClicks(0)
   }, [sourceId, reloads])
   const toggleAdBlock = useCallback(() => {
     const next = !adBlockOn
@@ -541,7 +540,13 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     setReloads((r) => r + 1)
   }, [adBlockOn])
 
-  // ALL providers load directly — no proxy, no sandbox
+  // Providers that detect sandbox and show "Disable Sandbox" — no sandbox for these
+  const SANDBOX_DETECTING = ["vidcore.net", "vidlink.pro", "videasy.net"]
+  const canUseSandbox = adBlockOn && !SANDBOX_DETECTING.includes(sourceId)
+  // Show overlay for first 2 clicks when adblock is ON (eats popunder clicks)
+  const showOverlay = adBlockOn && overlayClicks < 2
+
+  // ALL providers load directly — no proxy
   const playerUrl = useMemo(
     () =>
       buildPlayerUrl({
@@ -1143,22 +1148,21 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
                 allowFullScreen
                 referrerPolicy="no-referrer"
                 onLoad={() => setLoaded(true)}
-                // Sandbox blocks popunders (window.open) — the main source of
-                // popup ads. Allows scripts, same-origin, presentation, forms
-                // so the video player can load and play.
-                // When adblock is OFF, allows popups (no sandbox restrictions).
-                sandbox={adBlockOn
+                // Sandbox blocks window.open (popunders). Only used for providers
+                // that DON'T detect sandbox. Vidcore/vidlink detect it and show
+                // "Disable Sandbox" — they get no sandbox but use click-capture.
+                sandbox={canUseSandbox
                   ? "allow-scripts allow-same-origin allow-presentation allow-forms"
                   : undefined}
                 className="absolute inset-0 h-full w-full"
               />
-              {/* Click-capture overlay — second layer of popunder defense.
-                  Catches clicks that might trigger window.open before the
-                  sandbox can block them. Removes itself after first click. */}
-              {adBlockOn && showClickOverlay && (
+              {/* Click-capture overlay — eats the first 2 clicks to block popunders.
+                  Popunders fire on click events; this overlay intercepts them.
+                  After 2 clicks, the overlay removes itself so the player works. */}
+              {showOverlay && (
                 <div
                   className="absolute inset-0 z-10 cursor-pointer"
-                  onClick={() => setShowClickOverlay(false)}
+                  onClick={() => setOverlayClicks((c) => c + 1)}
                 />
               )}
           {/* Watched-progress bar (Netflix-style red strip at bottom of video) */}
