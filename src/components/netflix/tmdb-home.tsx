@@ -137,6 +137,8 @@ type TmdbTitle = {
 
 type Props = {
   onPlay: (t: CardTitle) => void
+  /** Hero ⏵ Play button — opens the player directly (Netflix behavior). */
+  onPlayNow?: (t: CardTitle) => void
   continueWatching?: CardTitle[]
   myList?: CardTitle[]
   onPlayHistory?: (t: CardTitle) => void
@@ -148,7 +150,7 @@ type Props = {
   keyboardNavEnabled?: boolean
 }
 
-export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyboardNavEnabled }: Props) {
+export function TmdbHome({ onPlay, onPlayNow, continueWatching, myList, onPlayHistory, keyboardNavEnabled }: Props) {
   const { t, isArabic } = useLang()
   // IndexedDB-backed Continue Watching — loads from browser storage, no API needed
   const { items: cwItems, loaded: cwLoaded, error: cwError } = useClientWatchHistory()
@@ -510,11 +512,12 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
   // and mute. We render it inside the hero section (see JSX below) on top of
   // the static backdrop image, which stays visible underneath at all times.
 
-  // Lazy IMDB lookup when user clicks
-  const handleClick = useCallback(
-    async (t: TmdbTitle) => {
+  // Lazy IMDB lookup when user clicks — shared by Play / More Info / rows.
+  // `handler` receives the resolved card (with a real or synthetic imdbId).
+  const resolveAndOpen = useCallback(
+    async (t: TmdbTitle, handler: (t: CardTitle) => void) => {
       if (t.imdbId) {
-        onPlay({ imdbId: t.imdbId, title: t.title, type: t.type, year: t.year, poster: t.poster, overview: t.overview, rating: t.rating })
+        handler({ imdbId: t.imdbId, title: t.title, type: t.type, year: t.year, poster: t.poster, overview: t.overview, rating: t.rating })
         return
       }
       setLookingUp(t.tmdbId)
@@ -524,13 +527,13 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
         const data = await res.json().catch(() => ({}))
         if (data.imdbId) {
           t.imdbId = data.imdbId
-          onPlay({ imdbId: data.imdbId, title: t.title, type: t.type, year: t.year, poster: data.poster ?? t.poster, overview: t.overview, rating: t.rating })
+          handler({ imdbId: data.imdbId, title: t.title, type: t.type, year: t.year, poster: data.poster ?? t.poster, overview: t.overview, rating: t.rating })
         } else {
           // No IMDB ID found — fall back to TMDB ID. Some providers
           // (vidlink, vidfast, videasy) support TMDB IDs directly.
           // We pass a synthetic imdbId of "tmdb-{id}" so the player knows
           // to use the TMDB ID for providers that support it.
-          onPlay({
+          handler({
             imdbId: `tmdb-${t.tmdbId}`,
             title: t.title,
             type: t.type,
@@ -542,7 +545,7 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
         }
       } catch {
         // On error, still try to play with TMDB ID fallback
-        onPlay({
+        handler({
           imdbId: `tmdb-${t.tmdbId}`,
           title: t.title,
           type: t.type,
@@ -554,7 +557,18 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
       }
       setLookingUp(null)
     },
-    [onPlay]
+    []
+  )
+
+  const handleClick = useCallback(
+    (t: TmdbTitle) => resolveAndOpen(t, onPlay),
+    [resolveAndOpen, onPlay]
+  )
+
+  // Hero ⏵ — play immediately (no detour through the detail page)
+  const handlePlayNow = useCallback(
+    (t: TmdbTitle) => resolveAndOpen(t, onPlayNow ?? onPlay),
+    [resolveAndOpen, onPlayNow, onPlay]
   )
 
   // ─────────────────────────────────────────────────────────────────────
@@ -975,7 +989,7 @@ export function TmdbHome({ onPlay, continueWatching, myList, onPlayHistory, keyb
                 </motion.p>
                 <motion.div variants={contentChildVariants} className="pointer-events-auto mt-3 flex flex-wrap items-center gap-2 sm:mt-5 sm:gap-3">
                   <SpecularButton
-                    onClick={() => handleClick(current)}
+                    onClick={() => handlePlayNow(current)}
                     disabled={lookingUp === current.tmdbId}
                     size="lg"
                     radius={8}

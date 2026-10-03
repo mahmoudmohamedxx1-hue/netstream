@@ -14,9 +14,10 @@
 import { useEffect, useRef, useState, useCallback } from "react"
 import { createPortal } from "react-dom"
 import { motion } from "framer-motion"
-import { Play, Plus, Check, Star, ThumbsUp, ChevronDown, Film, Tv, Loader2, Volume2, VolumeX } from "lucide-react"
+import { Play, Plus, Check, Star, ThumbsUp, ChevronDown, Film, Tv, Loader2, Volume2, VolumeX, Download } from "lucide-react"
 import { Poster } from "./poster"
 import { TrailerIframe } from "./trailer-iframe"
+import { DownloadHelper } from "./download-helper"
 import { useLibrary } from "@/lib/library-store"
 import { useToast } from "@/hooks/use-toast"
 import { useLang } from "@/lib/lang-context"
@@ -118,6 +119,7 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
   const [trailerFailed, setTrailerFailed] = useState(false)
   const [muted, setMuted] = useState(true)
   const [resolvedImdbId, setResolvedImdbId] = useState<string | null>(title.imdbId)
+  const [downloadOpen, setDownloadOpen] = useState(false)
   const [popupPos, setPopupPos] = useState<{ left: number; top: number } | null>(null)
 
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -277,7 +279,7 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
         "group/card relative",
         rank
           ? "w-[100vw] shrink-0 sm:w-[400px] md:w-[500px]"
-          : (inGrid ? "w-full aspect-video" : "w-[68vw] shrink-0 aspect-video sm:w-[240px] md:w-[280px]")
+          : (inGrid ? "w-full aspect-video" : "w-[68vw] shrink-0 aspect-video sm:w-[280px] md:w-[320px]")
       )}
       onMouseEnter={handleEnter}
       onMouseLeave={handleLeave}
@@ -395,6 +397,13 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
             <div className="flex items-center gap-2">
               <button onClick={() => onPlay(title)} className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-white text-black transition hover:bg-white/85" aria-label={t("play")}><Play className="h-4 w-4 fill-black" /></button>
               <button onClick={handleAdd} disabled={!effectiveImdbId} className={cn("inline-flex h-9 w-9 items-center justify-center rounded-full border-2 transition", inList ? "border-white/60 text-white" : "border-white/40 text-white hover:border-white")} aria-label={inList ? "Remove" : "Add"}>{inList ? <Check className="h-4 w-4" /> : <Plus className="h-4 w-4" />}</button>
+              <button
+                onClick={() => setDownloadOpen(true)}
+                disabled={!effectiveImdbId}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full border-2 border-white/40 text-white transition hover:border-white disabled:opacity-40"
+                aria-label={t("downloadVideo")}
+                title={t("downloadVideo")}
+              ><Download className="h-4 w-4" /></button>
               <button className="inline-flex h-9 w-9 items-center justify-center rounded-full border-2 border-white/40 text-white transition hover:border-white" aria-label="Like"><ThumbsUp className="h-4 w-4" /></button>
               <button onClick={() => onPlay(title)} className="ml-auto inline-flex h-9 w-9 items-center justify-center rounded-full border-2 border-white/40 text-white transition hover:border-white" aria-label="More info"><ChevronDown className="h-4 w-4" /></button>
             </div>
@@ -408,6 +417,16 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
             {genres.length > 0 && <p className="mt-1 line-clamp-1 text-[11px] text-white/60">{genres.slice(0, 3).join(" • ")}</p>}
             {title.overview && <p className="mt-1 line-clamp-2 text-[10px] leading-snug text-white/50">{title.overview}</p>}
           </div>
+
+          {/* Download manager — nested fixed overlay (z-200) works inside the portal */}
+          <DownloadHelper
+            open={downloadOpen}
+            onClose={() => setDownloadOpen(false)}
+            imdbId={effectiveImdbId || `tmdb-${title.tmdbId}`}
+            type={title.type}
+            title={title.title}
+            poster={title.poster}
+          />
         </motion.div>,
         document.body
       )}

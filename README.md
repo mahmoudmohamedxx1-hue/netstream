@@ -22,13 +22,15 @@ A Netflix-style streaming platform built with Next.js 16, TypeScript, and Prisma
 - **Picture-in-Picture** — floating video player across tabs
 - **Fullscreen mode** with keyboard shortcuts (R, N, T, F, Esc)
 
-### ⬇️ Built-in Download System
-- **No browser extension needed** — downloads happen entirely server-side
-- **Multiple quality options** — each provider's HLS variants listed separately
-- **Live file size fetching** — real-time size estimation per source (MP4 + HLS)
-- **Embed mode** — extracts fresh video URL + downloads atomically (avoids token expiration)
-- **HLS concatenation** — .m3u8 segments stitched into a single .ts file
-- **Multiple servers** — MixDrop, VOE, StreamRuby, Morencius, HGCloud, VidSrc.Hair, Cineby, VidCore
+### ⬇️ Built-in Download System (v2 — actually works)
+- **CORS-free segment proxy** — `/api/hls-proxy` rewrites every HLS playlist so segments and AES keys are fetched same-origin (this was the blocker that killed all previous download attempts)
+- **Two download modes**:
+  - **Fast in-browser** — parallel segment fetching (5 workers), live speed/ETA/size stats, AES-128 decryption in the browser, fMP4 → real `.mp4` streamed to disk via the File System Access API (no memory ceiling), TS → automatic ffmpeg.wasm remux to `.mp4` using a locally-served core (no CDN dependency)
+  - **Direct server download** — `/api/download-file` resolves, decrypts and stitches server-side, then streams with `Content-Disposition` so the browser's native download manager handles progress/pause/resume
+- **Real quality + size probing** — each variant's segment count, resolution, bandwidth and real estimated size (ranged-GET probing), sorted by size
+- **Correct AES-128 handling** — playlist-declared IV or media-sequence-derived IV per the HLS spec, PKCS7 unpadding
+- **Download everywhere** — download buttons on the title detail page, hover preview popup, and inside the player (explicit imdbId/season/episode props — no more URL scraping, fixes series downloads)
+- **10-minute source cache** — probing results cached server-side (CDN tokens live ~12h)
 - **yt-dlp command generation** — for advanced users
 
 ### 🌍 Bilingual Support
@@ -239,10 +241,9 @@ netstream/
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/api/extract-download` | GET | Find all downloadable sources for a title |
-| `/api/download` | GET | Download video (MP4 direct or HLS concatenation) |
-| `/api/download-info` | GET | Get file size for a download source |
-| `/api/2embed-servers` | GET | Extract 2Embed's server mirrors |
+| `/api/download-movie` | GET | Resolve sources + probe variants (quality, size, segments, AES) |
+| `/api/download-file` | GET | Server-side streaming download (MP4/TS, Content-Disposition) |
+| `/api/hls-proxy` | GET | CORS-free HLS proxy — rewrites playlists, streams segments/keys |
 
 ### Arabic Provider APIs
 

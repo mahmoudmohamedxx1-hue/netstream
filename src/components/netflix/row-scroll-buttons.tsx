@@ -36,25 +36,39 @@ export function RowScrollButtons({ scrollerRef, className }: Props) {
   const [rightHovered, setRightHovered] = useState(false)
   const isMobile = useIsMobile()
 
+  // RTL-aware scroll position. In RTL mode most browsers report scrollLeft
+  // as NEGATIVE (0 at the start, −max at the end), which used to break both
+  // arrow enablement and card snapping. Normalizing to a 0..max "distance
+  // from start" fixes every code path for both directions.
+  const getScrollPos = useCallback(() => {
+    const el = scrollerRef.current
+    if (!el) return { pos: 0, max: 0 }
+    const max = Math.max(0, el.scrollWidth - el.clientWidth)
+    const pos = Math.abs(el.scrollLeft)
+    return { pos, max }
+  }, [scrollerRef])
+
   const update = useCallback(() => {
     const el = scrollerRef.current
     if (!el) return
+    const { pos, max } = getScrollPos()
     // Threshold accounts for the scroller's horizontal padding (px-4 = 16px on
-    // mobile, sm:px-8 = 32px on desktop). scrollLeft reads the padding as an
-    // offset, so we use 40px as the threshold to avoid showing the left arrow
-    // on initial load. Once the user actually scrolls content, scrollLeft
-    // exceeds 40 and the arrow appears.
-    setCanLeft(el.scrollLeft > 40)
-    setCanRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 8)
-  }, [scrollerRef])
+    // mobile, sm:px-8 = 32px on desktop). 40px avoids showing the back arrow
+    // on initial load.
+    setCanLeft(pos > 40)
+    setCanRight(pos < max - 8)
+  }, [scrollerRef, getScrollPos])
 
   useEffect(() => {
-    update()
+    // Compute initial arrow visibility after paint (avoids a synchronous
+    // setState cascade inside the effect body).
+    const raf = requestAnimationFrame(update)
     const el = scrollerRef.current
-    if (!el) return
+    if (!el) return () => cancelAnimationFrame(raf)
     el.addEventListener("scroll", update, { passive: true })
     window.addEventListener("resize", update)
     return () => {
+      cancelAnimationFrame(raf)
       el.removeEventListener("scroll", update)
       window.removeEventListener("resize", update)
     }
@@ -63,12 +77,19 @@ export function RowScrollButtons({ scrollerRef, className }: Props) {
   const scrollRow = useCallback((direction: 1 | -1) => {
     const container = scrollerRef.current
     if (!container) return
+
+    // In RTL, "next" content sits physically to the LEFT, so the on-screen
+    // right arrow must scroll physically leftward. Mirror the direction.
+    const isRtl = typeof window !== "undefined" &&
+      getComputedStyle(container).direction === "rtl"
+    const physical = isRtl ? (-direction as 1 | -1) : direction
+
     const cards = Array.from(
       container.querySelectorAll<HTMLElement>("[data-row-card]")
     )
     if (cards.length === 0) {
       container.scrollBy({
-        left: direction * Math.round(container.clientWidth * 0.85),
+        left: physical * Math.round(container.clientWidth * 0.85),
         behavior: "smooth",
       })
       return
@@ -77,7 +98,7 @@ export function RowScrollButtons({ scrollerRef, className }: Props) {
     const containerLeft = containerRect.left
     const containerRight = containerRect.right
 
-    if (direction === 1) {
+    if (physical === 1) {
       const target = cards.find((card) => {
         const cardRect = card.getBoundingClientRect()
         return cardRect.right > containerRight - 4

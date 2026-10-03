@@ -301,6 +301,54 @@ server-check dialog if the user manually triggers it.
 
 ## VII. Change Log
 
+### Download System v2 + UX Polish (October 2026)
+
+#### The download system — rebuilt from scratch
+Root causes of the old broken downloads: (1) CORS preflight blocked direct
+segment fetches from provider CDNs, (2) wrong AES-128 IV derivation,
+(3) ffmpeg.wasm core loaded from unpkg.com at runtime (31 MB, flaky),
+(4) series detection scraped the URL-encoded player URL.
+
+- ✅ **`/api/hls-proxy`** — same-origin HLS proxy; rewrites playlists so every
+  segment / key / variant URL routes back through it (kills CORS permanently)
+- ✅ **`/api/download-file`** — server-side streaming download with
+  sliding-window concurrency (6 workers), AES-128-CBC decryption
+  (playlist IV or media-sequence IV), fMP4 → `.mp4` / TS → `.ts`,
+  `Content-Disposition` attachment (native browser download manager)
+- ✅ **`src/lib/download-sources.ts`** — shared resolver with 10-min cache,
+  real size probing (ranged GET), segment counting, fMP4/TS detection
+- ✅ **DownloadHelper v2** — two modes (fast in-browser / direct server),
+  parallel fetching with live speed + ETA + size stats, cancel, AES decrypt,
+  fMP4 streamed to disk via File System Access API, TS → MP4 remux with
+  locally-served ffmpeg.wasm core (`/public/ffmpeg/`), full EN/AR i18n
+- ✅ Download entry points: player modal, title detail, hover preview popup
+  — all pass explicit `imdbId/type/season/episode` props (series bug fixed)
+- ✅ `tmdb-{id}` synthetic IDs supported by the download resolver
+
+#### UI/UX upgrades
+- ✅ Hero ⏵ **Play** now opens the player directly (Netflix behavior);
+  **More Info** opens the detail page (both used to open detail)
+- ✅ Toast viewport raised to z-300 — notifications now visible above the
+  download manager, hover popups and select dropdowns (was z-100, invisible)
+- ✅ RTL row scrolling fixed — scroll position normalized (RTL reports
+  negative scrollLeft) and card-snapping direction mirrored in Arabic mode
+- ✅ Card widths standardized (68vw / 280px / 320px) across all card types
+- ✅ 9 provider entries that were missing `id`/`name` (rendered as
+  "undefined" in the server dropdown) fixed
+- ✅ Dead code removed: `hero.tsx`, `download-dialog.tsx`, unused
+  `ContentRow`/`ContentCard` imports in page.tsx
+- ✅ title-detail scroll-lock now restores the previous overflow value
+  (no longer clobbers a parent modal's lock)
+- ✅ Mobile quick-close no longer reports the provider as broken
+  (10-second dwell guard before negative provider-stats reports)
+- ✅ Player info section + watchlist toggle use the TMDB-resolved poster
+  and title (was low-res `title.poster`)
+- ✅ 20+ new download-manager i18n keys (EN + AR)
+
+#### Health
+- ✅ ESLint: 0 errors, 0 warnings
+- ✅ TypeScript: 0 errors in src/ (fixed pre-existing vidsrc.ts + tmdb.ts errors)
+
 ### Current Version (commit `f51b2d7` — August 2026)
 
 #### Feature additions:

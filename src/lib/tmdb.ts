@@ -69,8 +69,10 @@ export async function getTmdbTitle(imdbId: string, lang?: string): Promise<TmdbT
           title: details.title ?? details.name ?? "",
           type: titleType,
           year: (details.release_date ?? details.first_air_date ?? "").slice(0, 4),
+          endYear: details.last_air_date ? details.last_air_date.slice(0, 4) : null,
           overview: details.overview ?? "",
           rating: details.vote_average ? String(details.vote_average) : null,
+          voteCount: details.vote_count ?? null,
           poster: details.poster_path ? `https://image.tmdb.org/t/p/w500${details.poster_path}` : null,
           backdrop: details.backdrop_path ? `https://image.tmdb.org/t/p/original${details.backdrop_path}` : null,
           logo: details.images?.logos?.[0]?.file_path

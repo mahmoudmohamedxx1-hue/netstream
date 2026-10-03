@@ -3,8 +3,7 @@
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { Navbar } from "@/components/netflix/navbar"
-import { ContentRow } from "@/components/netflix/content-row"
-import { ContentCard, type CardTitle } from "@/components/netflix/content-card"
+import { type CardTitle } from "@/components/netflix/content-card"
 import { PlayerModal, type PlayerTitle } from "@/components/netflix/player-modal"
 import { SearchOverlay } from "@/components/netflix/search-overlay"
 import { ImdbPlayDialog } from "@/components/netflix/imdb-play-dialog"
@@ -206,9 +205,10 @@ function HomeContent() {
         .catch(() => {})
     }
     if (initialSearch) {
-      setSearchOpen(true)
+      // Defer to a microtask so the effect body doesn't set state synchronously
+      // (avoids cascading renders flagged by react-hooks/set-state-in-effect).
+      Promise.resolve().then(() => setSearchOpen(true))
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // ── Handle browser back/forward buttons ─────────────────────────────────
@@ -461,6 +461,7 @@ function HomeContent() {
                 the loading → content transition. */}
             <TmdbHome
               onPlay={openDetail}
+              onPlayNow={openPlayer}
               myList={myListCards}
               onPlayHistory={openPlayer}
               keyboardNavEnabled={keyboardNavEnabled}

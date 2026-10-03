@@ -4,11 +4,12 @@ import { useCallback, useEffect, useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import {
   X, Play, Plus, Check, Star, Clock, Calendar, Film, Tv,
-  ChevronDown, Loader2, Users, Volume2, VolumeX,
+  ChevronDown, Loader2, Users, Volume2, VolumeX, Download,
 } from "lucide-react"
 import { Poster } from "./poster"
 import { TrailerIframe } from "./trailer-iframe"
 import { EpisodeGrid } from "./episode-grid"
+import { DownloadHelper } from "./download-helper"
 import { useTmdbTitle } from "@/hooks/use-tmdb"
 import { useLibrary, type SavedTitle } from "@/lib/library-store"
 import { useToast } from "@/hooks/use-toast"
@@ -52,6 +53,7 @@ function TitleDetailInner({ title, open, onClose, onPlay }: Props) {
   const [selectedSeason, setSelectedSeason] = useState(1)
   const [selectedEpisode, setSelectedEpisode] = useState(1)
   const [detailMuted, setDetailMuted] = useState(true)
+  const [downloadOpen, setDownloadOpen] = useState(false)
 
   // The hero trailer auto-plays via the reusable <TrailerIframe> component.
   // We only pass the key when the modal is open AND the TMDB data has resolved
@@ -66,8 +68,14 @@ function TitleDetailInner({ title, open, onClose, onPlay }: Props) {
     if (!open) return
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") close() }
     window.addEventListener("keydown", onKey)
+    // Restore the PREVIOUS overflow value (not blindly "") so we never
+    // clobber a lock held by a parent modal (e.g. the player).
+    const prevOverflow = document.body.style.overflow
     document.body.style.overflow = "hidden"
-    return () => { window.removeEventListener("keydown", onKey); document.body.style.overflow = "" }
+    return () => {
+      window.removeEventListener("keydown", onKey)
+      document.body.style.overflow = prevOverflow
+    }
   }, [open, close])
 
   // Reset season/episode when a new title opens (using key remount instead)
@@ -227,6 +235,14 @@ function TitleDetailInner({ title, open, onClose, onPlay }: Props) {
                     {inList ? <Check className="h-5 w-5" /> : <Plus className="h-5 w-5" />}
                     {inList ? t("inMyList") : t("myList")}
                   </button>
+                  <button
+                    onClick={() => setDownloadOpen(true)}
+                    className="inline-flex items-center gap-2 rounded-md bg-primary px-6 py-3 text-sm font-bold text-white transition hover:bg-primary/85"
+                    title={t("downloadVideo")}
+                  >
+                    <Download className="h-5 w-5" />
+                    {t("download")}
+                  </button>
                 </div>
                 {watchProgress != null && watchProgress > 0 && (
                   <div className="mt-3 max-w-xs">
@@ -328,6 +344,19 @@ function TitleDetailInner({ title, open, onClose, onPlay }: Props) {
               )}
             </div>
           </motion.div>
+
+          {/* Download manager — explicit props so series downloads use the
+              currently selected season/episode */}
+          <DownloadHelper
+            open={downloadOpen}
+            onClose={() => setDownloadOpen(false)}
+            imdbId={title.imdbId}
+            type={title.type}
+            season={selectedSeason}
+            episode={selectedEpisode}
+            title={displayTitle}
+            poster={displayPoster}
+          />
         </motion.div>
       )}
     </AnimatePresence>

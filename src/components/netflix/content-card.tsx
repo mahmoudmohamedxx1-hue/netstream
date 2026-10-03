@@ -90,7 +90,7 @@ export function ContentCard({ title, onPlay, onInfo, rank }: Props) {
 
   return (
     <div
-      className="group/card relative aspect-video w-[60vw] shrink-0 sm:w-[280px] md:w-[320px]"
+      className="group/card relative aspect-video w-[68vw] shrink-0 sm:w-[280px] md:w-[320px]"
       onMouseEnter={enter}
       onMouseLeave={leave}
     >

@@ -240,6 +240,10 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   const [favorites, setFavorites] = useState<string[]>([])
   const playerContainerRef = useRef<HTMLDivElement>(null)
   const toastRef = useRef<((opts: { title: string; description?: string }) => void) | null>(null)
+  // When the player was opened — used to avoid reporting a provider as broken
+  // when the user closes the modal within seconds (a quick close is a user
+  // decision, not a provider failure).
+  const openedAtRef = useRef<number>(Date.now())
 
   // Load favorites from localStorage on mount
   useEffect(() => {
@@ -515,7 +519,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   useEffect(() => {
     // No-op — pre-check auto-switch disabled
     precheckDoneRef.current = true
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [title.imdbId, title.type, season, episode])
   type ArabicSource = { url: string; host: string; originalUrl: string }
   type ExtractedSource = { embedUrl: string; host: string; videoUrl: string | null; videoType: "mp4" | "hls" | null; status: "pending" | "extracting" | "ready" | "failed" }
@@ -672,27 +676,27 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   const handleToggleList = useCallback(async () => {
     const added = await toggleWatchlist({
       imdbId: title.imdbId,
-      title: title.title,
+      title: displayTitle,
       type: title.type,
-      poster: title.poster ?? null,
-      year: title.year ?? null,
+      poster: displayPoster ?? title.poster ?? null,
+      year: displayYear ?? title.year ?? null,
       overview: title.overview ?? null,
       rating: title.rating ?? null,
     })
     toast({
       title: added ? "Added to My List" : "Removed from My List",
-      description: title.title,
+      description: displayTitle,
     })
-  }, [title, toggleWatchlist, toast])
+  }, [title, displayTitle, displayPoster, displayYear, toggleWatchlist, toast])
 
   const handleQualityChange = (q: string) => {
     setQuality(q)
     const recommended = sourceForQuality(q, isMobile)
     if (recommended !== sourceId) {
       // User-driven change — disable all auto-pick for the rest of this title.
-      // eslint-disable-next-line react-hooks/immutability
+       
       autoPickAppliedRef.current = true
-      // eslint-disable-next-line react-hooks/immutability
+       
       userInteractedRef.current = true
       setSourceId(recommended)
       setLoaded(false)
@@ -704,9 +708,9 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   }
 
   const handleSourceChange = (id: string) => {
-    // eslint-disable-next-line react-hooks/immutability
+     
     autoPickAppliedRef.current = true
-    // eslint-disable-next-line react-hooks/immutability
+     
     userInteractedRef.current = true
     setSourceId(id)
     setLoaded(false)
@@ -742,9 +746,9 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   // A4: also reports the current server as broken (the user is moving on
   // because it didn't work) so future opens of this title deprioritise it.
   const handleNextServer = useCallback(() => {
-    // eslint-disable-next-line react-hooks/immutability
+     
     autoPickAppliedRef.current = true
-    // eslint-disable-next-line react-hooks/immutability
+     
     userInteractedRef.current = true
     fallbackIdxRef.current = 0
     // Report the outgoing server as broken. Fire-and-forget — don't block
@@ -808,7 +812,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   // When the player closes, stop the progress timer and persist the final
   // position + sourceId + full title info to IndexedDB.
   // This is the GUARANTEED save — even if recordPlay never fired.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   const handleClose = useCallback(() => {
     const result = stopProgress()
     const pos = result.position
@@ -834,7 +838,11 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
         duration: dur,
       }).catch(() => {})
     }
-    if (!loaded && isMobile) reportProvider(sourceId, false)
+    // Only report a mobile quick-close as a failure if the player was open
+    // long enough (≥10s) for the provider to have had a fair chance.
+    if (!loaded && isMobile && Date.now() - openedAtRef.current >= 10000) {
+      reportProvider(sourceId, false)
+    }
     onClose()
   }, [stopProgress, loaded, isMobile, reportProvider, sourceId, onClose, title.imdbId, title.title, title.type, title.poster, title.year, title.overview, title.rating, displayTitle, displayYear, isSeries, season, episode])
 
@@ -857,7 +865,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
         }).catch(() => {})
       }
     }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [])  
 
   const openPiP = () => {
     pip.open(playerUrl, title.title)
@@ -876,9 +884,9 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     // Reload, reset the timer"). Also disable future auto-pick — the user
     // has now interacted with the player.
     fallbackIdxRef.current = 0
-    // eslint-disable-next-line react-hooks/immutability
+     
     autoPickAppliedRef.current = true
-    // eslint-disable-next-line react-hooks/immutability
+     
     userInteractedRef.current = true
     setLoaded(false)
     setReloads((r) => r + 1)
@@ -1456,7 +1464,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
 
             <Poster
               title={displayTitle}
-              src={title.poster}
+              src={displayPoster}
               year={displayYear}
               className="hidden h-44 w-30 shrink-0 rounded-md sm:block"
             />
@@ -1520,13 +1528,17 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
         )}
       </motion.div>
 
-      {/* Download helper dialog */}
+      {/* Download helper dialog — explicit props (no URL scraping: fixes the
+          series-download bug where /tv/ was encoded inside the proxy URL) */}
       <DownloadHelper
         open={downloadOpen}
         onClose={() => setDownloadOpen(false)}
-        streamUrl={playerUrl}
+        imdbId={title.imdbId}
+        type={title.type}
+        season={season}
+        episode={episode}
         title={displayTitle}
-        sourceId={sourceId}
+        poster={displayPoster}
       />
 
       {/* Subtitle helper dialog */}
