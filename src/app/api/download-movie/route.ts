@@ -1,14 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
 
 // GET /api/download-movie?imdbId=tt0111161&type=movie&title=Test
-// GET /api/download-movie?imdbId=tt0111161&type=series&season=1&episode=1&title=Test
 //
-// Downloads a movie/episode from MoviesAPI.to by:
-// 1. Getting the TMDB ID from IMDB ID
-// 2. Getting a session cookie from moviesapi.to
-// 3. Calling moviesapi.to's internal vidora API to get the m3u8 URL
-// 4. Downloading the m3u8 segments (with AES decryption if needed)
-// 5. Streaming the result as a .ts file download
+// Returns the direct m3u8 URL + AES key from MoviesAPI's vidora API.
+// The browser then downloads the m3u8 segments client-side.
 
 const TMDB_API_KEY = process.env.TMDB_API_KEY || "1c5d8fc6971ccb06fcc873d748bcba92"
 const PLAYER_KEY = "3a67e8866ae1d2bb9e81fe7f73315a56eb3bdf5e3e755c7554c8be6910aa6b13"
@@ -20,35 +15,29 @@ export async function GET(req: NextRequest) {
   const type = url.searchParams.get("type") === "series" ? "series" : "movie"
   const season = url.searchParams.get("season") || "1"
   const episode = url.searchParams.get("episode") || "1"
-  const title = url.searchParams.get("title") || "video"
 
-  if (!imdbId) return new NextResponse("imdbId required", { status: 400 })
-
-  const safeTitle = title.replace(/[<>:"/\\|?*]/g, "_").substring(0, 80)
-  const filename = `${safeTitle}.ts`
+  if (!imdbId) return NextResponse.json({ error: "imdbId required" }, { status: 400 })
 
   try {
-    // Step 1: Get TMDB ID from IMDB ID
-    const tmdbType = type === "series" ? "tv" : "movie"
+    // Step 1: Get TMDB ID
     const findRes = await fetch(
       `https://api.themoviedb.org/3/find/${imdbId}?api_key=${TMDB_API_KEY}&external_source=imdb_id`,
       { signal: AbortSignal.timeout(10000) }
     )
-    if (!findRes.ok) return new NextResponse("TMDB lookup failed", { status: 502 })
+    if (!findRes.ok) return NextResponse.json({ error: "TMDB lookup failed" }, { status: 502 })
     const findData = await findRes.json()
     const tmdbId = findData.movie_results?.[0]?.id || findData.tv_results?.[0]?.id
-    if (!tmdbId) return new NextResponse("TMDB ID not found", { status: 404 })
+    if (!tmdbId) return NextResponse.json({ error: "TMDB ID not found" }, { status: 404 })
 
-    // Step 2: Get session cookie from moviesapi.to
+    // Step 2: Get session cookie
     const pageRes = await fetch(`https://moviesapi.to/movie/${imdbId}`, {
       headers: { "User-Agent": UA },
       signal: AbortSignal.timeout(10000),
     })
-    // Extract cookies from the response
     const cookies = pageRes.headers.getSetCookie?.() || []
     const cookieStr = cookies.map(c => c.split(";")[0]).join("; ")
 
-    // Step 3: Call vidora API to get the m3u8 URL
+    // Step 3: Call vidora API
     const vidoraPath = type === "series"
       ? `/v1/tv/${tmdbId}/${season}/${episode}`
       : `/v1/movie/${tmdbId}`
@@ -62,133 +51,95 @@ export async function GET(req: NextRequest) {
       },
       signal: AbortSignal.timeout(10000),
     })
-    if (!vidoraRes.ok) return new NextResponse(`Vidora API failed: ${vidoraRes.status}`, { status: 502 })
+    if (!vidoraRes.ok) return NextResponse.json({ error: `Vidora API: ${vidoraRes.status}` }, { status: 502 })
     const vidoraData = await vidoraRes.json()
     
     const m3u8Url = vidoraData?.sources?.[0]?.url
-    if (!m3u8Url) return new NextResponse("No video source found", { status: 404 })
+    if (!m3u8Url) return NextResponse.json({ error: "No video source" }, { status: 404 })
 
-    // Step 4: Fetch the m3u8 playlist
+    // Step 4: Fetch the master playlist to get variant URLs + quality info
     const m3u8Res = await fetch(m3u8Url, {
       headers: { "User-Agent": UA, "Referer": "https://moviesapi.to/" },
       redirect: "follow",
-      signal: AbortSignal.timeout(15000),
+      signal: AbortSignal.timeout(10000),
     })
-    if (!m3u8Res.ok) return new NextResponse(`m3u8 fetch failed: ${m3u8Res.status}`, { status: 502 })
-    let playlist = await m3u8Res.text()
+    if (!m3u8Res.ok) return NextResponse.json({ error: `m3u8 fetch: ${m3u8Res.status}` }, { status: 502 })
+    const masterPlaylist = await m3u8Res.text()
     const baseUrl = new URL(m3u8Res.url || m3u8Url)
 
-    // Step 5: If master playlist, pick first variant
-    if (playlist.includes("#EXT-X-STREAM-INF")) {
-      const lines = playlist.split("\n")
-      for (let i = 0; i < lines.length; i++) {
-        if (lines[i].includes("#EXT-X-STREAM-INF")) {
-          const next = lines[i + 1]?.trim()
-          if (next && !next.startsWith("#")) {
-            const variantUrl = new URL(next, baseUrl).href
-            const variantRes = await fetch(variantUrl, {
-              headers: { "User-Agent": UA, "Referer": "https://moviesapi.to/" },
-              redirect: "follow",
-              signal: AbortSignal.timeout(15000),
-            })
-            if (variantRes.ok) {
-              playlist = await variantRes.text()
-            }
-          }
-          break
+    // Parse variants from master playlist
+    const variants: { url: string; resolution: string; bandwidth: string }[] = []
+    const lines = masterPlaylist.split("\n")
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].includes("#EXT-X-STREAM-INF")) {
+        const resMatch = lines[i].match(/RESOLUTION=(\d+x\d+)/)
+        const bwMatch = lines[i].match(/BANDWIDTH=(\d+)/)
+        const next = lines[i + 1]?.trim()
+        if (next && !next.startsWith("#")) {
+          variants.push({
+            url: new URL(next, baseUrl).href,
+            resolution: resMatch?.[1] || "unknown",
+            bandwidth: bwMatch?.[1] || "unknown",
+          })
         }
       }
     }
 
-    // Step 6: Parse segment URLs
-    const segments: string[] = []
-    const lines = playlist.split("\n")
-    for (const line of lines) {
-      const trimmed = line.trim()
-      if (trimmed && !trimmed.startsWith("#")) {
-        try {
-          segments.push(new URL(trimmed, baseUrl).href)
-        } catch {
-          segments.push(trimmed)
-        }
-      }
+    // If no variants, the m3u8 itself is a media playlist
+    if (variants.length === 0) {
+      variants.push({
+        url: m3u8Res.url,
+        resolution: "unknown",
+        bandwidth: "unknown",
+      })
     }
 
-    if (segments.length === 0) {
-      return new NextResponse("No segments found in m3u8", { status: 404 })
-    }
+    // Step 5: Fetch the first variant to get AES key + segment count
+    const variantUrl = variants[0].url
+    const variantRes = await fetch(variantUrl, {
+      headers: { "User-Agent": UA, "Referer": "https://moviesapi.to/" },
+      redirect: "follow",
+      signal: AbortSignal.timeout(10000),
+    })
+    const variantPlaylist = await variantRes.text()
+    const variantBase = new URL(variantRes.url || variantUrl)
 
-    // Step 7: Check for AES encryption
-    let aesKey: Buffer | null = null
-    let aesIv: Buffer | null = null
-    for (const line of lines) {
-      if (line.includes("#EXT-X-KEY") && line.includes("METHOD=AES-128")) {
+    // Parse AES key
+    let aesKeyUrl: string | null = null
+    let aesIv: string | null = null
+    for (const line of variantPlaylist.split("\n")) {
+      if (line.includes("#EXT-X-KEY") && line.includes("AES-128")) {
         const uriMatch = line.match(/URI="([^"]+)"/)
         const ivMatch = line.match(/IV=0x([0-9a-fA-F]+)/)
-        if (uriMatch) {
-          try {
-            const keyUrl = new URL(uriMatch[1], baseUrl).href
-            const keyRes = await fetch(keyUrl, {
-              headers: { "User-Agent": UA, "Referer": "https://moviesapi.to/" },
-              signal: AbortSignal.timeout(10000),
-            })
-            if (keyRes.ok) {
-              aesKey = Buffer.from(await keyRes.arrayBuffer())
-              if (ivMatch) aesIv = Buffer.from(ivMatch[1], "hex")
-            }
-          } catch {}
-        }
+        if (uriMatch) aesKeyUrl = new URL(uriMatch[1], variantBase).href
+        if (ivMatch) aesIv = ivMatch[1]
       }
     }
 
-    // Step 8: Stream all segments concatenated
-    const { readable, writable } = new TransformStream()
-    const writer = writable.getWriter()
+    // Count segments
+    const segmentCount = variantPlaylist.split("\n").filter(l => l.trim() && !l.startsWith("#")).length
 
-    ;(async () => {
-      try {
-        for (let segIdx = 0; segIdx < segments.length; segIdx++) {
-          const segRes = await fetch(segments[segIdx], {
-            headers: { "User-Agent": UA, "Referer": "https://moviesapi.to/" },
-            redirect: "follow",
-            signal: AbortSignal.timeout(60000),
-          })
-          if (!segRes.ok) continue
-          const buf = await segRes.arrayBuffer()
-
-          if (aesKey) {
-            try {
-              const crypto = await import("crypto")
-              const iv = aesIv || Buffer.alloc(16)
-              if (!aesIv) iv.writeUInt32BE(segIdx, 12)
-              const decipher = crypto.createDecipheriv("aes-128-cbc", aesKey, iv)
-              const decrypted = Buffer.concat([
-                decipher.update(Buffer.from(buf)),
-                decipher.final(),
-              ])
-              writer.write(new Uint8Array(decrypted))
-            } catch {
-              writer.write(new Uint8Array(buf))
-            }
-          } else {
-            writer.write(new Uint8Array(buf))
-          }
-        }
-      } catch {} finally {
-        writer.close()
-      }
-    })()
-
-    const responseHeaders = new Headers()
-    responseHeaders.set("Content-Type", "video/mp2t")
-    responseHeaders.set("Content-Disposition", `attachment; filename="${filename}"`)
-    responseHeaders.set("Access-Control-Allow-Origin", "*")
-    responseHeaders.set("Access-Control-Expose-Headers", "Content-Disposition")
-    responseHeaders.set("Cache-Control", "no-store")
-
-    return new NextResponse(readable, { status: 200, headers: responseHeaders })
+    // Return all info to the client
+    return NextResponse.json({
+      success: true,
+      m3u8Url,
+      variants: variants.map(v => ({
+        url: v.url,
+        resolution: v.resolution,
+        quality: v.resolution.includes("1920") ? "1080p"
+          : v.resolution.includes("1280") ? "720p"
+          : v.resolution.includes("640") ? "480p"
+          : "auto",
+        bandwidth: v.bandwidth,
+      })),
+      aesKeyUrl,
+      aesIv,
+      segmentCount,
+      estimatedSize: `${Math.round(segmentCount * 3.4)} MB`, // rough estimate
+      referer: "https://moviesapi.to/",
+    })
   } catch (e) {
     const error = e instanceof Error ? e.message : "Unknown error"
-    return new NextResponse(`Download error: ${error}`, { status: 500 })
+    return NextResponse.json({ error: `Download error: ${error}` }, { status: 500 })
   }
 }
