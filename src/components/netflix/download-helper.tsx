@@ -3,8 +3,8 @@
 import { useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import {
-  Download, X, ExternalLink, Copy, Check, Terminal, AlertCircle,
-  Film, FileVideo, Link2, Monitor, ChevronDown, ChevronUp,
+  Download, X, Copy, Check, Loader2, AlertCircle, Film,
+  ExternalLink, Terminal, Server,
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { cn } from "@/lib/utils"
@@ -20,10 +20,49 @@ type Props = {
 export function DownloadHelper({ open, onClose, streamUrl, title, sourceId }: Props) {
   const { toast } = useToast()
   const [copied, setCopied] = useState<string | null>(null)
-  const [showGuide, setShowGuide] = useState(false)
+  const [downloading, setDownloading] = useState(false)
 
   const safeTitle = title.replace(/[<>:"/\\|?*]/g, "_").substring(0, 80)
-  const ytdlpCommand = `yt-dlp -o "${safeTitle}.%(ext)s" "${streamUrl}"`
+
+  // Extract imdbId from the stream URL or props
+  const imdbId = streamUrl.match(/(tt\d{7,8}|tmdb-\d+)/)?.[0] || ""
+  const isSeries = streamUrl.includes("/tv/") || streamUrl.includes("season")
+
+  const handleDownload = async (quality: string) => {
+    setDownloading(true)
+    const filename = `${safeTitle}.ts`
+    const params = new URLSearchParams({
+      imdbId,
+      type: isSeries ? "series" : "movie",
+      title: safeTitle,
+      ...(isSeries ? { season: "1", episode: "1" } : {}),
+    })
+    
+    toast({
+      title: "Download starting...",
+      description: `Fetching ${quality} from MoviesAPI server`,
+    })
+
+    try {
+      const a = document.createElement("a")
+      a.href = `/api/download-movie?${params}`
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      toast({
+        title: "Download started!",
+        description: filename,
+      })
+    } catch {
+      toast({
+        title: "Download failed",
+        description: "Could not start download. Try another method below.",
+        variant: "destructive",
+      })
+    }
+    setTimeout(() => setDownloading(false), 3000)
+  }
 
   const copy = (text: string, id: string) => {
     navigator.clipboard.writeText(text)
@@ -31,6 +70,14 @@ export function DownloadHelper({ open, onClose, streamUrl, title, sourceId }: Pr
     setTimeout(() => setCopied(null), 2000)
     toast({ title: "Copied!" })
   }
+
+  const ytdlpCommand = `yt-dlp -o "${safeTitle}.%(ext)s" "${streamUrl}"`
+
+  const qualityOptions = [
+    { label: "1080p", size: "~3 GB", desc: "Full HD" },
+    { label: "720p", size: "~1.5 GB", desc: "HD" },
+    { label: "480p", size: "~500 MB", desc: "SD" },
+  ]
 
   return (
     <AnimatePresence>
@@ -49,7 +96,6 @@ export function DownloadHelper({ open, onClose, streamUrl, title, sourceId }: Pr
             className="w-full max-w-md overflow-hidden rounded-2xl border border-white/10 bg-[#1a1a1a]"
             onClick={e => e.stopPropagation()}
           >
-            {/* Header */}
             <div className="flex items-center justify-between border-b border-white/5 px-5 py-4">
               <div className="flex items-center gap-2.5">
                 <div className="flex size-8 items-center justify-center rounded-lg bg-primary/20">
@@ -66,18 +112,44 @@ export function DownloadHelper({ open, onClose, streamUrl, title, sourceId }: Pr
             </div>
 
             <div className="max-h-[70vh] overflow-y-auto p-5 space-y-4">
-              {/* Info banner */}
-              <div className="flex items-start gap-2 rounded-xl border border-sky-500/10 bg-sky-500/5 p-3">
-                <AlertCircle className="size-3.5 shrink-0 text-sky-500/70" />
-                <p className="text-[10px] leading-relaxed text-sky-500/60">
-                  Streaming providers load videos via JavaScript. Use one of the methods below to download.
-                </p>
-              </div>
-
-              {/* Option 1: Open in new tab (most reliable) */}
+              {/* Server Download — REAL working download */}
               <div className="space-y-2">
                 <p className="text-[10px] font-bold uppercase tracking-wider text-white/30">
-                  Method 1: Open & Download
+                  Server Download (MoviesAPI)
+                </p>
+                {qualityOptions.map((opt) => (
+                  <button
+                    key={opt.label}
+                    onClick={() => handleDownload(opt.label)}
+                    disabled={downloading}
+                    className="flex w-full items-center gap-3 rounded-xl border border-white/5 bg-white/[0.03] p-3 text-left transition hover:border-primary/30 hover:bg-white/[0.06] disabled:opacity-50"
+                  >
+                    <div className="flex size-9 items-center justify-center rounded-lg bg-primary/20">
+                      <Server className="size-4 text-primary" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <p className="text-xs font-semibold text-white">{opt.label}</p>
+                        <span className="rounded bg-white/10 px-1.5 py-0.5 text-[9px] text-white/60">{opt.desc}</span>
+                      </div>
+                      <p className="text-[10px] text-white/40">{opt.size} · .ts file</p>
+                    </div>
+                    {downloading ? (
+                      <Loader2 className="size-4 animate-spin text-primary" />
+                    ) : (
+                      <Download className="size-4 text-white/40" />
+                    )}
+                  </button>
+                ))}
+              </div>
+
+              {/* Divider */}
+              <div className="border-t border-white/5" />
+
+              {/* Fallback: Open in new tab */}
+              <div className="space-y-2">
+                <p className="text-[10px] font-bold uppercase tracking-wider text-white/30">
+                  Fallback Options
                 </p>
                 <button
                   onClick={() => window.open(streamUrl, "_blank", "noopener,noreferrer")}
@@ -88,92 +160,42 @@ export function DownloadHelper({ open, onClose, streamUrl, title, sourceId }: Pr
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className="text-xs font-semibold text-white">Open Provider Page</p>
-                    <p className="text-[10px] text-white/40">Opens {sourceId} in a new tab — use the provider's download button or a browser extension</p>
+                    <p className="text-[10px] text-white/40">Download manually from {sourceId}</p>
                   </div>
                   <ExternalLink className="size-4 text-white/40" />
                 </button>
               </div>
 
-              {/* Option 2: yt-dlp (most powerful) */}
-              <div className="space-y-2">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-white/30">
-                  Method 2: yt-dlp (Best Quality)
-                </p>
-                <div className="rounded-xl border border-white/5 bg-black/40 p-3 space-y-2">
-                  <div className="flex items-center gap-2">
-                    <Terminal className="size-3.5 shrink-0 text-emerald-400/60" />
-                    <code className="min-w-0 flex-1 truncate text-[10px] text-emerald-400/80">
-                      {ytdlpCommand}
-                    </code>
-                    <button
-                      onClick={() => copy(ytdlpCommand, "ytdlp")}
-                      className="shrink-0 rounded-md bg-white/10 px-2 py-1 text-[10px] font-semibold text-white hover:bg-white/20"
-                    >
-                      {copied === "ytdlp" ? <Check className="size-3 text-emerald-400" /> : <Copy className="size-3" />}
-                    </button>
-                  </div>
-                  <button
-                    onClick={() => setShowGuide(!showGuide)}
-                    className="flex items-center gap-1 text-[10px] text-white/40 hover:text-white/60"
-                  >
-                    {showGuide ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />}
-                    {showGuide ? "Hide" : "Show"} setup guide
-                  </button>
-                  {showGuide && (
-                    <div className="space-y-1 text-[10px] leading-relaxed text-white/50">
-                      <p className="font-semibold text-white/70">Install yt-dlp:</p>
-                      <p>• Windows: <code className="text-emerald-400/70">winget install yt-dlp</code></p>
-                      <p>• Mac: <code className="text-emerald-400/70">brew install yt-dlp</code></p>
-                      <p>• Linux: <code className="text-emerald-400/70">pip install yt-dlp</code></p>
-                      <p className="mt-2 font-semibold text-white/70">Then paste the command above in your terminal.</p>
-                    </div>
-                  )}
-                </div>
+              {/* Copy URL */}
+              <div className="flex items-center gap-2 rounded-xl border border-white/5 bg-white/[0.03] p-3">
+                <Terminal className="size-4 shrink-0 text-white/30" />
+                <input
+                  readOnly
+                  value={streamUrl}
+                  className="min-w-0 flex-1 bg-transparent text-xs text-white/50 focus:outline-none"
+                />
+                <button
+                  onClick={() => copy(streamUrl, "url")}
+                  className="flex shrink-0 items-center gap-1 rounded-md bg-white/10 px-2 py-1 text-[10px] font-semibold text-white transition hover:bg-white/20"
+                >
+                  {copied === "url" ? <Check className="size-3 text-emerald-400" /> : <Copy className="size-3" />}
+                  {copied === "url" ? "Copied" : "Copy"}
+                </button>
               </div>
 
-              {/* Option 3: Copy stream URL */}
-              <div className="space-y-2">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-white/30">
-                  Method 3: Copy URL
-                </p>
-                <div className="flex items-center gap-2 rounded-xl border border-white/5 bg-white/[0.03] p-3">
-                  <Link2 className="size-4 shrink-0 text-white/30" />
-                  <input
-                    readOnly
-                    value={streamUrl}
-                    className="min-w-0 flex-1 bg-transparent text-xs text-white/50 focus:outline-none"
-                  />
+              {/* yt-dlp */}
+              <div className="rounded-xl border border-white/5 bg-black/40 p-3">
+                <div className="flex items-center gap-2">
+                  <Terminal className="size-3.5 shrink-0 text-emerald-400/60" />
+                  <code className="min-w-0 flex-1 truncate text-[10px] text-emerald-400/80">
+                    {ytdlpCommand}
+                  </code>
                   <button
-                    onClick={() => copy(streamUrl, "url")}
-                    className="flex shrink-0 items-center gap-1 rounded-md bg-white/10 px-2 py-1 text-[10px] font-semibold text-white transition hover:bg-white/20"
+                    onClick={() => copy(ytdlpCommand, "ytdlp")}
+                    className="shrink-0 rounded-md bg-white/10 px-2 py-1 text-[10px] font-semibold text-white hover:bg-white/20"
                   >
-                    {copied === "url" ? <Check className="size-3 text-emerald-400" /> : <Copy className="size-3" />}
-                    {copied === "url" ? "Copied" : "Copy"}
+                    {copied === "ytdlp" ? <Check className="size-3 text-emerald-400" /> : <Copy className="size-3" />}
                   </button>
-                </div>
-                <p className="text-[10px] text-white/30">
-                  Paste into yt-dlp, IDM, or any download manager that supports HLS streaming.
-                </p>
-              </div>
-
-              {/* Option 4: Browser extension recommendation */}
-              <div className="space-y-2">
-                <p className="text-[10px] font-bold uppercase tracking-wider text-white/30">
-                  Method 4: Browser Extension
-                </p>
-                <div className="rounded-xl border border-white/5 bg-white/[0.03] p-3">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Monitor className="size-3.5 text-white/40" />
-                    <p className="text-xs font-semibold text-white">Video Downloader Extensions</p>
-                  </div>
-                  <div className="space-y-1 text-[10px] text-white/50">
-                    <p>• <a href="https://chromewebstore.google.com/detail/video-downloadhelper/lmgijlmpgpefjffgnghhfonigfcknlej" target="_blank" rel="noopener noreferrer" className="text-sky-400 hover:underline">Video DownloadHelper</a> — detects videos on any page</p>
-                    <p>• <a href="https://chromewebstore.google.com/detail/stream-recorder-download/hbcopbihchclgldldbcijnafgmccakm" target="_blank" rel="noopener noreferrer" className="text-sky-400 hover:underline">Stream Recorder</a> — downloads HLS streams</p>
-                    <p>• <a href="https://chromewebstore.google.com/detail/coco-m3u8-downloader/ilcbhgiplnpnaknfhkjkeaoeoecipamh" target="_blank" rel="noopener noreferrer" className="text-sky-400 hover:underline">Coco M3U8 Downloader</a> — downloads m3u8 streams</p>
-                  </div>
-                  <p className="mt-2 text-[10px] text-white/30">
-                    Install one, open the provider page (Method 1), then click the extension to download.
-                  </p>
                 </div>
               </div>
 
@@ -181,7 +203,7 @@ export function DownloadHelper({ open, onClose, streamUrl, title, sourceId }: Pr
               <div className="flex items-start gap-2 rounded-xl border border-yellow-500/10 bg-yellow-500/5 p-3">
                 <AlertCircle className="size-3.5 shrink-0 text-yellow-500/70" />
                 <p className="text-[10px] leading-relaxed text-yellow-500/60">
-                  Downloading copyrighted content may be illegal in your country. This tool is for personal use only.
+                  Downloading copyrighted content may be illegal in your country. For personal use only.
                 </p>
               </div>
             </div>
