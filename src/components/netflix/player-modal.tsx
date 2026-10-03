@@ -1378,7 +1378,30 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
               <ExternalLink className="h-3.5 w-3.5" />
             </button>
             <button
-              onClick={() => setDownloadOpen(true)}
+              onClick={() => {
+                // Direct download — uses /api/download?embed=<url> which:
+                // 1. Fetches the embed page server-side
+                // 2. Extracts the m3u8/mp4 URL (MixDrop unpack, VOE, generic patterns)
+                // 3. If m3u8: downloads all segments, decrypts AES-128, concatenates
+                // 4. Streams the result as a file download to the browser
+                const safeTitle = (displayTitle || title.title || "video").replace(/[<>:"/\\|?*]/g, "_").substring(0, 80)
+                const filename = `${safeTitle}.ts`
+                const params = new URLSearchParams({
+                  embed: playerUrl,
+                  filename,
+                  referer: `https://${sourceId}/`,
+                })
+                const a = document.createElement("a")
+                a.href = `/api/download?${params}`
+                a.download = filename
+                document.body.appendChild(a)
+                a.click()
+                document.body.removeChild(a)
+                toast({
+                  title: "Download started",
+                  description: `Extracting and downloading "${safeTitle}"...`,
+                })
+              }}
               className="inline-flex items-center gap-1.5 rounded-md bg-white/10 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-white/20"
               title={t("downloadVideo")}
             >
