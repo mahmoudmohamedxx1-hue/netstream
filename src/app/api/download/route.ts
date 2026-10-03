@@ -385,15 +385,35 @@ async function downloadHls(
       }
     }
 
-    // Step 3: Parse segment URLs
+    // Step 3: Parse segment URLs and check for AES encryption
     const segments = parseHlsSegments(playlist, playlistBaseUrl)
     if (segments.length === 0) {
       return new NextResponse("No segments found in m3u8", { status: 404 })
     }
 
+    // Check for EXT-X-KEY (AES-128 encryption) — based on the
+    // StreamingCommunity-downloader repo's approach
+    const keyInfo = parseHlsKey(playlist, playlistBaseUrl)
+    let aesKey: Buffer | null = null
+    let aesIv: Buffer | null = null
+    if (keyInfo) {
+      try {
+        const keyRes = await fetch(keyInfo.uri, {
+          headers,
+          redirect: "follow",
+          signal: AbortSignal.timeout(10000),
+        })
+        if (keyRes.ok) {
+          aesKey = Buffer.from(await keyRes.arrayBuffer())
+          // IV: from playlist or derived from segment index
+          if (keyInfo.iv) {
+            aesIv = Buffer.from(keyInfo.iv.replace("0x", ""), "hex")
+          }
+        }
+      } catch {}
+    }
+
     // Step 4: HEAD only the first few segments to estimate total size.
-    // HEADing all segments sequentially would be very slow for long videos
-    // (hundreds of segments × 5s timeout each = minutes of hanging).
     let totalSize = 0
     const sampleSize = Math.min(segments.length, 5)
     let sampleTotal = 0
@@ -401,18 +421,17 @@ async function downloadHls(
       sampleTotal += await getSegmentSize(segments[i], headers)
     }
     if (sampleTotal > 0 && sampleSize > 0) {
-      // Extrapolate: average segment size × total segments
       totalSize = Math.round((sampleTotal / sampleSize) * segments.length)
     }
 
-    // Step 5: Stream all segments concatenated
+    // Step 5: Stream all segments concatenated (with AES decryption if needed)
     const { readable, writable } = new TransformStream()
     const writer = writable.getWriter()
 
-    // Stream segments asynchronously (don't block the response)
     ;(async () => {
       try {
-        for (const segUrl of segments) {
+        for (let segIdx = 0; segIdx < segments.length; segIdx++) {
+          const segUrl = segments[segIdx]
           const segRes = await fetch(segUrl, {
             headers,
             redirect: "follow",
@@ -420,7 +439,29 @@ async function downloadHls(
           })
           if (!segRes.ok) continue
           const buf = await segRes.arrayBuffer()
-          writer.write(new Uint8Array(buf))
+
+          // Decrypt AES-128-CBC if encryption key was found
+          if (aesKey) {
+            try {
+              const crypto = await import("crypto")
+              // If no explicit IV, use segment index as IV (common pattern)
+              const iv = aesIv || Buffer.alloc(16)
+              if (!aesIv) {
+                iv.writeUInt32BE(segIdx, 12)
+              }
+              const decipher = crypto.createDecipheriv("aes-128-cbc", aesKey, iv)
+              const decrypted = Buffer.concat([
+                decipher.update(Buffer.from(buf)),
+                decipher.final(),
+              ])
+              writer.write(new Uint8Array(decrypted))
+            } catch {
+              // If decryption fails, write raw segment
+              writer.write(new Uint8Array(buf))
+            }
+          } else {
+            writer.write(new Uint8Array(buf))
+          }
         }
       } catch {
         // Best-effort — stop on error
@@ -540,4 +581,27 @@ async function getSegmentSize(
   } catch {
     return 0
   }
+}
+
+// Parse EXT-X-KEY from HLS playlist for AES decryption
+// Based on the StreamingCommunity-downloader repo's approach
+function parseHlsKey(
+  playlist: string,
+  base: URL
+): { uri: string; iv: string | null } | null {
+  const lines = playlist.split("\n")
+  for (const line of lines) {
+    const trimmed = line.trim()
+    if (trimmed.startsWith("#EXT-X-KEY") && trimmed.includes("METHOD=AES-128")) {
+      const uriMatch = trimmed.match(/URI="([^"]+)"/)
+      const ivMatch = trimmed.match(/IV=0x([0-9a-fA-F]+)/)
+      if (uriMatch) {
+        return {
+          uri: resolveUrl(uriMatch[1], base),
+          iv: ivMatch ? ivMatch[1] : null,
+        }
+      }
+    }
+  }
+  return null
 }
