@@ -110,6 +110,10 @@ test.describe("Mobile Edge Cases & UX @mobile", () => {
   })
 
   test("swipe content row right scrolls back", async ({ page }) => {
+    // Two sequential CDP touch swipes + momentum settle can exceed the
+    // default 30s budget when the worker is warm from prior tests —
+    // test.slow() triples it. Passes reliably in isolation.
+    test.slow()
     const scroller = page.locator(".netflix-row-scroller").first()
 
     // Swipe left first
