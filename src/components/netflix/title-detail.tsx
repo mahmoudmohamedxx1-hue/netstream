@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import {
   X, Play, Plus, Check, Star, Clock, Calendar, Film, Tv,
-  ChevronDown, Loader2, Users, Volume2, VolumeX, Download,
+  ChevronDown, Users, Volume2, VolumeX, Download,
 } from "lucide-react"
 import { Poster } from "./poster"
 import { TrailerIframe } from "./trailer-iframe"
@@ -224,6 +224,10 @@ function TitleDetailInner({ title, open, onClose, onPlay }: Props) {
                 )}
 
                 <div className="mt-4 flex flex-wrap gap-3">
+                  {/* CTA hierarchy (Netflix pattern): Play is the single primary
+                      action (white). My List is tertiary. Download is branded
+                      but secondary — outlined red that fills on hover — so it
+                      no longer out-competes Play. */}
                   <button onClick={handlePlay} className="inline-flex items-center gap-2 rounded-md bg-white px-8 py-3 text-sm font-bold text-black transition hover:bg-white/80">
                     <Play className="h-5 w-5 fill-black" />
                     {isSeries ? `${t("play")} S${selectedSeason} E${selectedEpisode}` : t("play")}
@@ -237,7 +241,7 @@ function TitleDetailInner({ title, open, onClose, onPlay }: Props) {
                   </button>
                   <button
                     onClick={() => setDownloadOpen(true)}
-                    className="inline-flex items-center gap-2 rounded-md bg-primary px-6 py-3 text-sm font-bold text-white transition hover:bg-primary/85"
+                    className="inline-flex items-center gap-2 rounded-md border border-primary/70 bg-primary/10 px-6 py-3 text-sm font-bold text-white transition hover:border-primary hover:bg-primary"
                     title={t("downloadVideo")}
                   >
                     <Download className="h-5 w-5" />
@@ -257,9 +261,35 @@ function TitleDetailInner({ title, open, onClose, onPlay }: Props) {
 
             {/* Body */}
             <div className="bg-[#0a0a0a] p-6 sm:p-8">
-              {loading && (
-                <div className="flex items-center gap-2 text-white/50"><Loader2 className="h-4 w-4 animate-spin" /> {t("loading")}…</div>
-              )}
+              {loading ? (
+                /* Skeleton that mirrors the loaded body (overview lines →
+                   genre pills → cast row) so there's no layout shift when the
+                   data lands, and no vague "Loading…" line. `.skeleton-shimmer`
+                   animates via CSS and is disabled under reduced motion. */
+                <div className="max-w-3xl" role="status" aria-label={t("loadingOverview")}>
+                  <div className="space-y-2.5">
+                    <div className="skeleton-shimmer h-3.5 w-full rounded" />
+                    <div className="skeleton-shimmer h-3.5 w-11/12 rounded" />
+                    <div className="skeleton-shimmer h-3.5 w-3/4 rounded" />
+                  </div>
+                  <div className="mt-4 flex gap-2">
+                    {Array.from({ length: 4 }).map((_, i) => (
+                      <div key={i} className="skeleton-shimmer h-7 w-20 rounded-full" />
+                    ))}
+                  </div>
+                  <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+                    {Array.from({ length: 8 }).map((_, i) => (
+                      <div key={i} className="flex items-center gap-3 rounded-lg bg-white/[0.03] p-2">
+                        <div className="skeleton-shimmer h-12 w-12 shrink-0 rounded-full" />
+                        <div className="min-w-0 flex-1 space-y-1.5">
+                          <div className="skeleton-shimmer h-3 w-4/5 rounded" />
+                          <div className="skeleton-shimmer h-2.5 w-3/5 rounded" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
 
               {/* Overview + genres */}
               {displayOverview && (

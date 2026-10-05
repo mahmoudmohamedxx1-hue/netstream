@@ -2,6 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
+import { motion, AnimatePresence, MotionConfig } from "framer-motion"
 import { Navbar } from "@/components/netflix/navbar"
 import { type CardTitle } from "@/components/netflix/content-card"
 import { PlayerModal, type PlayerTitle } from "@/components/netflix/player-modal"
@@ -29,9 +30,15 @@ type NavKey = "home" | "series" | "movies" | "mylist"
 
 export default function Home() {
   return (
-    <Suspense fallback={<div className="min-h-screen bg-[#0a0a0a]" />}>
-      <HomeContent />
-    </Suspense>
+    // reducedMotion="user": when the visitor's OS is set to "reduce motion",
+    // framer-motion automatically drops transform/layout springs (card pops,
+    // slide-ins, Ken Burns) and keeps only simple opacity fades. Paired with
+    // the `prefers-reduced-motion` block in globals.css for CSS animations.
+    <MotionConfig reducedMotion="user">
+      <Suspense fallback={<div className="min-h-screen bg-[#0a0a0a]" />}>
+        <HomeContent />
+      </Suspense>
+    </MotionConfig>
   )
 }
 
@@ -446,35 +453,49 @@ function HomeContent() {
       />
 
       <main className="flex-1" style={{ display: player || detail ? "none" : undefined }}>
-        {/* My List view */}
-        {nav === "mylist" ? (
-          <MyListView items={myListCards} onPlay={openDetail} onSearch={openSearch} />
-        ) : nav === "movies" ? (
-          <TmdbBrowseGrid type="movie" onPlay={openDetail} />
-        ) : nav === "series" ? (
-          <TmdbBrowseGrid type="series" onPlay={openDetail} />
-        ) : (
-          <>
-            {/* TMDB-powered home page (real posters, trending content).
-                Continue Watching is rendered INSIDE TmdbHome (below the hero,
-                above content rows) so it's positioned correctly and survives
-                the loading → content transition. */}
-            <TmdbHome
-              onPlay={openDetail}
-              onPlayNow={openPlayer}
-              myList={myListCards}
-              onPlayHistory={openPlayer}
-              keyboardNavEnabled={keyboardNavEnabled}
-            />
+        {/* View transition — subtle fade+slide when switching between Home /
+            Series / Movies / My List. `initial={false}` so the first paint is
+            instant (no animation on page load), `mode="wait"` so the outgoing
+            view exits before the new one mounts (no layout jump). Disabled
+            automatically for reduced-motion users via MotionConfig. */}
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={nav}
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.18, ease: "easeOut" }}
+          >
+            {/* My List view */}
+            {nav === "mylist" ? (
+              <MyListView items={myListCards} onPlay={openDetail} onSearch={openSearch} />
+            ) : nav === "movies" ? (
+              <TmdbBrowseGrid type="movie" onPlay={openDetail} />
+            ) : nav === "series" ? (
+              <TmdbBrowseGrid type="series" onPlay={openDetail} />
+            ) : (
+              <>
+                {/* TMDB-powered home page (real posters, trending content).
+                    Continue Watching is rendered INSIDE TmdbHome (below the hero,
+                    above content rows) so it's positioned correctly and survives
+                    the loading → content transition. */}
+                <TmdbHome
+                  onPlay={openDetail}
+                  onPlayNow={openPlayer}
+                  myList={myListCards}
+                  onPlayHistory={openPlayer}
+                  keyboardNavEnabled={keyboardNavEnabled}
+                />
 
-            {/* Library banner */}
-            <LibraryBanner onNav={(k) => handleSetNav(k as NavKey)} />
+                {/* Library banner */}
+                <LibraryBanner onNav={(k) => handleSetNav(k as NavKey)} />
 
-            {/* IMDB quick-launch banner */}
-            <ImdbBanner onOpen={openSearch} />
-
-          </>
-        )}
+                {/* IMDB quick-launch banner */}
+                <ImdbBanner onOpen={openSearch} />
+              </>
+            )}
+          </motion.div>
+        </AnimatePresence>
       </main>
 
       {(!player && !detail) && <Footer />}

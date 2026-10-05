@@ -73,6 +73,10 @@ const DICT: Record<Lang, Record<string, string>> = {
     searchPlay: "Search & play",
     // Search overlay
     searchPlaceholder: "Search for movies, series…",
+    recentSearches: "Recent searches",
+    clearRecentSearches: "Clear all",
+    // Loading skeletons
+    loadingOverview: "Loading overview…",
     searchAllTitles: "All titles · 11k database",
     playByImdb: "Play by IMDB ID",
     imdbIdPlaceholder: "e.g. tt0111161",
@@ -266,6 +270,10 @@ const DICT: Record<Lang, Record<string, string>> = {
     searchPlay: "ابحث وشغّل",
     // Search overlay
     searchPlaceholder: "ابحث عن أفلام، مسلسلات…",
+    recentSearches: "عمليات البحث الأخيرة",
+    clearRecentSearches: "مسح الكل",
+    // Loading skeletons
+    loadingOverview: "جارٍ تحميل الملخص…",
     searchAllTitles: "جميع العناوين · قاعدة 11 ألف",
     playByImdb: "تشغيل بمعرّف IMDB",
     imdbIdPlaceholder: "مثال: tt0111161",

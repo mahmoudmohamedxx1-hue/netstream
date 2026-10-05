@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
@@ -41,6 +41,15 @@ export const metadata: Metadata = {
     siteName: "NetStream",
     type: "website",
   },
+};
+
+// Browser-chrome + OS-level dark theming: paints the UI chrome (address bar
+// on mobile, title bar on desktop installs) in the app's near-black instead
+// of blinding white, and tells the browser this page is dark-rendered (no
+// white flash before hydration).
+export const viewport: Viewport = {
+  themeColor: "#0a0a0a",
+  colorScheme: "dark",
 };
 
 export default function RootLayout({

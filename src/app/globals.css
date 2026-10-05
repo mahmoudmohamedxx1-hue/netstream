@@ -424,6 +424,43 @@
   }
 }
 
+/* ── Keyboard accessibility ────────────────────────────────────────────────
+   Focus rings for keyboard users on ALL platforms (previously only Android
+   TV got outlines). `:focus-visible` only triggers for keyboard navigation,
+   so mouse/touch users never see the ring. */
+:focus-visible {
+  outline: 2px solid #e50914;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+/* Elements that already draw their own Tailwind focus ring get opted out of
+   the global outline so keyboard users never see a double ring. */
+[class*="focus:ring"]:focus-visible,
+[class*="focus:outline"]:focus-visible {
+  outline: none;
+}
+
+/* ── Reduced motion ────────────────────────────────────────────────────────
+   Respect the OS "reduce motion" setting:
+   • CSS animations/transitions collapse to (near-)instant.
+   • JS-driven animations are handled separately by wrapping the app in
+     <MotionConfig reducedMotion="user"> (framer-motion) — that disables
+     transform/layout springs while keeping opacity fades. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .skeleton-shimmer {
+    background: rgba(255, 255, 255, 0.05) !important;
+    animation: none !important;
+  }
+}
+
 /* Fire TV — Silk browser has limited JS support */
 @supports not (Promise.allSettled) {
   /* Disable complex animations that Silk can't handle */

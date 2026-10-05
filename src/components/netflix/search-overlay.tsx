@@ -13,12 +13,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { Search, X, Play, Film, Tv, Link2, Sparkles, Loader2, User } from "lucide-react"
+import { Search, X, Play, Film, Tv, Link2, Sparkles, Loader2, User, History } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Poster } from "./poster"
 import { CATALOG, type Title } from "@/lib/movies-data"
 import { normalizeImdbId } from "@/lib/vidsrc"
 import { useToast } from "@/hooks/use-toast"
+import { useLang } from "@/lib/lang-context"
 import { cn } from "@/lib/utils"
 
 type ImdbSearchItem = {
@@ -67,7 +68,25 @@ function roundRating(r: string | null | undefined): string | null {
   return n.toFixed(1)
 }
 
+// localStorage key for recent searches (max 6, most-recent-first).
+// Committed when the user actually PLAYS something from a search — that's
+// the moment the search proved useful.
+const RECENT_SEARCHES_KEY = "netstream:recent-searches"
+const RECENT_SEARCHES_MAX = 6
+
+function loadRecentSearches(): string[] {
+  try {
+    const raw = localStorage.getItem(RECENT_SEARCHES_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed.filter((v) => typeof v === "string").slice(0, RECENT_SEARCHES_MAX) : []
+  } catch {
+    return []
+  }
+}
+
 export function SearchOverlay({ open, onClose, onPlay }: Props) {
+  const { t } = useLang()
   const [query, setQuery] = useState("")
   const [imdb, setImdb] = useState("")
   const [type, setType] = useState<"movie" | "series">("movie")
@@ -103,6 +122,48 @@ export function SearchOverlay({ open, onClose, onPlay }: Props) {
     setSelectedIdx(-1)
     onClose()
   }, [onClose])
+
+  // ── Recent searches ────────────────────────────────────────────────────
+  // Loaded from localStorage when the overlay opens; rendered as chips
+  // above the trending suggestions. Committed by playAt()/playByImdb().
+  const [recentSearches, setRecentSearches] = useState<string[]>([])
+
+  useEffect(() => {
+    if (open) setRecentSearches(loadRecentSearches())
+  }, [open])
+
+  const persistRecents = useCallback((next: string[]) => {
+    setRecentSearches(next)
+    try { localStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(next)) } catch {}
+  }, [])
+
+  // Save a query to recents (deduped case-insensitively, most-recent-first,
+  // capped at 6). Ignored for queries under 2 chars.
+  const commitRecent = useCallback(
+    (q: string) => {
+      const v = q.trim()
+      if (v.length < 2) return
+      setRecentSearches((prev) => {
+        const next = [v, ...prev.filter((p) => p.toLowerCase() !== v.toLowerCase())].slice(0, RECENT_SEARCHES_MAX)
+        try { localStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(next)) } catch {}
+        return next
+      })
+    },
+    []
+  )
+
+  const removeRecent = useCallback(
+    (q: string) => {
+      setRecentSearches((prev) => {
+        const next = prev.filter((p) => p !== q)
+        try { localStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(next)) } catch {}
+        return next
+      })
+    },
+    []
+  )
+
+  const clearRecents = useCallback(() => persistRecents([]), [persistRecents])
 
   // Esc to close + lock scroll + ArrowUp/ArrowDown/Enter keyboard navigation.
   // We attach the keydown handler to `window` so it works even when the input
@@ -143,6 +204,7 @@ export function SearchOverlay({ open, onClose, onPlay }: Props) {
     async (idx: number) => {
       const entry = flatResults[idx]
       if (!entry) return
+      commitRecent(query)
       if (entry.kind === "catalog") {
         close()
         onPlay(entry.item)
@@ -212,7 +274,7 @@ export function SearchOverlay({ open, onClose, onPlay }: Props) {
         }
       }
     },
-    [flatResults, close, onPlay]
+    [flatResults, close, onPlay, commitRecent, query]
   )
 
   // Keyboard handler — attached to window so it works regardless of focus.
@@ -389,6 +451,7 @@ export function SearchOverlay({ open, onClose, onPlay }: Props) {
     if (type === "series") {
       t.overview = `Streaming series ${normalizedImdb} — Season ${season}, Episode ${episode} via vidsrc.`
     }
+    commitRecent(normalizedImdb)
     close()
     onPlay(t)
   }
@@ -649,6 +712,49 @@ export function SearchOverlay({ open, onClose, onPlay }: Props) {
                         </div>
                       )}
                     </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Recent searches — persisted to localStorage (max 6, most
+                recent first). Shown only while the query is empty, above the
+                trending suggestions. Tapping a chip refills the query; the x
+                removes one; "Clear all" wipes the list. */}
+            {!query.trim() && recentSearches.length > 0 && (
+              <div className="mt-6">
+                <div className="mb-3 flex items-center justify-between">
+                  <p className="flex items-center gap-2 text-xs uppercase tracking-wide text-white/40">
+                    <History className="h-3 w-3 text-white/50" />
+                    {t("recentSearches")}
+                  </p>
+                  <button
+                    onClick={clearRecents}
+                    className="text-[11px] font-medium text-white/40 transition hover:text-white"
+                  >
+                    {t("clearRecentSearches")}
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {recentSearches.map((q) => (
+                    <span
+                      key={q}
+                      className="flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.05] py-1 pl-3 pr-1.5 transition hover:border-white/30"
+                    >
+                      <button
+                        onClick={() => { setQuery(q); inputRef.current?.focus() }}
+                        className="text-xs font-medium text-white/80 transition hover:text-white"
+                      >
+                        {q}
+                      </button>
+                      <button
+                        onClick={() => removeRecent(q)}
+                        aria-label={`Remove ${q}`}
+                        className="rounded-full p-0.5 text-white/30 transition hover:bg-white/10 hover:text-white"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
                   ))}
                 </div>
               </div>
