@@ -3619,3 +3619,27 @@ Stage Summary:
 - Download system v2 fully working end-to-end (was completely broken before)
 - All deliverables in /home/z/my-project (repo root), pushed to GitHub main
 - Key artifacts: src/app/api/hls-proxy/route.ts, src/app/api/download-file/route.ts, src/lib/download-sources.ts, src/components/netflix/download-helper.tsx, public/ffmpeg/*
+
+---
+Task ID: 2
+Agent: Super Z (main agent)
+Task: UI/UX enhancement batch v2 (post-download-system)
+
+Work Log:
+- Visual audit via agent-browser + VLM (home, detail modal, search, My List)
+- Implemented 7 enhancements:
+  1. prefers-reduced-motion: <MotionConfig reducedMotion="user"> in page.tsx + @media (prefers-reduced-motion) CSS block in globals.css
+  2. :focus-visible 2px #e50914 rings globally (was Android-TV-only); Tailwind focus:ring users opted out
+  3. Detail modal CTA: Play=white primary, Download=border-primary/70 bg-primary/10 (secondary), was red-solid out-competing Play
+  4. Detail loading skeleton: 31 shimmer blocks (3 overview + 4 pills + 8 cast x3), role=status aria-label
+  5. viewport export: themeColor #0a0a0a + colorScheme dark (layout.tsx)
+  6. Recent searches: localStorage netstream:recent-searches (max 6), commitRecent in playAt/playByImdb, chips + remove + clear-all, i18n EN+AR (recentSearches/clearRecentSearches/loadingOverview)
+  7. Nav view transitions: AnimatePresence mode=wait initial=false, 180ms fade+slide keyed by nav
+- Fixed stray i18n commas (dlConverting/dlProbing) from previous session
+- E2E verified: theme-color meta; nav ?nav=series transition; recents flow (search dune -> play -> localStorage ["dune"] -> chips render -> chip refill works); skeleton deterministically verified by hanging fetch (Runner: role=status + 31 blocks); focus-visible computed rgb(229,9,20) solid 2px; RTL Arabic (dir=rtl, rows in Arabic); mobile 390px My List; zero page errors after reload
+- ESLint 0/0 src-wide; tsc 0 errors in src/ (examples/skills noise pre-existing)
+- Committed 00d0bb8, pushed to GitHub main
+
+Stage Summary:
+- 7 verified UI/UX upgrades live: reduced-motion a11y, keyboard focus rings, CTA hierarchy, loading skeleton, dark chrome, recent searches, view transitions
+- Files: page.tsx, layout.tsx, globals.css, title-detail.tsx, search-overlay.tsx, use-language.ts
