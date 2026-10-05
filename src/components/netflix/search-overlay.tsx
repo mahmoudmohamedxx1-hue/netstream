@@ -57,6 +57,9 @@ type Props = {
   open: boolean
   onClose: () => void
   onPlay: (t: Title) => void
+  /** Direct-to-player play — used by the "Play by IMDB ID" panel, which
+   *  promises "Stream it instantly". Falls back to onPlay (detail view). */
+  onPlayDirect?: (t: Title) => void
 }
 
 // Round a TMDB rating for display (the search API returns vote_average as a
@@ -85,7 +88,7 @@ function loadRecentSearches(): string[] {
   }
 }
 
-export function SearchOverlay({ open, onClose, onPlay }: Props) {
+export function SearchOverlay({ open, onClose, onPlay, onPlayDirect }: Props) {
   const { t } = useLang()
   const [query, setQuery] = useState("")
   const [imdb, setImdb] = useState("")
@@ -453,7 +456,10 @@ export function SearchOverlay({ open, onClose, onPlay }: Props) {
     }
     commitRecent(normalizedImdb)
     close()
-    onPlay(t)
+    // The IMDB panel's promise is "Stream it instantly" — skip the detail
+    // view and open the player directly (like the standalone ImdbPlayDialog).
+    const play = onPlayDirect ?? onPlay
+    play(t)
   }
 
   return (
@@ -468,6 +474,20 @@ export function SearchOverlay({ open, onClose, onPlay }: Props) {
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           onClick={close}
+          // Escape via React synthetic events. The window-level keydown
+          // listener above is unreliable in production: real (trusted)
+          // keydowns can coincide with a re-render that cycles the effect
+          // and detaches the listener, leaving Escape dead while focus is
+          // inside the overlay. The synthetic onKeyDown fires on the event's
+          // normal propagation through this div, which is immune to that
+          // cycle. stopPropagation keeps the window handler from
+          // double-calling close().
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              e.stopPropagation()
+              close()
+            }
+          }}
         >
           <motion.div
             className="mx-auto w-full max-w-4xl px-4 py-6 sm:py-10"

@@ -62,6 +62,10 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   themeColor: "#0a0a0a",
   colorScheme: "dark",
+  // maximumScale 5 allows user zoom (never disable — a11y) while preventing
+  // layout breakage on TV browsers. viewportFit cover supports notched phones.
+  maximumScale: 5,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({
@@ -72,9 +76,9 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark" suppressHydrationWarning>
       <head>
-        {/* Viewport — supports all devices including Smart TV browsers.
-            maximum-scale=5 allows zoom but prevents layout breakage on TV. */}
-        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, viewport-fit=cover" />
+        {/* NOTE: no manual <meta name="viewport"> here — Next generates it
+            from the `viewport` export above. A manual meta alongside the
+            export produced TWO viewport tags in the DOM. */}
         {/* iOS standalone install support. Next's appleWebApp metadata emits
             the modern `mobile-web-app-capable` alias; older iOS Safari (≤16)
             only honors the classic `apple-mobile-web-app-capable` spelling. */}

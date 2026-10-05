@@ -3687,3 +3687,22 @@ Stage Summary:
 - Security register: SSRF (high) + PiP XSS (medium) OPEN with remediation plan; iframe hijack MITIGATED
 - Test suite repaired from 0% runnable to deterministic; WebKit profile blocked by container (needs CI/macOS)
 - Deliverables: PDF report, api-health-check.sh, playwright-final.log, 5 evidence screenshots
+---
+Task ID: 5
+Agent: Super Z (main agent)
+Task: Deep analysis round 2 — triage all 21 Playwright failures from suite v1, fix real bugs vs stale tests
+
+Work Log:
+- Suite v1 result: 34/55 passed. Triaged all 21 failures into real bugs vs stale test code
+- REAL BUG (fixed): Escape dead in search overlay — real trusted keydowns coincide with a re-render that cycles the effect and detaches the window keydown listener (synthetic events fire it, trusted ones don't; proven via React fiber inspection + stack-trace tracing of setSearchOpen). Fix: React synthetic onKeyDown on the overlay root (immune to effect cycles), stopPropagation to avoid double-close. Verified 3/3 real-keypress round-trips
+- REAL BUG (fixed): "Play by IMDB ID" detoured through detail view despite "Stream it instantly" promise — 6 player-test failures shared this root cause. Fix: onPlayDirect prop routes the IMDB panel straight to the player (search cards keep detail flow)
+- REAL BUG (fixed): footer social links were 20px bare icons (< 44px tap target) — padded to 44px with negative-margin compensation
+- REAL BUG (fixed): duplicate viewport meta tags (manual + Next viewport export) — removed manual meta, folded maximumScale/viewportFit into the Viewport export
+- STALE TESTS (fixed): forced 0.85 zoom expectation -> assert a11y-correct viewport (initial-scale=1, no user-scalable=no); 3 backup-sites tests deleted (feature removed from product); tap-outside-player now asserts player STAYS open (fullscreen players must not backdrop-dismiss)
+- TEST INFRA (fixed): swipeHorizontal mixed touchscreen.tap + MOUSE drag (mouse never scrolls touch-pan scrollers) -> CDP Input.dispatchTouchEvent real touch swipe; 3G throttling via context.route leaked handlers across tests ("Route is already handled!") -> per-page CDP Network.emulateNetworkConditions + try/finally; scroll-arrow test now scopes arrow+scroller to the same section (first-arrow vs first-scroller mixed rows)
+- ESLint 0/0, tsc 0 src errors; all fixes rebuilt and verified on production build
+
+Stage Summary:
+- Suite trajectory: 0% runnable -> 34/55 -> 46/55 (v2, before final fixes) -> v3 running
+- 4 more real bugs fixed this round (Escape, IMDB instant-play, footer tap targets, viewport meta)
+- Remaining known-open: SSRF allowlists (SEC-1), PiP label XSS (SEC-2), heading hierarchy, hero dead-trailer fallback

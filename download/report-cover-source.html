@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<style>
+  @page { size: 794px 1123px; margin: 0; }
+  html, body { margin: 0; padding: 0; background: #f7f7f6; }
+  .poster {
+    position: relative; width: 794px; height: 1123px;
+    background: #f7f7f6;
+    font-family: 'Carlito', 'Liberation Sans', sans-serif;
+    color: #161614;
+  }
+  /* Layer 1 — background grid (clipped) */
+  .bg-layer {
+    position: absolute; inset: 0; overflow: hidden; z-index: 1;
+  }
+  .grid {
+    position: absolute; inset: 0;
+    background-image:
+      linear-gradient(to right, rgba(79,72,49,0.05) 0.5px, transparent 0.5px),
+      linear-gradient(to bottom, rgba(79,72,49,0.05) 0.5px, transparent 0.5px);
+    background-size: 50px 50px;
+  }
+  /* Layer 2 — structure */
+  .struct-layer { position: absolute; inset: 0; z-index: 2; }
+  .anchor-line {
+    position: absolute; left: 95px; top: 112px; bottom: 112px;
+    width: 8px; background: #4f4831;
+  }
+  /* Layer 3 — content */
+  .content-layer { position: absolute; inset: 0; z-index: 3; }
+  .kicker {
+    position: absolute; left: 148px; top: 168px;
+    font-size: 21px; font-weight: 400; letter-spacing: 4px;
+    text-transform: uppercase; color: rgba(22,22,20,0.6);
+  }
+  .hero {
+    position: absolute; left: 148px; top: 300px; width: 560px;
+    font-size: 84px; line-height: 1.12; font-weight: 700;
+    color: #161614; letter-spacing: -1px;
+  }
+  .hero .accent { color: #927520; }
+  .summary {
+    position: absolute; left: 148px; top: 596px; width: 476px;
+    font-size: 22px; line-height: 1.6; color: rgba(22,22,20,0.85);
+  }
+  .meta {
+    position: absolute; left: 148px; top: 842px;
+    font-size: 21px; line-height: 1.75; color: #161614;
+  }
+  .meta .label { color: rgba(22,22,20,0.55); }
+  .footer {
+    position: absolute; left: 148px; bottom: 130px;
+    font-size: 16px; letter-spacing: 3px; text-transform: uppercase;
+    color: rgba(22,22,20,0.6);
+  }
+  @media screen {
+    html { background: #f7f7f6; }
+    body { transform-origin: top left; }
+  }
+</style>
+</head>
+<body>
+<div class="poster">
+  <div class="bg-layer"><div class="grid"></div></div>
+  <div class="struct-layer"><div class="anchor-line"></div></div>
+  <div class="content-layer">
+    <div class="kicker">Deep Analysis &amp; Quality Assurance Report</div>
+    <div class="hero">NetStream<br>Health Check</div>
+    <div class="summary">
+      A full-spectrum audit of the NetStream streaming platform — static analysis,
+      API health, end-to-end journeys, mobile and RTL layouts, PWA behaviour,
+      accessibility, security probing, and performance — executed against the
+      production build, with every finding verified, reproduced, and prioritized.
+    </div>
+    <div class="meta">
+      <div><span class="label">Scope&nbsp;&nbsp;·&nbsp;&nbsp;</span>Production build · 25 routes · 55-test E2E suite</div>
+      <div><span class="label">Verdict&nbsp;&nbsp;·&nbsp;&nbsp;</span>Functionally healthy — 2 security items open</div>
+      <div><span class="label">Date&nbsp;&nbsp;·&nbsp;&nbsp;</span>October 5, 2026</div>
+    </div>
+    <div class="footer">Prepared by Z.ai · Engineering Audit</div>
+  </div>
+</div>
+</body>
+</html>

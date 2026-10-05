@@ -84,18 +84,35 @@ export abstract class BasePage {
     const endX = direction === "left" ? startX - distance : startX + distance
     const midY = box.y + box.height / 2
 
-    await this.page.touchscreen.tap(startX, midY) // Focus
-    await this.page.mouse.move(startX, midY)
-    await this.page.mouse.down()
-    // Simulate swipe with intermediate points for smooth scrolling
-    const steps = 10
-    for (let i = 1; i <= steps; i++) {
-      const x = startX + ((endX - startX) * i) / steps
-      await this.page.mouse.move(x, midY)
-      await this.page.waitForTimeout(20)
+    // Real touch swipe via CDP. The old implementation mixed touchscreen.tap
+    // with MOUSE drag events — mouse drags never scroll a touch-pan scroller,
+    // so every swipe test failed. Chromium's Input.dispatchTouchEvent drives
+    // the same pipeline a real finger uses.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const cdp = await (this.page.context() as any).newCDPSession(this.page)
+    try {
+      await cdp.send("Input.dispatchTouchEvent", {
+        type: "touchStart",
+        touchPoints: [{ x: startX, y: midY }],
+      })
+      const steps = 10
+      for (let i = 1; i <= steps; i++) {
+        const x = startX + ((endX - startX) * i) / steps
+        await cdp.send("Input.dispatchTouchEvent", {
+          type: "touchMove",
+          touchPoints: [{ x, y: midY }],
+        })
+        await this.page.waitForTimeout(20)
+      }
+      await cdp.send("Input.dispatchTouchEvent", {
+        type: "touchEnd",
+        touchPoints: [],
+      })
+    } finally {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (cdp as any).detach()
     }
-    await this.page.mouse.up()
-    await this.page.waitForTimeout(500) // Let momentum settle
+    await this.page.waitForTimeout(600) // Let momentum/snap settle
   }
 
   /** Long-press an element (mobile hover replacement) */
@@ -156,24 +173,48 @@ export abstract class BasePage {
   }
 
   // ── Network Throttling ───────────────────────────────────────────────────
-  async enableSlow3G() {
-    const ctx = this.page.context()
-    await ctx.route("**/*", (route) => {
-      // Simulate Slow 3G: ~400ms delay per request
-      setTimeout(() => route.continue(), 400)
+  // CDP-based network emulation. The previous context.route("**/*") approach
+  // leaked handlers across tests: any test that failed before calling
+  // disableThrottling left its route registered, and the next 3G test then
+  // double-handled requests ("Route is already handled!"). A per-page CDP
+  // session dies with the page, so leaks are impossible.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private _netCdp: any = null
+
+  private async emulateNetwork(latencyMs: number, throughputKbps: number) {
+    await this.disableThrottling()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    this._netCdp = await (this.page.context() as any).newCDPSession(this.page)
+    await this._netCdp.send("Network.enable")
+    await this._netCdp.send("Network.emulateNetworkConditions", {
+      offline: false,
+      latency: latencyMs,
+      downloadThroughput: (throughputKbps * 1024) / 8,
+      uploadThroughput: (throughputKbps * 1024) / 8,
     })
+  }
+
+  async enableSlow3G() {
+    // ~400 ms RTT, ~400 kbps — Chrome DevTools "Slow 3G" preset
+    await this.emulateNetwork(400, 400)
   }
 
   async enableFast3G() {
-    const ctx = this.page.context()
-    await ctx.route("**/*", (route) => {
-      // Simulate Fast 3G: ~150ms delay per request
-      setTimeout(() => route.continue(), 150)
-    })
+    // ~150 ms RTT, ~1.6 Mbps — Chrome DevTools "Fast 3G" preset
+    await this.emulateNetwork(150, 1600)
   }
 
   async disableThrottling() {
-    await this.page.context().unroute("**/*")
+    if (this._netCdp) {
+      try {
+        await this._netCdp.send("Network.emulateNetworkConditions", {
+          offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1,
+        })
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (this._netCdp as any).detach()
+      } catch { /* session already dead with the page */ }
+      this._netCdp = null
+    }
   }
 
   // ── Screenshot Helpers ───────────────────────────────────────────────────

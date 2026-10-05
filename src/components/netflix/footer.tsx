@@ -44,16 +44,16 @@ export function Footer() {
         </div>
 
         <div className="mb-6 flex items-center gap-4">
-          <a href="#" aria-label="GitHub" className="transition hover:text-white">
+          <a href="#" aria-label="GitHub" className="inline-flex -m-2 items-center justify-center p-3 transition hover:text-white">
             <Github className="h-5 w-5" />
           </a>
-          <a href="#" aria-label="Twitter" className="transition hover:text-white">
+          <a href="#" aria-label="Twitter" className="inline-flex -m-2 items-center justify-center p-3 transition hover:text-white">
             <Twitter className="h-5 w-5" />
           </a>
-          <a href="#" aria-label="Instagram" className="transition hover:text-white">
+          <a href="#" aria-label="Instagram" className="inline-flex -m-2 items-center justify-center p-3 transition hover:text-white">
             <Instagram className="h-5 w-5" />
           </a>
-          <a href="#" aria-label="YouTube" className="transition hover:text-white">
+          <a href="#" aria-label="YouTube" className="inline-flex -m-2 items-center justify-center p-3 transition hover:text-white">
             <Youtube className="h-5 w-5" />
           </a>
         </div>

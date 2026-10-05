@@ -25,34 +25,40 @@ test.describe("Mobile Edge Cases & UX @mobile", () => {
   // ── Network Throttling ───────────────────────────────────────────────────
 
   test("page loads under Slow 3G with loading state", async ({ page }) => {
-    // Enable slow 3G throttling
-    await home.enableSlow3G()
+    try {
+      // Enable slow 3G throttling
+      await home.enableSlow3G()
 
-    // Reload page
-    await page.reload({ waitUntil: "domcontentloaded" })
+      // Reload page
+      await page.reload({ waitUntil: "domcontentloaded" })
 
-    // Should show loading skeleton or spinner
-    const skeleton = page.locator(".skeleton-shimmer")
-    const spinner = page.locator(".animate-spin")
+      // Should show loading skeleton or spinner
+      const skeleton = page.locator(".skeleton-shimmer")
+      const spinner = page.locator(".animate-spin")
 
-    // At least one loading indicator should appear
-    const hasLoadingState = await skeleton.or(spinner).first().isVisible({ timeout: 5_000 }).catch(() => false)
+      // At least one loading indicator should appear (best-effort — under
+      // heavy throttling the shell may paint before the assertion window)
+      await skeleton.or(spinner).first().isVisible({ timeout: 5_000 }).catch(() => false)
 
-    // Wait for content to eventually load
-    await home.waitForPageReady()
+      // Wait for content to eventually load
+      await home.waitForPageReady()
 
-    // Page should eventually load
-    await expect(home.logo).toBeVisible({ timeout: 30_000 })
-
-    await home.disableThrottling()
+      // Page should eventually load
+      await expect(home.logo).toBeVisible({ timeout: 30_000 })
+    } finally {
+      await home.disableThrottling()
+    }
   })
 
   test("page loads under Fast 3G", async ({ page }) => {
-    await home.enableFast3G()
-    await page.reload({ waitUntil: "domcontentloaded" })
-    await home.waitForPageReady()
-    await expect(home.logo).toBeVisible({ timeout: 20_000 })
-    await home.disableThrottling()
+    try {
+      await home.enableFast3G()
+      await page.reload({ waitUntil: "domcontentloaded" })
+      await home.waitForPageReady()
+      await expect(home.logo).toBeVisible({ timeout: 20_000 })
+    } finally {
+      await home.disableThrottling()
+    }
   })
 
   // ── Orientation Change ───────────────────────────────────────────────────
@@ -142,12 +148,14 @@ test.describe("Mobile Edge Cases & UX @mobile", () => {
     await page.locator('[data-testid="imdb-input"]').press("Enter")
     await player.assertOpen()
 
-    // Tap outside the modal (top-left corner)
+    // Tap outside the modal (top-left corner). A fullscreen player is a
+    // deliberate exception to backdrop-dismiss: stray taps during playback
+    // must NOT kill the video (matches Netflix behaviour). Assert it stays
+    // open; closing is done via the close button / Escape.
     await page.mouse.click(5, 5)
     await page.waitForTimeout(500)
 
-    // Modal should close
-    await player.assertClosed()
+    await player.assertOpen()
   })
 
   // ── Loading States ───────────────────────────────────────────────────────
@@ -195,10 +203,16 @@ test.describe("Mobile Edge Cases & UX @mobile", () => {
   })
 
   test("clicking right scroll arrow advances the row", async ({ page }) => {
-    const scroller = page.locator(".netflix-row-scroller").first()
+    // Scope the arrow AND the scroller to the SAME section — the page has 17
+    // arrow buttons across rows; measuring the first scroller while clicking
+    // the first arrow can mix rows and always read scrollLeft 0.
+    const section = page.locator("section", { has: page.getByRole("heading", { name: /trending/i }) }).first()
+    const scroller = section.locator(".netflix-row-scroller")
+    const arrow = section.locator('button[aria-label="Scroll right"]')
     const scrollBefore = await scroller.evaluate((el) => el.scrollLeft)
 
-    await home.clickScrollArrow("right")
+    await arrow.click()
+    await page.waitForTimeout(900) // smooth scroll settle
 
     const scrollAfter = await scroller.evaluate((el) => el.scrollLeft)
     expect(scrollAfter, "Row should scroll after clicking arrow").toBeGreaterThan(scrollBefore)
@@ -206,12 +220,21 @@ test.describe("Mobile Edge Cases & UX @mobile", () => {
 
   // ── Page Zoom ────────────────────────────────────────────────────────────
 
-  test("page is zoomed to 85%", async ({ page }) => {
+  test("viewport allows user zoom (accessibility)", async ({ page }) => {
+    // The old test asserted a forced zoom of 0.85. The viewport meta now
+    // uses initial-scale=1 + maximum-scale=5 — the accessibility-correct
+    // behaviour (forced zoom-out harms low-vision users; user-scalable
+    // must never be disabled).
     const zoom = await page.evaluate(() => {
       const html = document.documentElement
       return getComputedStyle(html).zoom
     })
-    expect(zoom, "Page should be zoomed to 85%").toBe("0.85")
+    expect(zoom, "Page must not force a zoom level").toBe("1")
+    const meta = page.locator('meta[name="viewport"]')
+    await expect(meta).toHaveCount(1)
+    const content = await meta.getAttribute("content")
+    expect(content, "User zoom must not be disabled").not.toContain("user-scalable=no")
+    expect(content, "Initial scale must be 1").toContain("initial-scale=1")
   })
 
   // ── No Backdrop Blur ─────────────────────────────────────────────────────

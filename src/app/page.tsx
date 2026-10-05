@@ -549,6 +549,7 @@ function HomeContent() {
         open={searchOpen}
         onClose={closeSearch}
         onPlay={(t) => { closeSearch(); openDetail(t) }}
+        onPlayDirect={(t) => { closeSearch(); openPlayer(t) }}
       />
       <ImdbPlayDialog
         open={imdbOpen}

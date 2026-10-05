@@ -114,23 +114,8 @@ test.describe("Mobile Navigation & Layout @mobile", () => {
     }
   })
 
-  // ── Backup Sites ─────────────────────────────────────────────────────────
-
-  test("backup sites section is at the bottom", async () => {
-    await home.scrollToBackupSites()
-    await expect(home.backupSitesSection).toBeVisible()
-  })
-
-  test("backup site links open in new tabs", async () => {
-    await home.scrollToBackupSites()
-    await home.assertBackupSitesPresent()
-  })
-
-  test("backup site links meet tap target size", async () => {
-    await home.scrollToBackupSites()
-    const firstLink = home.backupSiteLinks.first()
-    await home.assertTapTargetSize(firstLink, 44)
-  })
+  // NOTE: the "Backup Sites" section tests were removed — the feature itself
+  // was deleted from the product in the deep-audit cleanup pass.
 
   // ── Footer ───────────────────────────────────────────────────────────────
 
