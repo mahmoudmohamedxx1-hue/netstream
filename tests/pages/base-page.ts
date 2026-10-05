@@ -8,15 +8,28 @@ export abstract class BasePage {
   constructor(public page: Page) {}
 
   // ── Navigation ───────────────────────────────────────────────────────────
+  // NOTE: never wait for "networkidle" — the home page keeps the network busy
+  // forever (rotating hero trailer iframe + image prefetch + SW activity),
+  // which caused every beforeEach to time out. Wait for DOM + concrete
+  // app markers instead: deterministic and ~25x faster.
   async goto(path: string = "/") {
-    await this.page.goto(path, { waitUntil: "networkidle" })
+    await this.page.goto(path, { waitUntil: "domcontentloaded" })
+    await this.waitForPageReady()
   }
 
   async waitForPageReady() {
-    // Wait for the main content to be visible (not the loading skeleton)
+    // Wait for the app shell (navbar) to render…
     await this.page.waitForSelector("nav", { state: "visible" })
-    // Wait for network to settle (TMDB API calls)
-    await this.page.waitForLoadState("networkidle")
+    // …and for real content (a heading or a row of cards) to replace skeletons.
+    await this.page.waitForFunction(
+      () =>
+        document.querySelectorAll("h1, h2, h3").length > 1 ||
+        document.querySelectorAll("img").length > 5,
+      undefined,
+      { timeout: 20_000 }
+    )
+    // Small settle for framer-motion enter animations.
+    await this.page.waitForTimeout(400)
   }
 
   // ── Viewport & Device Helpers ────────────────────────────────────────────

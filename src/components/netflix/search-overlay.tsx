@@ -486,6 +486,7 @@ export function SearchOverlay({ open, onClose, onPlay }: Props) {
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder="Search titles, people, or paste an IMDB id…"
+                  aria-label={t("search")}
                   enterKeyHint="search"
                   inputMode="search"
                   className="h-14 rounded-full border-white/15 bg-white/10 pl-12 pr-4 text-base text-white placeholder:text-white/40"

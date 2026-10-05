@@ -3664,3 +3664,26 @@ Stage Summary:
 - 3 features live: persistent downloads panel w/ re-download round-trip, PWA installable + offline, player drag-to-close
 - 1 latent router bug fixed (URL sync now works for all overlay open/close paths)
 - Files: download-history.ts (new), downloads-panel.tsx (new), pwa-register.tsx (new), download-helper.tsx, navbar.tsx, player-modal.tsx, page.tsx, layout.tsx, sw.js, manifest.json, use-language.ts
+---
+Task ID: 4
+Agent: Super Z (main agent)
+Task: Deep analysis + full-spectrum testing: establish where NetStream stands and what to do next
+
+Work Log:
+- Inventory: git state clean (2 worklog-only commits), 25 API routes, 40+ components; switched dev server -> production build for honest testing
+- Static: ESLint 0/0, tsc 0 errors in src/, production build clean (25 routes)
+- API health script (scripts/api-health-check.sh): 16 endpoint probes — all pass; tmdb/season needs tmdbId (not a bug); provider-stats driven by user reports; download-movie probes real variants (6.8s, cached); gzip active (369KB->129KB); check-servers: 13/25 providers alive
+- Security: SSRF CONFIRMED on hls-proxy + video-proxy (127.0.0.1 round-trip); PiP label XSS open (innerHTML + TMDB data); .env in git history (SQLite URL only — hygiene); TMDB key hardcoded fallback; no CSRF on watchlist POST
+- E2E journeys (production, agent-browser): home render (20 rows/676 imgs/0 console errors), detail view, play (correct ttID chain), search+recents persistence, downloads panel empty/seeded/remove/clear, My List DB round-trip, mobile 390/412, RTL Arabic, PWA offline shell — 9/9 pass
+- REGRESSION FOUND by Playwright: navbar Downloads button pushed Search/Downloads off-screen at <=412px (right edges 475/519px). FIXED: responsive logo (120px/18px font at base, 165px sm+), GooeyNav px-1.5 base, lang toggle icon-only <sm with min-w-9 (36px tap target), tighter gaps. Verified: all controls <=382px at 390px; desktop unchanged
+- A11y fixes: GooeyNav ariaLabel prop (icon-only mobile nav now named), search input aria-label; found: page has no h1/h2 (roadmap item); 726/726 imgs have alt; i18n 191/191 EN/AR key parity
+- IFRAME HIJACK FOUND: embed ad-script navigated top window to about:blank on server switch. Tried sandbox x2 — vidcore refuses ("can't be embedded in a sandboxed frame"), reverted. Shipped scoped beforeunload guard instead (SPA has zero legit unload navigations); verified: 3x server switch no hijack, player functional
+- Test infra: base-page networkidle -> domcontentloaded + content markers (beforeEach timeouts killed all 55 tests; now deterministic + ~25x faster); search POM scoped to overlay; navigateTo clicks visible buttons; hero Play locator anchored; installed Playwright chromium (webkit blocked by missing system libs — env limitation)
+- Cleanup: removed 7 unused deps (aws-sdk, dnd-kit x3, mdxeditor, hookform resolvers, zod) — 409 lockfile lines; dead-component removal REVERTED after tsc caught live relative imports (grep false-negative lesson)
+- Report: 8-page PDF (cover Template 01 + ReportLab body) with scorecard, evidence tables, security register, prioritized P0-P3 roadmap -> download/NetStream-Deep-Analysis-QA-Report.pdf
+
+Stage Summary:
+- 9/9 E2E journeys pass on production build; 1 real regression (mobile navbar) found+fixed+verified
+- Security register: SSRF (high) + PiP XSS (medium) OPEN with remediation plan; iframe hijack MITIGATED
+- Test suite repaired from 0% runnable to deterministic; WebKit profile blocked by container (needs CI/macOS)
+- Deliverables: PDF report, api-health-check.sh, playwright-final.log, 5 evidence screenshots

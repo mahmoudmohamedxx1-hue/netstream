@@ -307,6 +307,25 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   // sourceId without re-subscribing.
   const sourceIdRef = useRef(sourceId)
   useEffect(() => { sourceIdRef.current = sourceId }, [sourceId])
+
+  // Top-navigation hijack guard. The streaming embeds are cross-origin
+  // iframes that CANNOT be sandboxed (providers refuse to play in sandboxed
+  // frames), and their ad scripts occasionally try window.top.location = …
+  // which silently replaces the whole app. NetStream is a SPA — every
+  // internal navigation uses the History API and external links open in new
+  // tabs — so any top-level unload while the player is open is unsolicited.
+  // The browser's native leave-confirmation dialog stops it. Scoped to the
+  // player's lifetime so it never interferes with normal browsing.
+  useEffect(() => {
+    const guard = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      // Chrome requires returnValue to be set to show the dialog.
+      e.returnValue = ""
+    }
+    window.addEventListener("beforeunload", guard)
+    return () => window.removeEventListener("beforeunload", guard)
+  }, [])
+
   // Fetch reliability stats once per title.
   useEffect(() => {
     let cancelled = false
@@ -1140,6 +1159,11 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
                 allow="autoplay; fullscreen; encrypted-media; picture-in-picture; accelerometer; gyroscope; web-share"
                 allowFullScreen
                 referrerPolicy="no-referrer"
+                // NOTE: intentionally NO sandbox attribute — providers like
+                // vidcore hard-refuse to play inside ANY sandboxed frame
+                // ("This content can't be embedded in a sandboxed frame").
+                // Top-navigation hijacks from embed ad scripts are mitigated
+                // by the scoped beforeunload guard below instead.
                 onLoad={() => setLoaded(true)}
                 className="absolute inset-0 h-full w-full"
               />

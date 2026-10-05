@@ -12,6 +12,8 @@ import { cn } from "@/lib/utils"
 type NavItem = {
   key: string
   label: string
+  /** Accessible name when the visual label is stripped (icon-only mode). */
+  ariaLabel?: string
   icon?: React.ReactNode
 }
 
@@ -42,8 +44,12 @@ export function GooeyNav({ items, active, onChange, className }: GooeyNavProps) 
             onClick={() => onChange(item.key)}
             onMouseEnter={() => setHoveredKey(item.key)}
             onMouseLeave={() => setHoveredKey(null)}
+            aria-label={item.ariaLabel || item.label || undefined}
             className={cn(
-              "relative flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors duration-300 sm:text-sm",
+              "relative flex items-center gap-1.5 rounded-full px-1.5 py-1.5 text-xs font-semibold transition-colors duration-300 sm:px-3 sm:text-sm",
+              // px-1.5 on mobile: keeps the icon-only navbar compact enough for
+              // 390px viewports (px-3 overflowed by ~107px once the Downloads
+              // button was added). Restores to px-3 from sm up.
               isActive ? "text-white" : "text-white/60 hover:text-white/90"
             )}
           >

@@ -18,15 +18,20 @@ export class SearchOverlay extends BasePage {
 
   constructor(page: Page) {
     super(page)
+    // NOTE: all overlay locators are scoped to `this.overlay` — unscoped
+    // `.grid` / `:has-text()` locators match elements on the home page behind
+    // the overlay (or hidden desktop/mobile nav duplicates) and time out.
     this.overlay = page.locator(".fixed.inset-0.z-\\[90\\]").first()
     this.closeButton = page.locator('[data-testid="close-search"]')
-    this.searchInput = page.locator('input[placeholder*="Search"]').first()
-    this.imdbInput = page.locator('[data-testid="imdb-input"]')
-    this.resultsGrid = page.locator(".grid").filter({ has: page.locator("button") }).first()
-    this.trendingGrid = page.locator(".grid").filter({ hasText: "trending" }).first()
-    this.peopleSection = page.locator("section:has(h3:text('People')), div:has(h3:text('People'))").first()
-    this.typeToggle = page.locator('button:has-text("Movie"), button:has-text("Series")').filter({ has: page.locator("svg") })
-    this.playNowButton = page.locator('button:has-text("Play now")')
+    this.searchInput = this.overlay.locator('input[placeholder*="Search"]').first()
+    this.imdbInput = this.overlay.locator('[data-testid="imdb-input"]')
+    // The overlay renders ONE visible card grid: trending cards when the query
+    // is empty, catalog results once the user types.
+    this.resultsGrid = this.overlay.locator(".grid:visible").first()
+    this.trendingGrid = this.overlay.locator(".grid:visible").first()
+    this.peopleSection = this.overlay.locator("section:has(h3:text('People')), div:has(h3:text('People'))").first()
+    this.typeToggle = this.overlay.locator('button:has-text("Movie"), button:has-text("Series")').filter({ has: page.locator("svg") })
+    this.playNowButton = this.overlay.locator('button:has-text("Play now")')
   }
 
   // ── Actions ──────────────────────────────────────────────────────────────

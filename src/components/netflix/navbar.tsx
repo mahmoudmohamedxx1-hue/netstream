@@ -55,14 +55,13 @@ export function Navbar({ onSearch, active = "home", onNav, onDownloads }: Props)
           : "bg-gradient-to-b from-black/80 via-black/40 to-transparent"
       )}
     >
-      <nav className="flex h-16 items-center gap-4 px-4 sm:h-16 sm:px-8">
+      <nav className="flex h-16 items-center gap-2 px-2 sm:gap-4 sm:px-8">
         {/* Logo with DecryptedText effect — hover to decrypt (slower, red).
             Fixed width + overflow hidden so the character-shuffling animation
             doesn't cause the navbar to shift horizontally. */}
         <button
           onClick={() => onNav?.("home")}
-          className="relative flex h-9 shrink-0 items-center overflow-hidden"
-          style={{ width: "165px" }}
+          className="relative flex h-9 w-[120px] shrink-0 items-center overflow-hidden sm:w-[165px]"
           aria-label="NetStream home" data-testid="logo"
         >
           <DecryptedText
@@ -72,9 +71,9 @@ export function Navbar({ onSearch, active = "home", onNav, onDownloads }: Props)
             animateOn="hover"
             sequential={true}
             revealDirection="start"
-            className="text-xl font-black tracking-tight text-primary sm:text-2xl"
-            parentClassName="text-xl font-black tracking-tight text-primary sm:text-2xl"
-            encryptedClassName="text-xl font-black tracking-tight text-primary/50 sm:text-2xl"
+            className="text-lg font-black tracking-tight text-primary sm:text-2xl"
+            parentClassName="text-lg font-black tracking-tight text-primary sm:text-2xl"
+            encryptedClassName="text-lg font-black tracking-tight text-primary/50 sm:text-2xl"
             style={{ letterSpacing: "-0.04em" }}
           />
         </button>
@@ -91,23 +90,23 @@ export function Navbar({ onSearch, active = "home", onNav, onDownloads }: Props)
         {/* GooeyNav — mobile/tablet (compact) */}
         <div className="ml-1 lg:hidden">
           <GooeyNav
-            items={navItems.map((item) => ({ ...item, label: "" }))}
+            items={navItems.map((item) => ({ ...item, label: "", ariaLabel: item.label }))}
             active={active}
             onChange={(key) => onNav?.(key)}
             className="!gap-0.5 !p-0.5"
           />
         </div>
 
-        <div className="ml-auto flex items-center gap-2 sm:gap-3">
+        <div className="ml-auto flex items-center gap-1 sm:gap-3">
           {/* Language toggle (EN ↔ AR with RTL flip) */}
           <button
             onClick={toggle}
             aria-label="Toggle language" data-testid="language-toggle"
             title={isArabic ? "Switch to English" : "التبديل إلى العربية"}
-            className="flex items-center gap-1 rounded-full px-2 py-1.5 text-xs font-semibold text-white/80 transition hover:bg-white/10 hover:text-white"
+            className="flex h-9 min-w-9 items-center justify-center gap-1 rounded-full px-2 py-1.5 text-xs font-semibold text-white/80 transition hover:bg-white/10 hover:text-white"
           >
             <Languages className="h-4 w-4" />
-            <span>{isArabic ? "EN" : "ع"}</span>
+            <span className="hidden sm:inline">{isArabic ? "EN" : "ع"}</span>
           </button>
           {/* Downloads history panel */}
           {onDownloads && (

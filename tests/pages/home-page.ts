@@ -46,7 +46,7 @@ export class HomePage extends BasePage {
 
     // Hero
     this.heroSection = page.locator("section").first()
-    this.heroPlayButton = page.locator("section").first().locator("button", { hasText: /play/i })
+    this.heroPlayButton = page.locator("section").first().locator("button", { hasText: /^play/i }).first()
     this.heroMuteButton = page.locator("section").first().locator('button[aria-label="Unmute"], button[aria-label="Mute"]')
     this.heroTitle = page.locator("section").first().locator("h1, h2, h3").first()
 
@@ -97,13 +97,18 @@ export class HomePage extends BasePage {
 
   /** Navigate to a specific nav section (home, movies, series, mylist) */
   async navigateTo(section: "home" | "movies" | "series" | "mylist") {
-    // On mobile, nav items are icon-only; on desktop they have labels
-    const navButton = this.page.locator(`nav button`).filter({ hasText: new RegExp(section, "i") }).first()
-    // If no text match (mobile icon-only), click by index
-    if (await navButton.count() === 0) {
+    // Both navs (desktop + mobile icon-only) expose aria-labels. On mobile the
+    // desktop nav is display:none, so always click the VISIBLE match — .first()
+    // alone resolves to the hidden desktop button and times out.
+    const navButton = this.page
+      .locator("nav button:visible")
+      .filter({ hasText: new RegExp(section, "i") })
+      .first()
+    // If no match at all, fall back to positional clicking
+    if ((await navButton.count()) === 0) {
       const sections = ["home", "series", "movies", "mylist"]
       const idx = sections.indexOf(section)
-      const buttons = this.page.locator("nav button")
+      const buttons = this.page.locator("nav button:visible")
       await buttons.nth(idx + 1).click() // +1 because logo is first button
     } else {
       await navButton.click()
