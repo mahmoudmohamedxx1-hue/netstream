@@ -3720,3 +3720,32 @@ Work Log:
 Stage Summary:
 - Deep analysis + full test pass complete: 10 real bugs fixed, 12 stale/broken tests repaired, 7 unused deps removed, security register (2 open items + mitigations), prioritized P0-P3 roadmap
 - All work pushed to GitHub main (commits fd1c9b4, 8607880, + this one)
+
+---
+Task ID: 3
+Agent: main (Z.ai Code)
+Task: (1) Remove "manual options" from the download dialog (provider sandbox issue). (2) Add providers that support Arabic titles + better providers.
+
+Work Log:
+- Download modal: removed the "Manual options" block (raw m3u8 copy field + yt-dlp command + divider); kept the legal disclaimer. Cleaned up: copied state, copy(), ytdlpCommand, m3u8CopyUrl, Terminal/Copy icon imports, downloadManual i18n key (EN+AR). Verified live in browser: dialog opens with only "Get download sources" + "Direct server download" + disclaimer, no readonly input.
+- Deep research (live, datacenter IP): probed 25+ provider URLs × 6 Arabic titles (Capernaum, Eagles of the Republic, Bab Al-Hara, Al Hayba, El Kebeer Awi, The Waiting). Findings:
+  • Global embed providers have essentially NO Arabic catalog (anyembed "couldn't find any video" after checking 20 sources; vidsrc.su "no servers"; moviesapi vidora 404 for all Arabic titles + Interstellar control).
+  • 18 providers verified DEAD/parked/funnel: vidjoy, vidsrc.dev(xyz), cineby(hair/ru), vidsrc.hair, vidsrc.in, embed.su, autoembed, 111movies, blackvid, vidsrc.pro, 2embed.org, 2embed.cc(landing funnel), vidsrc.me(504), vidsrc.io(504), gomo, twojar, sudostream, rivestream; smashystream now redirects to anyembed (dup). vidcore.net moved → vidcore.io.
+  • Arabic sites: egydead search renders no server-side results; wecima alive but streams CF-wrapped (akhbarworld secure_stream); mosahim/arabseed.io/akwam dead; faselhd CF-walled.
+  • **MyCima/ArabSeed (alking.mycima.cv) = the working source.** Search by Arabic title works server-side; watch pages carry data-watch tokens (mycimafsd/slp_watch base64 params) in RAW HTML that decode to direct video-host embeds (fastvip.space, hglink.to); fastvip plays in iframe (verified: video element + MSE blob + full duration + HLS master playlist fetch).
+- Implementation:
+  • NEW /api/arabic-stream: MyCima search (title, TMDB ar-SA fallback via imdbId) → exact movie-slug match / episode-exact (حلقة-N + season hint) match → decode tokens → pre-extract direct URLs (extractDirectFromEmbed) + liveness probe → verified-first sort → 10-min cache.
+  • NEW /api/extract-video: health-check endpoint wrapping extractDirectFromEmbed (referer+host params).
+  • lib/video-extract.ts: searchMycima() + MycimaSource type + decodeMycimafsd + host map (FastVIP/HGLink/StreamHG) + directServers fixed (vidcore.io, dead hosts removed) + extractDirectFromEmbed referer param + searchArabicSite("mycima") routing.
+  • vidsrc.ts rewrite: TIER_1 = 11 live-tested globals (vidlink, videasy, vidfast, vidcore.io, superembed, anyembed, vidsrc.su, vixsrc, vidsrc.cc v2, multiembed, moviesapi); TIER_2 = 2embed.skin/alt + vidsrc.to; TIER_3 = mycima (searchBased flag, ع logo); ARABIC_SOURCES = [mycima, ...tier-1 globals]; Others tab removed; PREFERRED = vidlink/vidfast/vidcore/superembed/vidsrc.su.
+  • player-modal.tsx: isArabicProvider → source.searchBased; arabic-stream fetch passes imdbId+season+episode; pre-verified sources render instantly; per-source referer; direct-embed iframe by default (fresh CDN tokens for user network — CDNs key to requesting ASN), proxy path when ad-block ON; selectable non-failed sources; auto-fallback → vidlink.
+  • video-proxy.ts: referer passthrough; JWplayer VAST ad stripper (defineProperty intercept, drops advertising config from setup()); strips fastvip anti-embed traps (inline blocked.html checker script + obfuscated hg-plugin.js) — proxy page verified loading player with no redirect.
+  • extract-download route: mycima added to ARABIC_SITES (Arabic downloads), isArabic via searchBased, default sourceId vidlink.
+- Validation: ESLint 0/0, tsc 0 src errors, production build OK (both new routes registered), live E2E: Arabic UI → play El Harifa (tt30869622) → server dropdown → Arabic tab (ArabSeed first) → select → fastvip embed loaded through proxy (title "فيلم الحريفة 2024", video + MSE blob, no anti-embed block) and direct-embed path (ad-block off) verified; download dialog has no manual section; console clean. CDN segment delivery not verifiable from this datacenter (premilkyway/adventuretourguide CDNs block the IP; verified via curl HTTP 000) — same situation as vidlink/vidfast which work for real users.
+- Committed 82f9689, pushed to main.
+
+Stage Summary:
+- Arabic titles now play through the new ArabSeed (MyCima) provider: search → token decode → direct video-host embed, live-verified end-to-end as far as the datacenter environment allows.
+- Provider list fully refreshed: 18 dead providers removed, domains fixed, 2 working providers added; dropdown shows only live options.
+- Download modal manual options removed (sandboxed URLs were misleading).
+- Known limits: MyCima coverage is strongest for recent Arabic releases; some hosts (vipserver, my_player tokens) are CF-walled and unreachable server-side — those sources are marked unverified and the player auto-falls back to VidLink.
