@@ -1,7 +1,7 @@
 "use client"
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
-import { useRouter, useSearchParams } from "next/navigation"
+import { useSearchParams } from "next/navigation"
 import { motion, AnimatePresence, MotionConfig } from "framer-motion"
 import { Navbar } from "@/components/netflix/navbar"
 import { type CardTitle } from "@/components/netflix/content-card"
@@ -12,6 +12,9 @@ import { BrowseGrid } from "@/components/netflix/browse-grid"
 import { TmdbBrowseGrid } from "@/components/netflix/tmdb-browse-grid"
 import { TmdbHome } from "@/components/netflix/tmdb-home"
 import { TitleDetail } from "@/components/netflix/title-detail"
+import { DownloadHelper } from "@/components/netflix/download-helper"
+import { DownloadsPanel } from "@/components/netflix/downloads-panel"
+import type { DownloadRecord } from "@/lib/download-history"
 import { Footer } from "@/components/netflix/footer"
 import { PullToRefresh } from "@/components/netflix/pull-to-refresh"
 import { OfflineIndicator } from "@/components/netflix/offline-indicator"
@@ -44,7 +47,6 @@ export default function Home() {
 
 function HomeContent() {
   const { t } = useLang()
-  const router = useRouter()
   const searchParams = useSearchParams()
 
   // ── URL-synced state ────────────────────────────────────────────────────
@@ -70,13 +72,23 @@ function HomeContent() {
   const [detail, setDetail] = useState<{ imdbId: string; title: string; type: "movie" | "series"; year?: string | null; poster?: string | null; overview?: string | null; rating?: string | null } | null>(null)
   const [searchOpen, setSearchOpen] = useState(false)
   const [imdbOpen, setImdbOpen] = useState(false)
+  // Downloads panel + re-download target (opened from the panel)
+  const [dlPanelOpen, setDlPanelOpen] = useState(false)
+  const [dlRedownload, setDlRedownload] = useState<DownloadRecord | null>(null)
   const [nav, setNav] = useState<NavKey>(initialNav)
   const { watchlist, load } = useLibrary()
 
   // ── Sync state → URL ────────────────────────────────────────────────────
-  // Build the query string from current state and replace the URL (without
+  // Build the query string from current state and update the URL (without
   // scrolling). We use replace for detail/player/search (overlays) and push
   // for nav changes (distinct pages the user might want to go back to).
+  //
+  // NOTE: we drive the History API directly instead of router.push/replace.
+  // This page is state-driven — the URL only matters for deep-links and
+  // back/forward, both handled by reading window.location (mount effect +
+  // popstate below). In this Next 16 dev setup, router.replace/push-to-bare-"/"
+  // were silently swallowed (no history entry, no URL change) — direct
+  // history calls are instant and popstate-compatible.
   const updateUrl = useCallback((opts: {
     nav?: NavKey
     detailId?: string | null
@@ -92,12 +104,13 @@ function HomeContent() {
     if (opts.search) params.set("search", "1")
     const qs = params.toString()
     const url = qs ? `/?${qs}` : "/"
-    if (opts.push) {
-      router.push(url, { scroll: false })
-    } else {
-      router.replace(url, { scroll: false })
+    try {
+      if (opts.push) history.pushState(null, "", url)
+      else history.replaceState(null, "", url)
+    } catch {
+      /* history unavailable (rare) — URL sync is best-effort */
     }
-  }, [nav, router])
+  }, [nav])
 
   // ── On mount: if the URL has ?detail=tt... or ?play=tt..., resolve it ───
   // We don't have the full title object from the URL alone, so we fetch it
@@ -450,6 +463,7 @@ function HomeContent() {
         onSearch={openSearch}
         active={nav}
         onNav={(k) => handleSetNav(k as NavKey)}
+        onDownloads={() => setDlPanelOpen(true)}
       />
 
       <main className="flex-1" style={{ display: player || detail ? "none" : undefined }}>
@@ -510,6 +524,27 @@ function HomeContent() {
 
       <PlayerModal title={player} onClose={closePlayer} />
       <OfflineIndicator />
+
+      {/* Downloads history panel + page-level re-download helper.
+          The DownloadHelper here is opened from the panel's "Re-download"
+          action, preloaded with that record's title/season/episode. */}
+      <DownloadsPanel
+        open={dlPanelOpen}
+        onClose={() => setDlPanelOpen(false)}
+        onRedownload={(rec) => setDlRedownload(rec)}
+      />
+      {dlRedownload && (
+        <DownloadHelper
+          open
+          onClose={() => setDlRedownload(null)}
+          imdbId={dlRedownload.imdbId}
+          type={dlRedownload.type}
+          season={dlRedownload.season ?? undefined}
+          episode={dlRedownload.episode ?? undefined}
+          title={dlRedownload.title}
+          poster={dlRedownload.poster}
+        />
+      )}
       <SearchOverlay
         open={searchOpen}
         onClose={closeSearch}

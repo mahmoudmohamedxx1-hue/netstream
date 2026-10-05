@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Search, Languages, Home, Film, Tv, Bookmark } from "lucide-react"
+import { Search, Languages, Home, Film, Tv, Bookmark, Download } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useLang } from "@/lib/lang-context"
 import DecryptedText from "@/components/react-bits/DecryptedText"
@@ -24,9 +24,10 @@ type Props = {
   onSearch: () => void
   active?: string
   onNav?: (key: string) => void
+  onDownloads?: () => void
 }
 
-export function Navbar({ onSearch, active = "home", onNav }: Props) {
+export function Navbar({ onSearch, active = "home", onNav, onDownloads }: Props) {
   const [scrolled, setScrolled] = useState(false)
   const { t, toggle, isArabic } = useLang()
 
@@ -108,6 +109,17 @@ export function Navbar({ onSearch, active = "home", onNav }: Props) {
             <Languages className="h-4 w-4" />
             <span>{isArabic ? "EN" : "ع"}</span>
           </button>
+          {/* Downloads history panel */}
+          {onDownloads && (
+            <button
+              onClick={onDownloads}
+              aria-label="Downloads" data-testid="downloads-button"
+              title={t("dlHistoryTitle")}
+              className="rounded-full p-2 text-white transition hover:bg-white/10"
+            >
+              <Download className="h-5 w-5" />
+            </button>
+          )}
           <button
             onClick={onSearch}
             aria-label={t("search")} data-testid="search-button"

@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 import { LanguageProvider } from "@/lib/lang-context";
+import { PWARegister } from "@/components/pwa-register";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -41,6 +42,17 @@ export const metadata: Metadata = {
     siteName: "NetStream",
     type: "website",
   },
+  // PWA — discoverable via /manifest.json (name, icons, standalone display,
+  // shortcuts). Installability needs the manifest + the service worker that
+  // src/components/pwa-register.tsx registers.
+  manifest: "/manifest.json",
+  // iOS Safari doesn't read the manifest for install — it needs these meta
+  // tags (Next maps them to <meta name="apple-mobile-web-app-*">).
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "NetStream",
+  },
 };
 
 // Browser-chrome + OS-level dark theming: paints the UI chrome (address bar
@@ -63,6 +75,10 @@ export default function RootLayout({
         {/* Viewport — supports all devices including Smart TV browsers.
             maximum-scale=5 allows zoom but prevents layout breakage on TV. */}
         <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, viewport-fit=cover" />
+        {/* iOS standalone install support. Next's appleWebApp metadata emits
+            the modern `mobile-web-app-capable` alias; older iOS Safari (≤16)
+            only honors the classic `apple-mobile-web-app-capable` spelling. */}
+        <meta name="apple-mobile-web-app-capable" content="yes" />
       </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-background text-foreground`}
@@ -70,6 +86,7 @@ export default function RootLayout({
         <LanguageProvider>
           {children}
           <Toaster />
+          <PWARegister />
         </LanguageProvider>
       </body>
     </html>

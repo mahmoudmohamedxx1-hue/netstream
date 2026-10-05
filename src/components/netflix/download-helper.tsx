@@ -8,6 +8,7 @@ import {
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { useLanguage } from "@/hooks/use-language"
+import { addDownloadRecord } from "@/lib/download-history"
 import { cn } from "@/lib/utils"
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -172,6 +173,39 @@ export function DownloadHelper({
 
   const safeTitle = safeFilename(title)
   const suffix = type === "series" ? `.S${season ?? 1}E${episode ?? 1}` : ""
+
+  // Record a finished (or failed) download in the persistent history —
+  // shown in the Downloads panel. One line per lifecycle END, so in-flight
+  // state never pollutes the list.
+  const record = useCallback((
+    status: "done" | "canceled" | "failed",
+    o: { filename: string; container: "mp4" | "ts"; quality: string; bytes: number; mode: "browser"; error?: string }
+  ) => {
+    addDownloadRecord({
+      imdbId, type, season: type === "series" ? (season ?? 1) : null,
+      episode: type === "series" ? (episode ?? 1) : null,
+      title, poster: poster ?? null,
+      mode: "browser", status,
+      container: o.container, quality: o.quality,
+      bytes: o.bytes, sizeText: o.bytes > 0 ? fmtBytes(o.bytes) : "—",
+      filename: o.filename, error: o.error,
+    })
+  }, [imdbId, type, season, episode, title, poster])
+
+  // Server mode hands the file to the browser's native download manager —
+  // we can't observe it from JS, so record honestly as "started".
+  const recordServerStart = useCallback(() => {
+    addDownloadRecord({
+      imdbId, type, season: type === "series" ? (season ?? 1) : null,
+      episode: type === "series" ? (episode ?? 1) : null,
+      title, poster: poster ?? null,
+      mode: "server", status: "started",
+      container: "mp4", quality: "best",
+      bytes: 0, sizeText: "—",
+      filename: `${safeTitle}${suffix}.mp4`,
+    })
+  }, [imdbId, type, season, episode, title, poster, safeTitle, suffix])
+
   const serverDlUrl = () => {
     const p = new URLSearchParams({ imdbId, type, title: safeTitle, quality: "best" })
     if (type === "series") { p.set("season", String(season ?? 1)); p.set("episode", String(episode ?? 1)) }
@@ -186,6 +220,17 @@ export function DownloadHelper({
       cancelRef.current = false
     }
   }, [open])
+
+  // Esc to close — same guard as the X button: never close mid-download
+  // (that would kill an in-flight segment fetch without cancel cleanup).
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && phase !== "downloading" && phase !== "converting") onClose()
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [open, phase, onClose])
 
   // ── Step 1: probe sources ────────────────────────────────────────────────
   const probe = useCallback(async () => {
@@ -350,6 +395,7 @@ export function DownloadHelper({
       if (cancelRef.current) {
         try { await fileWritable?.abort() } catch {}
         setPhase("ready")
+        record("canceled", { filename, container: isFmp4 ? "mp4" : "ts", quality: variant.quality, bytes: downloaded, mode: "browser" })
         toast({ title: t("dlCancelled") })
         return
       }
@@ -365,6 +411,7 @@ export function DownloadHelper({
         setSavedAs(filename)
         setProgress(100)
         setPhase("done")
+        record("done", { filename, container: "mp4", quality: variant.quality, bytes: downloaded, mode: "browser" })
         toast({ title: t("dlDone"), description: `${filename} · ${fmtBytes(downloaded)}` })
         return
       }
@@ -381,6 +428,7 @@ export function DownloadHelper({
         saveBlob(assembled, filename)
         setSavedAs(filename)
         setPhase("done")
+        record("done", { filename, container: "mp4", quality: variant.quality, bytes: totalLen, mode: "browser" })
         toast({ title: t("dlDone"), description: `${filename} · ${fmtBytes(totalLen)}` })
       } else {
         // TS → remux to MP4 with local ffmpeg.wasm
@@ -392,12 +440,14 @@ export function DownloadHelper({
           setSavedAs(`${safeTitle}${suffix}.mp4`)
           setProgress(100)
           setPhase("done")
+          record("done", { filename: `${safeTitle}${suffix}.mp4`, container: "mp4", quality: variant.quality, bytes: mp4.length, mode: "browser" })
           toast({ title: t("dlDone"), description: `${safeTitle}${suffix}.mp4 · ${fmtBytes(mp4.length)}` })
         } else {
           saveBlob(assembled, filename)
           setSavedAs(filename)
           setProgress(100)
           setPhase("done")
+          record("done", { filename, container: "ts", quality: variant.quality, bytes: totalLen, mode: "browser" })
           toast({ title: t("dlSavedTs"), description: `${filename} · ${fmtBytes(totalLen)}`, variant: "destructive" })
         }
       }
@@ -405,9 +455,12 @@ export function DownloadHelper({
       const msg = e instanceof Error ? e.message : String(e)
       setError(msg)
       setPhase("error")
+      try {
+        record("failed", { filename: `${safeTitle}${suffix}`, container: isFmp4 ? "mp4" : "ts", quality: variant.quality, bytes: 0, mode: "browser", error: msg })
+      } catch {}
       toast({ title: t("dlFailed"), description: msg, variant: "destructive" })
     }
-  }, [source, safeTitle, suffix, t, toast])
+  }, [source, safeTitle, suffix, t, toast, record])
 
   // ── TS → MP4 remux via local ffmpeg.wasm (no CDN dependency) ────────────
   const remuxTsToMp4 = async (ts: Uint8Array<ArrayBuffer>): Promise<Uint8Array<ArrayBuffer> | null> => {
@@ -503,7 +556,10 @@ export function DownloadHelper({
                   </p>
                   {/* Server direct shortcut */}
                   <button
-                    onClick={() => { window.location.href = serverDlUrl() }}
+                    onClick={() => {
+                      recordServerStart()
+                      window.location.href = serverDlUrl()
+                    }}
                     className="flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 bg-white/[0.03] px-4 py-2.5 text-xs font-semibold text-white/80 transition hover:bg-white/[0.07]"
                   >
                     <Server className="size-3.5" />
@@ -672,6 +728,7 @@ export function DownloadHelper({
                     </button>
                     <a
                       href={serverDlUrl()}
+                      onClick={recordServerStart}
                       className="flex flex-1 items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/[0.04] px-4 py-2.5 text-xs font-semibold text-white/80 transition hover:bg-white/10"
                     >
                       <Server className="size-3.5" /> {t("dlServerMode")}

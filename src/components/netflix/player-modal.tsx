@@ -926,8 +926,48 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     [seasonCount]
   )
 
+  // ── Drag-down-to-close (mobile sheet gesture) ─────────────────────────
+  // The video itself is a cross-origin iframe, so touches over it never
+  // reach us — but the card chrome (top strip, resume banner, controls,
+  // episode list) is ours, and dragging down there is a natural close.
+  // Scroll-safe: the gesture only engages while the overlay is scrolled to
+  // the top; the moment it turns into a page scroll it cancels. Vertical-
+  // dominant drags ≥ 90px release-close; shorter drags spring back.
+  const rootScrollRef = useRef<HTMLDivElement | null>(null)
+  const dragStartRef = useRef<{ x: number; y: number } | null>(null)
+  const [dragY, setDragY] = useState(0)
+
+  const onCardTouchStart = (e: React.TouchEvent) => {
+    if (e.touches.length !== 1) return
+    const scroller = rootScrollRef.current
+    if (!scroller || scroller.scrollTop > 2) return
+    dragStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY }
+  }
+  const onCardTouchMove = (e: React.TouchEvent) => {
+    const s = dragStartRef.current
+    if (!s) return
+    const scroller = rootScrollRef.current
+    if (scroller && scroller.scrollTop > 2) {
+      // Became a page scroll — abort the gesture.
+      dragStartRef.current = null
+      setDragY(0)
+      return
+    }
+    const dy = e.touches[0].clientY - s.y
+    const dx = e.touches[0].clientX - s.x
+    if (dy > 0 && dy > Math.abs(dx) * 1.2) setDragY(Math.min(dy, 200))
+    else setDragY(0)
+  }
+  const onCardTouchEnd = () => {
+    const shouldClose = dragY >= 90
+    dragStartRef.current = null
+    setDragY(0)
+    if (shouldClose) handleClose()
+  }
+
   return (
     <motion.div
+      ref={rootScrollRef}
       className="fixed inset-0 z-[100] flex items-start justify-center overflow-y-auto bg-black nf-scroll"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
@@ -938,10 +978,14 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
         ref={playerContainerRef}
         className="relative my-0 w-full max-w-5xl bg-[#0a0a0a] shadow-2xl sm:my-6 sm:rounded-xl"
         initial={{ y: 24, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
+        animate={{ y: dragY, opacity: 1 }}
         exit={{ y: 24, opacity: 0 }}
-        transition={{ type: "spring", damping: 26, stiffness: 240 }}
+        transition={{ type: "spring", damping: dragY > 0 ? 200 : 26, stiffness: dragY > 0 ? 2000 : 240 }}
         onClick={(e) => e.stopPropagation()}
+        onTouchStart={onCardTouchStart}
+        onTouchMove={onCardTouchMove}
+        onTouchEnd={onCardTouchEnd}
+        onTouchCancel={onCardTouchEnd}
       >
         {/* Close */}
         <button
