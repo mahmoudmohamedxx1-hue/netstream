@@ -1,10 +1,15 @@
 import { NextRequest, NextResponse } from "next/server"
 import { VIDEO_SOURCES, buildPlayerUrl } from "@/lib/vidsrc"
+import { tmdbFindId } from "@/lib/download-sources"
 
 // GET /api/check-servers?imdbId=tt0111161&type=movie
 // Tests all providers in parallel and returns which ones respond with HTTP 200.
 // Note: this only checks if the provider URL is reachable, not if the video
 // actually plays — but it's a good first filter.
+//
+// The TMDB ID is looked up first (via /api/tmdb) so TMDB-keyed providers
+// (vidlink, vidfast, videasy — vidlink's catalog is TMDB-only now) are probed
+// with the IDs they actually support instead of 404ing on IMDb ids.
 export async function GET(req: NextRequest) {
   const url = new URL(req.url)
   const imdbId = url.searchParams.get("imdbId") ?? "tt0111161"
@@ -12,10 +17,20 @@ export async function GET(req: NextRequest) {
   const season = Number(url.searchParams.get("season") ?? "1") || 1
   const episode = Number(url.searchParams.get("episode") ?? "1") || 1
 
+  // Resolve the TMDB ID for this title (best effort — providers keyed by IMDb
+  // ids don't need it, TMDB-keyed ones do).
+  let tmdbId: number | undefined
+  try {
+    const resolved = await tmdbFindId(imdbId)
+    tmdbId = resolved ?? undefined
+  } catch {
+    // TMDB lookup is optional — providers fall back to IMDb ids.
+  }
+
   const results = await Promise.all(
-    VIDEO_SOURCES.map(async (source) => {
+    VIDEO_SOURCES.filter((s) => !s.searchBased).map(async (source) => {
       const playerUrl = buildPlayerUrl({
-        imdbId, type, season, episode, sourceId: source.id,
+        imdbId, tmdbId, type, season, episode, sourceId: source.id,
       })
       try {
         const res = await fetch(playerUrl, {

@@ -190,6 +190,30 @@ const KURO_ADS_SCRIPT = `
 `
 
 // CSS to hide ad elements
+// Anti sandbox-false-positive script. 2embed.skin (and siblings) ship an
+// isReallySandboxed() self-check that shows a "Sandbox not allowed / Remove
+// sandbox" overlay when framed. The check false-positives on modern Chrome:
+// `document.domain = document.domain` throws a TypeError since the setter was
+// disabled, which their catch-block interprets as "we're sandboxed" — even
+// with NO sandbox attribute anywhere. We neutralize the root cause by
+// shadowing document.domain with a no-op setter BEFORE their scripts run, so
+// every one of their checks passes naturally. (Only injected when the page
+// actually contains the check — harmless for other providers.)
+const SANDBOX_FIX_SCRIPT = `
+<script id="netstream-sandbox-fix">
+(function() {
+  try {
+    var host = location.hostname;
+    Object.defineProperty(document, "domain", {
+      configurable: true,
+      get: function() { return host; },
+      set: function() { /* no-op: modern browsers throw here — don't */ }
+    });
+  } catch (e) {}
+})();
+</script>
+`
+
 // JWplayer VAST ad stripper — many embed hosts (fastvip.space, MixDrop
 // family, …) configure jwplayer with a VAST ad that blocks the video from
 // starting (the player waits for the ad to resolve). We intercept the
@@ -292,9 +316,13 @@ export async function GET(req: NextRequest) {
       )
     }
 
-    // 2. Bypass 2Embed sandbox detection
+    // 2. Bypass 2Embed sandbox detection — two layers:
+    //    a) replace the whole isReallySandboxed() function (anchored on the
+    //       document.domain probe so the lazy match can't stop at a nested
+    //       try-block and corrupt the script), and
+    //    b) SANDBOX_FIX_SCRIPT below makes the domain probe a no-op anyway.
     html = html.replace(
-      /function\s+isReallySandboxed\s*\(\)\s*\{[\s\S]*?\n\s*\}/,
+      /function\s+isReallySandboxed\s*\(\)\s*\{[\s\S]*?document\.domain[\s\S]*?return false;\s*\n\s*\}/,
       "function isReallySandboxed() { return false; }"
     )
 
@@ -312,8 +340,14 @@ export async function GET(req: NextRequest) {
       ""
     )
 
-    // 3. Inject Kuro Ads Killer script + CSS
-    html = html.replace(/<head([^>]*)>/i, `<head$1>${AD_BLOCK_CSS}${JW_AD_STRIP_SCRIPT}${KURO_ADS_SCRIPT}`)
+    // 3. Inject Kuro Ads Killer script + CSS. The sandbox-fix script (no-op
+    //    document.domain setter) is injected into EVERY proxied page, not just
+    //    2embed's — VidLink / VidCore / VidFast ship the same legacy check
+    //    (`document.domain = document.domain` → catch → "Please Disable
+    //    Sandbox" overlay) inside lazily-loaded JS chunks, so it can't be
+    //    pattern-matched in the HTML. Shadowing the setter before any script
+    //    runs makes the probe a silent no-op for every provider.
+    html = html.replace(/<head([^>]*)>/i, `<head$1>${SANDBOX_FIX_SCRIPT}${AD_BLOCK_CSS}${JW_AD_STRIP_SCRIPT}${KURO_ADS_SCRIPT}`)
 
     // 4. Add <base> tag
     html = html.replace(/<head([^>]*)>/i, `<head$1><base href="${finalUrl}">`)

@@ -54,7 +54,7 @@ export async function GET(req: NextRequest) {
   const url = new URL(req.url)
   const imdbId = url.searchParams.get("imdbId") || ""
   const type = (url.searchParams.get("type") || "movie") as "movie" | "series"
-  const sourceId = url.searchParams.get("sourceId") || "vidlink.pro"
+  const sourceId = url.searchParams.get("sourceId") || "vidcore.net"
   const title = url.searchParams.get("title") || "video"
   const season = url.searchParams.get("season")
   const episode = url.searchParams.get("episode")

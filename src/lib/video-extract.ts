@@ -7,6 +7,7 @@
 //   /api/extract-download/route.ts
 
 import { unpack } from "unpacker"
+import zlib from "node:zlib"
 
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -344,21 +345,60 @@ export async function searchArabicSite(
 // Live-tested end-to-end 2026-10. Flow:
 //   1. GET /?s={title}            → WordPress search results
 //   2. Pick a watch page          → مشاهدة-فيلم-… (movie) / …-حلقة-N (episode)
-//   3. GET the watch page         → contains mycimafsd={base64} token(s) in the
-//                                   RAW HTML (no JS needed)
-//   4. base64-decode each token   → direct video-host embed URL
-//      e.g. aHR0cHM6Ly9mYXN0dmlwLnNwYWNlL2UvMGN6N251bGNmM2th
-//         → https://fastvip.space/e/0cz7nulcf3ka  (plays in an iframe)
-// The embed hosts (fastvip.space, hglink.to, …) serve jwplayer pages whose
-// packed JS unpacks to a direct m3u8 — so extractDirectFromEmbed works too.
+//      • Series: when the exact episode isn't in the search results (the search
+//        indexes recent posts only), fetch the series hub page linked from any
+//        episode page and pick حلقة-N from the full episode list.
+//   3. GET the watch page         → three kinds of playable sources:
+//      a) mycimafsd={base64} token     → direct video-host embed (fastvip.space,
+//         hglink.to, …) — movies, plays in an iframe through /api/video-proxy
+//      b) ?my_player={id}             → MyCima's own player page (Cloudflare-
+//         gated from datacenters — embedded directly, the user's browser
+//         negotiates the challenge)
+//      c) ?secure_stream={zlib-b64}   → decodes to a DIRECT MP4 on
+//         link.mycima.cv (video/mp4 + byte ranges + ACAO:*) — the reliable
+//         path for SERIES EPISODES, plays natively in a <video> element
+// Arabic text normalization + multiple query variants fix most "title not
+// found" cases (ال-prefix, diacritics, hamza forms, ة/ه, ى/ي).
 
 const MYCIMA_BASE = "https://alking.mycima.cv"
 const MYCIMA_REFERER = "https://alking.mycima.cv/"
 
 export type MycimaSource = {
-  url: string      // direct video-host embed URL
-  host: string     // human host name (FastVIP, HGLink…)
+  url: string      // embed URL (kind=embed|player) or direct MP4 URL (kind=mp4)
+  host: string     // human host name (FastVIP, HGLink, MyCima MP4…)
   referer: string  // referer that unlocks the host (= MyCima)
+  /** How the player should render this source. */
+  kind: "embed" | "mp4" | "player"
+  /** Quality label when known (e.g. "720p"). */
+  quality?: string
+}
+
+/** Normalize Arabic text for slug matching (diacritics, tatweel, letter forms). */
+export function normalizeArabic(s: string): string {
+  return s
+    .replace(/[\u064B-\u0652\u0670\u0640]/g, "") // diacritics + tatweel
+    .replace(/[أإآٱ]/g, "ا")
+    .replace(/ى/g, "ي")
+    .replace(/ة/g, "ه")
+    .replace(/ؤ/g, "و")
+    .replace(/ئ/g, "ي")
+    .replace(/[\u200c-\u200f]/g, "")
+    .replace(/[:：'"«»،؟?!.]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase()
+}
+
+/** Search query variants for Arabic titles (MyCima slugs drop prefixes etc). */
+function mycimaQueryVariants(title: string): string[] {
+  const clean = title.replace(/[:：]/g, " ").replace(/\s+/g, " ").trim()
+  const variants = new Set<string>([clean])
+  const words = clean.split(" ").filter((w) => w.length > 1)
+  // Drop the leading definite article: "الحيطة" → "حيطة" (slugs vary)
+  if (clean.startsWith("ال") && clean.length > 4) variants.add(clean.slice(2))
+  // First two words only (long titles are often shortened in slugs)
+  if (words.length > 2) variants.add(words.slice(0, 2).join(" "))
+  return [...variants]
 }
 
 /** Decode a mycimafsd token (base64 / base64url) into the real embed URL. */
@@ -367,6 +407,17 @@ function decodeMycimafsd(token: string): string | null {
     const b64 = token.replace(/-/g, "+").replace(/_/g, "/")
     const decoded = Buffer.from(b64, "base64").toString("utf8")
     return /^https?:\/\//.test(decoded) ? decoded : null
+  } catch {
+    return null
+  }
+}
+
+/** Decode a secure_stream param (url-safe base64 zlib) into the target URL. */
+export function decodeSecureStream(val: string): string | null {
+  try {
+    const b64 = val.replace(/-/g, "+").replace(/_/g, "/")
+    const out = zlib.inflateSync(Buffer.from(b64, "base64")).toString("utf8")
+    return /^https?:\/\//.test(out) ? out : null
   } catch {
     return null
   }
@@ -384,6 +435,96 @@ function mycimaContentLinks(html: string): string[] {
   return [...new Set(links)]
 }
 
+/** Extract every playable source from a MyCima watch-page HTML. */
+function mycimaSourcesFromPage(pageHtml: string): MycimaSource[] {
+  const sources: MycimaSource[] = []
+  const seen = new Set<string>()
+
+  const push = (s: MycimaSource) => {
+    if (s.url && !seen.has(s.url)) {
+      seen.add(s.url)
+      sources.push(s)
+    }
+  }
+
+  // a) data-watch attributes: mycimafsd base64 tokens (direct video hosts) and
+  //    my_player short tokens (MyCima's own CF-gated player page).
+  for (const m of pageHtml.matchAll(/data-watch="([^"]+)"/g)) {
+    const cand = m[1]
+    if (/^https?:\/\//.test(cand)) {
+      if (cand.includes("my_player=")) {
+        // MyCima player page — Cloudflare-gated from datacenters, but the
+        // user's browser can usually negotiate the challenge.
+        push({ url: cand, host: "MyCima Player", referer: MYCIMA_REFERER, kind: "player" })
+        continue
+      }
+      const pm = cand.match(/[?&][a-z_]+=([A-Za-z0-9_=+/-]{20,})/i)
+      const decoded = pm ? decodeMycimafsd(pm[1]) : null
+      const url = decoded ?? (cand.startsWith("http") && !cand.includes("mycima-my.com") ? cand : null)
+      if (url && !url.includes("secure_stream")) {
+        push({ url, host: getHost(url), referer: MYCIMA_REFERER, kind: "embed" })
+      }
+    } else {
+      const url = decodeMycimafsd(cand)
+      if (url) push({ url, host: getHost(url), referer: MYCIMA_REFERER, kind: "embed" })
+    }
+  }
+
+  // b) download-section secure_stream links → decode → DIRECT MP4 when the
+  //    target is a direct media host (link.mycima.cv serves video/mp4 with
+  //    byte ranges + ACAO:*). Azrak/queue pages and nested mycima-my.com
+  //    links are skipped (not directly playable).
+  const dlEntries = [...pageHtml.matchAll(
+    /href="(https?:\/\/[^"]*secure_stream=[^"]+)"[^>]*>(?:(?!<\/a>)[\s\S])*?<resolution>([\s\S]*?)<\/resolution>/g
+  )]
+  for (const [, href, resolution] of dlEntries) {
+    const ssVal = href.match(/secure_stream=([^&"]+)/)?.[1] ?? ""
+    const decoded = decodeSecureStream(ssVal)
+    if (!decoded) continue
+    // Only direct media hosts — queue/redirector pages won't play.
+    if (!/link\.mycima\.cv|\.mp4|\.m3u8/i.test(decoded)) continue
+    const quality = resolution.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().match(/\d{3,4}p/)?.[0]
+    push({ url: decoded, host: "MyCima MP4", referer: MYCIMA_REFERER, kind: "mp4", quality })
+  }
+
+  return sources
+}
+
+/** Series hub crawling: fetch a hub page and return its حلقة-N episode links. */
+async function mycimaEpisodeLinksFromHub(hubUrl: string): Promise<string[]> {
+  try {
+    const res = await fetch(hubUrl, {
+      headers: { "User-Agent": UA, "Accept-Language": "ar,en-US;q=0.9,en;q=0.8", Accept: "text/html,*/*" },
+      redirect: "follow",
+      signal: AbortSignal.timeout(15000),
+    })
+    if (!res.ok) return []
+    const html = await res.text()
+    return mycimaContentLinks(html).filter((u) => /حلقة/.test(decodeURIComponent(u)))
+  } catch {
+    return []
+  }
+}
+
+// Arabic ordinal season names (الموسم الأول …) → number, for season hints.
+// Matched against the NORMALIZED slug (hamza forms collapse to ا).
+const AR_ORDINALS: [RegExp, number][] = [
+  [/الاول/, 1], [/الثاني/, 2], [/الثالث/, 3], [/الرابع/, 4], [/الخامس/, 5],
+  [/السادس/, 6], [/السابع/, 7], [/الثامن/, 8], [/التاسع/, 9], [/العاشر/, 10],
+]
+
+function seasonFromSlug(slug: string): number | null {
+  // Numeric season: "-الكبير-أوي-8-حلقة-29" → 8 (normalized: hyphens preserved)
+  const n = normalizeArabic(decodeURIComponent(slug))
+  const num = n.match(/[-–](\d{1,2})-حلقه/)
+  if (num) return Number(num[1])
+  // Ordinal season: "…-الموسم-الاول" → 1
+  for (const [re, s] of AR_ORDINALS) {
+    if (re.test(n)) return s
+  }
+  return null
+}
+
 export async function searchMycima(
   title: string,
   type: "movie" | "series",
@@ -391,52 +532,82 @@ export async function searchMycima(
   episode?: number | null
 ): Promise<{ sources: MycimaSource[]; pageUrl: string | null }> {
   try {
-    // Step 1: search
-    const searchRes = await fetch(`${MYCIMA_BASE}/?s=${encodeURIComponent(title)}`, {
-      headers: { "User-Agent": UA, "Accept-Language": "ar,en-US;q=0.9,en;q=0.8", Accept: "text/html,*/*" },
-      redirect: "follow",
-      signal: AbortSignal.timeout(15000),
-    })
-    if (!searchRes.ok) return { sources: [], pageUrl: null }
-    const searchHtml = await searchRes.text()
-    const links = mycimaContentLinks(searchHtml)
+    // Step 1: search — try query variants until one returns content links.
+    let links: string[] = []
+    for (const q of mycimaQueryVariants(title)) {
+      const searchRes = await fetch(`${MYCIMA_BASE}/?s=${encodeURIComponent(q)}`, {
+        headers: { "User-Agent": UA, "Accept-Language": "ar,en-US;q=0.9,en;q=0.8", Accept: "text/html,*/*" },
+        redirect: "follow",
+        signal: AbortSignal.timeout(15000),
+      })
+      if (!searchRes.ok) continue
+      const searchHtml = await searchRes.text()
+      links = mycimaContentLinks(searchHtml)
+      if (links.length > 0) break
+    }
     if (links.length === 0) return { sources: [], pageUrl: null }
 
-    // Step 2: pick the best watch page
-    const norm = (s: string) => decodeURIComponent(s).toLowerCase()
-    let candidates = links
+    const norm = (s: string) => normalizeArabic(decodeURIComponent(s))
+    let pageUrl: string | null = null
+
     if (type === "movie") {
       // Prefer the EXACT title (slug form, trailing slash — so searching
       // "الحريفة" doesn't match "الحريفة-2"), then title-word match, then any movie.
-      const slug = title.trim().replace(/\s+/g, "-")
-      const exact = links.filter((u) => norm(u).includes(`فيلم-${slug}/`))
-      const words = title.trim().split(/\s+/).filter((w) => w.length > 2)
-      const firstWord = words[0] ? norm(words[0]) : null
+      // Patterns are pre-normalized (ة→ه, أ→ا…) to match the normalized URLs.
+      const normTitle = normalizeArabic(title)
+      const normMovieWord = normalizeArabic("فيلم")
+      const slug = normTitle.replace(/\s+/g, "-")
+      const exact = links.filter((u) => norm(u).includes(`${normMovieWord}-${slug}/`))
+      const words = normTitle.split(" ").filter((w) => w.length > 2)
+      const firstWord = words[0] ?? null
       const wordMatch = firstWord
-        ? links.filter((u) => norm(u).includes("فيلم") && norm(u).includes(firstWord))
+        ? links.filter((u) => norm(u).includes(normMovieWord) && norm(u).includes(firstWord))
         : []
-      const anyMovie = links.filter((u) => norm(u).includes("فيلم"))
-      candidates = exact.length ? exact : wordMatch.length ? wordMatch : anyMovie.length ? anyMovie : links
+      const anyMovie = links.filter((u) => norm(u).includes(normMovieWord))
+      pageUrl = exact[0] ?? wordMatch[0] ?? anyMovie[0] ?? null
     } else {
-      // Series: match the exact episode number in the slug (حلقة-N). Prefer a
-      // season hint (…-N-حلقة-…). If the exact episode isn't indexed, return
-      // nothing — guessing a different episode would play the wrong content,
-      // and the caller falls back to a global provider.
+      // Series: find the exact episode page. Search results only index recent
+      // posts, so when the episode isn't there, crawl the series hub page
+      // (linked from any episode page) and pick حلقة-{ep} from the full list.
+      // NOTE: patterns are normalized the same way as the URLs — ة→ه means
+      // "حلقة" must be searched as "حلقه" on the normalized side.
       const ep = episode ?? 1
-      const epMatch = links.filter((u) => new RegExp(`حلقة-${ep}(/|$)`).test(norm(u)))
       const s = season ?? 1
-      const seasonMatch = epMatch.filter((u) => new RegExp(`[-–]${s}-حلقة`).test(norm(u)))
-      const anySeasonEp = epMatch.filter((u) => !new RegExp(`[-–]\\d+-حلقة`).test(norm(u)))
-      candidates = seasonMatch.length ? seasonMatch : anySeasonEp.length ? anySeasonEp : epMatch
+      const epPattern = new RegExp(`${normalizeArabic("حلقة")}-${ep}(/|$)`)
+      const epMatch = () => links.filter((u) => epPattern.test(norm(u)))
+      const rankBySeason = (urls: string[]) => {
+        const seasonHit = urls.filter((u) => seasonFromSlug(u) === s)
+        const noSeason = urls.filter((u) => seasonFromSlug(u) === null)
+        return seasonHit.length ? seasonHit : noSeason.length ? noSeason : urls
+      }
+      let candidates = rankBySeason(epMatch())
+      if (candidates.length === 0) {
+        // Crawl the hub: any episode/series link exposes the hub URL.
+        const seed =
+          links.find((u) => /حلقة/.test(decodeURIComponent(u))) ??
+          links.find((u) => /مسلسل/.test(decodeURIComponent(u)))
+        if (seed) {
+          const seedRes = await fetch(seed, {
+            headers: { "User-Agent": UA, "Accept-Language": "ar,en-US;q=0.9,en;q=0.8", Accept: "text/html,*/*" },
+            redirect: "follow",
+            signal: AbortSignal.timeout(15000),
+          })
+          if (seedRes.ok) {
+            const seedHtml = await seedRes.text()
+            const hubUrl =
+              seedHtml.match(/href="(https?:\/\/alking\.mycima\.cv\/series\/[^"]+)"/i)?.[1] ?? null
+            if (hubUrl) {
+              const hubEpisodes = await mycimaEpisodeLinksFromHub(hubUrl)
+              candidates = rankBySeason(hubEpisodes.filter((u) => epPattern.test(norm(u))))
+            }
+          }
+        }
+      }
+      pageUrl = candidates[0] ?? null
     }
-    const pageUrl = candidates[0]
     if (!pageUrl) return { sources: [], pageUrl: null }
 
-    // Step 3: fetch the watch page and pull every embed token. MyCima exposes
-    // the watch servers as `data-watch="https://mycima-my.com?{param}={base64}"`
-    // attributes in the RAW HTML — the param name varies (mycimafsd, slp_watch,
-    // …), so decode ANY base64 query param that resolves to a http(s) URL.
-    // (Download-only `secure_stream` links are Cloudflare-wrapped — skipped.)
+    // Step 3: fetch the watch page and pull every playable source.
     const pageRes = await fetch(pageUrl, {
       headers: { "User-Agent": UA, "Accept-Language": "ar,en-US;q=0.9,en;q=0.8", Accept: "text/html,*/*" },
       redirect: "follow",
@@ -444,30 +615,7 @@ export async function searchMycima(
     })
     if (!pageRes.ok) return { sources: [], pageUrl: pageRes.url }
     const pageHtml = await pageRes.text()
-
-    const tokenCandidates: string[] = []
-    // a) data-watch attributes (the authoritative watch-server list)
-    for (const m of pageHtml.matchAll(/data-watch="([^"]+)"/g)) tokenCandidates.push(m[1])
-    // b) bare token params in the HTML (belt & braces — same tokens, no attr)
-    for (const m of pageHtml.matchAll(/(?:mycimafsd|slp_watch|mycima_watch)=([A-Za-z0-9_=+/-]{20,})/g)) tokenCandidates.push(m[1])
-
-    const seen = new Set<string>()
-    const sources: MycimaSource[] = []
-    for (const cand of tokenCandidates) {
-      let url: string | null = null
-      if (/^https?:\/\//.test(cand)) {
-        // data-watch URL: pull the base64 query param out of it
-        const pm = cand.match(/[?&][a-z_]+=([A-Za-z0-9_=+/-]{20,})/i)
-        url = pm ? decodeMycimafsd(pm[1]) : cand.startsWith("http") && !cand.includes("mycima-my.com") ? cand : null
-      } else {
-        url = decodeMycimafsd(cand)
-      }
-      if (!url || seen.has(url)) continue
-      // Skip MyCima's own CF-wrapped secure_stream funnel — only direct hosts play.
-      if (url.includes("secure_stream")) continue
-      seen.add(url)
-      sources.push({ url, host: getHost(url), referer: MYCIMA_REFERER })
-    }
+    const sources = mycimaSourcesFromPage(pageHtml)
     return { sources, pageUrl: pageRes.url || pageUrl }
   } catch {
     return { sources: [], pageUrl: null }

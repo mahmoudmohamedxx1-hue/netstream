@@ -68,8 +68,11 @@ function toggleFavorite(id: string): string[] {
 
 // ── Preferred providers (top 5, live-tested 2026-10) ──────────────────────
 // These are tried first by the auto-switch logic, in this order.
-// (2embed.cc replaced — its embed now redirects to a landing funnel.)
-const PREFERRED_PROVIDERS = ["vidlink.pro", "vidcore.net", "vidfast.pro", "superembed", "vidsrc.su"]
+// 2026-10 refresh: vidsrc.su removed ("No available servers" backend-wide);
+// vidlink re-verified with TMDB ids (their catalog is TMDB-only now — the
+// player passes meta.tmdbId, see rawPlayerUrl); VidSpark (ex-MoviesApi)
+// verified working end-to-end.
+const PREFERRED_PROVIDERS = ["vidcore.net", "vidlink.pro", "vidfast.pro", "moviesapi.to", "superembed"]
 // TMDB-supporting providers — used when a title has no IMDB ID (tmdb- prefix).
 // These providers can play titles using TMDB IDs directly.
 const TMDB_PROVIDERS = ["vidlink.pro", "vidfast.pro", "videasy.net"]
@@ -149,7 +152,7 @@ function sourceForQuality(quality: string, isMobile: boolean): string {
     case "720p":
       return "vidcore.net"
     case "480p":
-      return "vidsrc.su"
+      return "moviesapi.to"
     default:
       return "vidlink.pro" // auto → VidLink on desktop
   }
@@ -498,23 +501,39 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     setReloads((r) => r + 1)
   }, [adBlockOn])
 
-  // Cloudflare-protected providers can't be proxied (403)
-  const CLOUDFLARE_BLOCKED = ["vidcore.net", "vidfast.pro", "vidsrc.to", "vidsrc.cc"]
+  // Cloudflare-protected providers can't be proxied (403) — verified 2026-10:
+  // vidcore.io and vidfast.vc now answer the proxy fine, so they're out of
+  // this list. vidsrc.to / vidsrc.cc still 403 behind CF challenges.
+  const CLOUDFLARE_BLOCKED = ["vidsrc.to", "vidsrc.cc"]
+  // Providers whose embed page MUST always go through /api/video-proxy — even on
+  // mobile or with the ad-blocker OFF. VidLink / VidCore / VidFast / 2Embed all
+  // ship a legacy sandbox self-check (`document.domain = document.domain` →
+  // TypeError on modern Chrome → "Please Disable Sandbox" overlay) when framed
+  // directly. The proxy injects a no-op document.domain setter that neutralizes
+  // the check before their scripts run.
+  const ALWAYS_PROXY = ["vidlink.pro", "vidcore.net", "vidfast.pro", "videasy.net", "2embed.skin"]
   const rawPlayerUrl = useMemo(
     () =>
       buildPlayerUrl({
         imdbId: title.imdbId,
+        tmdbId: meta?.tmdbId ?? undefined,
         type: title.type,
         season,
         episode,
         sourceId,
       }),
-    [title, season, episode, sourceId]
+    [title, season, episode, sourceId, meta?.tmdbId]
   )
 
   const playerUrl = useMemo(() => {
+    if (!rawPlayerUrl) return rawPlayerUrl
+    // Always-proxied providers (2embed sandbox false-positive) — proxy on every
+    // device regardless of the ad-blocker setting.
+    if (ALWAYS_PROXY.includes(sourceId)) {
+      return `/api/video-proxy?url=${encodeURIComponent(rawPlayerUrl)}`
+    }
     if (!adBlockOn) return rawPlayerUrl
-    // On mobile: load ALL providers directly (proxy breaks mobile video players)
+    // On mobile: load ALL other providers directly (proxy breaks mobile video players)
     if (isMobile) return rawPlayerUrl
     // On desktop: Cloudflare-protected providers load directly (proxy gets 403)
     if (CLOUDFLARE_BLOCKED.includes(sourceId)) return rawPlayerUrl
@@ -541,8 +560,8 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     precheckDoneRef.current = true
      
   }, [title.imdbId, title.type, season, episode])
-  type ArabicSource = { url: string; host: string; referer?: string; directUrl?: string | null; videoType?: "mp4" | "hls" | null; verified?: boolean }
-  type ExtractedSource = { embedUrl: string; host: string; referer: string; videoUrl: string | null; videoType: "mp4" | "hls" | null; status: "pending" | "extracting" | "ready" | "failed" }
+  type ArabicSource = { url: string; host: string; referer?: string; directUrl?: string | null; videoType?: "mp4" | "hls" | null; verified?: boolean; kind?: "embed" | "mp4" | "player"; quality?: string }
+  type ExtractedSource = { embedUrl: string; host: string; referer: string; videoUrl: string | null; videoType: "mp4" | "hls" | null; status: "pending" | "extracting" | "ready" | "failed"; kind: "embed" | "mp4" | "player"; quality?: string }
   const [arabicStream, setArabicStream] = useState<{
     sources: ArabicSource[]
     movieUrl: string | null
@@ -597,25 +616,29 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   }, [isArabicProvider, source.id, displayTitle, title.type, title.title, title.imdbId, season, episode])
 
   // Auto-fallback: if the Arabic provider search returns 0 sources, switch to
-  // the default global provider. Otherwise, stay on the Arabic provider —
-  // the video plays through /api/video-proxy which handles Referer + ads.
+  // a verified-working global provider (VidSpark — IMDb-keyed, end-to-end
+  // tested 2026-10). Otherwise, stay on the Arabic provider.
   useEffect(() => {
     if (!isArabicProvider) return
     if (arabicStream.loading) return
     if (arabicStream.sources.length > 0) return
-    // No sources found — switch to VidLink (2embed.cc is now a landing funnel)
+    // No sources found — switch to VidSpark (moviesapi.to)
     const timer = setTimeout(() => {
-      setSourceId("vidlink.pro")
+      setSourceId("moviesapi.to")
     }, 1500)
     return () => clearTimeout(timer)
   }, [isArabicProvider, arabicStream.loading, arabicStream.sources.length])
 
   // Health-check each Arabic source. The API already verifies sources
-  // server-side: either a direct video URL was extracted (m3u8/mp4) or the
-  // embed page was probed alive. Both arrive as status "ready" — the embed
-  // plays through /api/video-proxy either way (the host's own JS builds the
-  // stream). Only unverified sources get the client-side /api/extract-video
-  // check.
+  // server-side. By kind:
+  //   • mp4    → direct MP4 on link.mycima.cv (video/mp4 + ranges + ACAO:*).
+  //              Arrives verified (ranged GET probe) → ready, native playback.
+  //   • player → MyCima's own CF-gated player page. Can't be verified from a
+  //              datacenter — marked ready WITHOUT a server check; the user's
+  //              browser negotiates the Cloudflare challenge inside the iframe.
+  //   • embed  → direct video-host embed (fastvip/hglink). Verified via
+  //              extraction or liveness probe → ready; unverified ones get the
+  //              client-side /api/extract-video check.
   useEffect(() => {
     if (!isArabicProvider) return
     if (arabicStream.loading) return
@@ -624,14 +647,33 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     let cancelled = false
     const myReferer = "https://alking.mycima.cv/"
     // Initialize extraction state (in a microtask to avoid set-state-in-effect)
-    const initSources: ExtractedSource[] = arabicStream.sources.map((s) => ({
-      embedUrl: s.url,
-      host: s.host,
-      referer: s.referer || myReferer,
-      videoUrl: s.directUrl || (s.verified ? s.url : null),
-      videoType: s.videoType || null,
-      status: s.directUrl || s.verified ? ("ready" as const) : ("pending" as const),
-    }))
+    const initSources: ExtractedSource[] = arabicStream.sources.map((s) => {
+      const kind = s.kind ?? "embed"
+      if (kind === "player") {
+        // Unverifiable from a datacenter (Cloudflare) — playable attempt, the
+        // user's browser may pass the challenge.
+        return {
+          embedUrl: s.url, host: s.host, referer: s.referer || myReferer,
+          videoUrl: s.url, videoType: null, status: "ready" as const, kind,
+          quality: s.quality,
+        }
+      }
+      if (kind === "mp4") {
+        return {
+          embedUrl: s.url, host: s.host, referer: s.referer || myReferer,
+          videoUrl: s.directUrl || s.url, videoType: (s.videoType ?? "mp4") as "mp4" | "hls",
+          status: (s.directUrl || s.verified ? "ready" : "ready") as "ready", // attempt even unverified (datacenter probes can false-negative)
+          kind, quality: s.quality,
+        }
+      }
+      return {
+        embedUrl: s.url, host: s.host, referer: s.referer || myReferer,
+        videoUrl: s.directUrl || (s.verified ? s.url : null),
+        videoType: s.videoType || null,
+        status: s.directUrl || s.verified ? ("ready" as const) : ("pending" as const),
+        kind, quality: s.quality,
+      }
+    })
     Promise.resolve().then(() => {
       if (!cancelled) {
         setExtractedSources(initSources)
@@ -640,8 +682,9 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
       }
     })
 
-    // Health-check the sources that came back unverified
+    // Health-check the embed-kind sources that came back unverified
     arabicStream.sources.forEach((src, idx) => {
+      if ((src.kind ?? "embed") !== "embed") return // mp4/player handled above
       if (src.directUrl || src.verified) return // already verified server-side
       const referer = src.referer || myReferer
       setExtractedSources((prev) => prev.map((s, i) => i === idx ? { ...s, status: "extracting" } : s))
@@ -678,19 +721,31 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     ? picked
     : activeExtractedSource ?? fallbackSource
 
-  // Playback strategy for Arabic sources:
-  //   • Default → iframe the embed DIRECTLY (fastvip.space etc. allow framing).
-  //     The user's browser fetches the page fresh, so the stream tokens baked
-  //     into the player JS are minted for the USER's network — critical,
-  //     because these CDNs key access to the requesting network.
-  //   • Ad-block ON → route through /api/video-proxy (same-origin, Referer
-  //     injected, anti-embed traps + jwplayer VAST ads stripped).
+  // Playback strategy for Arabic sources, by source kind:
+  //   • mp4    → NATIVE <video> element. link.mycima.cv serves video/mp4 with
+  //              byte ranges + access-control-allow-origin:*, so it plays and
+  //              seeks without any proxy. (Best path for series episodes.)
+  //   • player → iframe the MyCima player page DIRECTLY (never proxied — the
+  //              proxy's datacenter IP gets 403'd by Cloudflare; the user's
+  //              browser can negotiate the challenge).
+  //   • embed  → iframe the video-host embed. Default → DIRECT (fastvip.space
+  //              etc. allow framing; tokens are minted for the USER's network
+  //              — these CDNs key access to the requesting network). Ad-block
+  //              ON → route through /api/video-proxy (same-origin, Referer
+  //              injected, anti-embed traps + jwplayer VAST ads stripped).
+  const currentKind = currentVideoSource?.kind ?? "embed"
+  const nativeVideoUrl =
+    currentVideoSource && currentKind === "mp4" && currentVideoSource.videoUrl
+      ? currentVideoSource.videoUrl
+      : null
   const directVideoUrl = currentVideoSource?.embedUrl
-    ? adBlockOn
-      ? `/api/video-proxy?url=${encodeURIComponent(currentVideoSource.embedUrl)}&referer=${encodeURIComponent(currentVideoSource.referer)}`
-      : currentVideoSource.embedUrl
+    ? currentKind === "player"
+      ? currentVideoSource.embedUrl
+      : adBlockOn
+        ? `/api/video-proxy?url=${encodeURIComponent(currentVideoSource.embedUrl)}&referer=${encodeURIComponent(currentVideoSource.referer)}`
+        : currentVideoSource.embedUrl
     : null
-  const directVideoType = null // iframe mode, not native video
+  const directVideoType = nativeVideoUrl ? (currentVideoSource?.videoType ?? "mp4") : null
 
   // Record to Continue Watching via IndexedDB on mount and whenever season/episode changes.
   // Saves the full title metadata so Continue Watching has real titles.
@@ -757,7 +812,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     setLoaded(false)
     // Remember this choice for next time the user opens this title.
     // But DON'T save providers that are known to 403 in browser iframes.
-    const BLOCKED = ["vidsrc.to", "vidsrc.cc", "vidsrc.pro", "multiembed"]
+    const BLOCKED = ["vidsrc.to", "vidsrc.cc", "vidsrc.pro"]
     if (!BLOCKED.includes(id)) {
       lastProvider.set(title.imdbId, id)
     }
@@ -1097,20 +1152,34 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
                         title={s.embedUrl}
                       >
                         {s.status === "extracting" ? "⏳" : s.status === "failed" ? "✗" : ""}
-                        {s.host}
+                        {s.host}{s.quality ? ` · ${s.quality}` : ""}
                       </button>
                     ))}
                   </div>
                 )}
-                <iframe
-                  key={directVideoUrl}
-                  src={directVideoUrl}
-                  title={title.title}
-                  allow="autoplay; fullscreen; encrypted-media; picture-in-picture; accelerometer; gyroscope; web-share"
-                  allowFullScreen
-                  referrerPolicy="no-referrer"
-                  className="absolute inset-0 h-full w-full"
-                />
+                {nativeVideoUrl ? (
+                  /* Direct MP4 (link.mycima.cv) — native <video>: no iframe, no
+                     ads, seeking works via byte ranges, plays cross-origin
+                     thanks to access-control-allow-origin:*. */
+                  <video
+                    key={nativeVideoUrl}
+                    src={nativeVideoUrl}
+                    controls
+                    autoPlay
+                    playsInline
+                    className="absolute inset-0 h-full w-full bg-black"
+                  />
+                ) : (
+                  <iframe
+                    key={directVideoUrl}
+                    src={directVideoUrl}
+                    title={title.title}
+                    allow="autoplay; fullscreen; encrypted-media; picture-in-picture; accelerometer; gyroscope; web-share"
+                    allowFullScreen
+                    referrerPolicy="no-referrer"
+                    className="absolute inset-0 h-full w-full"
+                  />
+                )}
                 {/* Watched-progress bar */}
                 {watchProgress > 0 && (
                   <div className="absolute bottom-0 left-0 z-20 h-1 w-full bg-white/10">
