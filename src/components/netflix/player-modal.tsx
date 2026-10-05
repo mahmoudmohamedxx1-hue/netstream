@@ -31,7 +31,6 @@ import { ServerCheck } from "./server-check"
 import {
   VIDEO_SOURCES,
   PRIMARY_SOURCES,
-  ADVANCED_SOURCES,
   MOBILE_SOURCES,
   ARABIC_SOURCES,
   SOURCE_TABS,
@@ -67,9 +66,10 @@ function toggleFavorite(id: string): string[] {
   return next
 }
 
-// ── Preferred providers (user-specified top 5) ──────────────────────────────
+// ── Preferred providers (top 5, live-tested 2026-10) ──────────────────────
 // These are tried first by the auto-switch logic, in this order.
-const PREFERRED_PROVIDERS = ["vidcore.net", "vidlink.pro", "moviesapi.to", "superembed", "2embed.cc"]
+// (2embed.cc replaced — its embed now redirects to a landing funnel.)
+const PREFERRED_PROVIDERS = ["vidlink.pro", "vidcore.net", "vidfast.pro", "superembed", "vidsrc.su"]
 // TMDB-supporting providers — used when a title has no IMDB ID (tmdb- prefix).
 // These providers can play titles using TMDB IDs directly.
 const TMDB_PROVIDERS = ["vidlink.pro", "vidfast.pro", "videasy.net"]
@@ -129,30 +129,29 @@ const QUALITY_OPTIONS = [
 ] as const
 
 // Map quality to providers that work in browser iframes.
-// Default provider: vidcore.net on desktop, moviesapi.to on mobile.
-// MoviesApi works better on mobile (no Cloudflare bot detection, mobile-optimized player).
+// Default provider: vidlink on desktop, superembed on mobile.
 function sourceForQuality(quality: string, isMobile: boolean): string {
   if (isMobile) {
     switch (quality) {
       case "1080p":
-        return "moviesapi.to"
+        return "superembed"
       case "720p":
-        return "moviesapi.to"
+        return "superembed"
       case "480p":
-        return "moviesapi.to"
+        return "anyembed"
       default:
-        return "moviesapi.to" // auto → MoviesApi on mobile
+        return "superembed" // auto → SuperEmbed on mobile
     }
   }
   switch (quality) {
     case "1080p":
-      return "vidcore.net"
+      return "vidlink.pro"
     case "720p":
       return "vidcore.net"
     case "480p":
-      return "moviesapi.to"
+      return "vidsrc.su"
     default:
-      return "vidcore.net" // auto → VidCore on desktop
+      return "vidlink.pro" // auto → VidLink on desktop
   }
 }
 
@@ -224,7 +223,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   const isTmdbOnly = title.imdbId?.startsWith("tmdb-")
   const defaultSource = savedSourceId
     || lastProvider.get(title.imdbId)
-    || (isTmdbOnly ? "vidlink.pro" : isMobile ? "moviesapi.to" : "vidcore.net")
+    || (isTmdbOnly ? "vidlink.pro" : isMobile ? "superembed" : "vidlink.pro")
   const [sourceId, setSourceId] = useState<string>(defaultSource)
   const [season, setSeason] = useState<number>(title.season ?? 1)
   const [episode, setEpisode] = useState<number>(title.episode ?? 1)
@@ -523,14 +522,16 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     return `/api/video-proxy?url=${encodeURIComponent(rawPlayerUrl)}`
   }, [rawPlayerUrl, adBlockOn, sourceId, isMobile])
 
-  // Arabic provider streaming — when the user selects an Arabic scraper site
-  // (EgyDead, EgyBest, etc.), we:
-  //   1. Call /api/arabic-stream to search the Arabic site and get embed URLs
-  //   2. Call /api/extract-video for each embed URL to get the DIRECT video URL
-  //      (MP4 or M3U8) — using the same logic as sussy-code/providers extractors
-  //   3. Play the direct URL in a native <video> element with HLS.js
-  //   This bypasses iframes entirely — no ads, no cross-origin issues.
-  const isArabicProvider = source.region === "Arabic" && source.tier === 3
+  // Arabic / search-based provider streaming — when the user selects a
+  // search-based provider (ArabSeed/MyCima), we:
+  //   1. Call /api/arabic-stream to search the Arabic site by title — it
+  //      returns direct video-host embed URLs (fastvip.space, hglink.to, …)
+  //      plus pre-extracted direct video URLs when available.
+  //   2. Sources without a pre-extracted URL go through /api/extract-video as
+  //      a health check.
+  //   3. The chosen embed plays through /api/video-proxy (same-origin iframe,
+  //      correct Referer, ad stripping) — live-tested working.
+  const isArabicProvider = source.searchBased === true
 
   // ── Pre-check DISABLED per user request ──────────────────────────────────
   // The user wants to stay on the selected server — no auto-switching.
@@ -540,8 +541,8 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     precheckDoneRef.current = true
      
   }, [title.imdbId, title.type, season, episode])
-  type ArabicSource = { url: string; host: string; originalUrl: string }
-  type ExtractedSource = { embedUrl: string; host: string; videoUrl: string | null; videoType: "mp4" | "hls" | null; status: "pending" | "extracting" | "ready" | "failed" }
+  type ArabicSource = { url: string; host: string; referer?: string; directUrl?: string | null; videoType?: "mp4" | "hls" | null; verified?: boolean }
+  type ExtractedSource = { embedUrl: string; host: string; referer: string; videoUrl: string | null; videoType: "mp4" | "hls" | null; status: "pending" | "extracting" | "ready" | "failed" }
   const [arabicStream, setArabicStream] = useState<{
     sources: ArabicSource[]
     movieUrl: string | null
@@ -559,11 +560,18 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
       if (!cancelled) setArabicStream({ sources: [], movieUrl: null, loading: true, error: null, activeSourceIdx: 0 })
     })
     const searchTitle = displayTitle || title.title
-    if (!searchTitle) return
-    fetch(
-      `/api/arabic-stream?site=${source.id}&title=${encodeURIComponent(searchTitle)}&type=${title.type}`,
-      { cache: "no-store" }
-    )
+    if (!searchTitle && !title.imdbId) return
+    const p = new URLSearchParams({
+      site: source.id,
+      title: searchTitle,
+      type: title.type,
+      imdbId: title.imdbId,
+    })
+    if (title.type === "series") {
+      p.set("season", String(season))
+      p.set("episode", String(episode))
+    }
+    fetch(`/api/arabic-stream?${p.toString()}`, { cache: "no-store" })
       .then((r) => r.json())
       .then((data) => {
         if (cancelled) return
@@ -586,54 +594,58 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
         })
       })
     return () => { cancelled = true }
-  }, [isArabicProvider, source.id, displayTitle, title.type, title.title])
+  }, [isArabicProvider, source.id, displayTitle, title.type, title.title, title.imdbId, season, episode])
 
   // Auto-fallback: if the Arabic provider search returns 0 sources, switch to
-  // 2Embed.cc. Otherwise, stay on the Arabic provider — the video plays through
-  // the /api/video-proxy which handles Referer headers and ad blocking.
+  // the default global provider. Otherwise, stay on the Arabic provider —
+  // the video plays through /api/video-proxy which handles Referer + ads.
   useEffect(() => {
     if (!isArabicProvider) return
     if (arabicStream.loading) return
     if (arabicStream.sources.length > 0) return
-    // No sources found — switch to 2Embed.cc
+    // No sources found — switch to VidLink (2embed.cc is now a landing funnel)
     const timer = setTimeout(() => {
-      setSourceId("2embed.cc")
+      setSourceId("vidlink.pro")
     }, 1500)
     return () => clearTimeout(timer)
   }, [isArabicProvider, arabicStream.loading, arabicStream.sources.length])
 
-  // The active embeddable video URL (for the iframe). When the Arabic provider
-  // is selected, we proxy the embed URL through /api/video-proxy with the
-  // When Arabic sources are found, extract direct video URLs from each embed.
-  // This calls /api/extract-video which uses the sussy-code/providers logic:
-  //   MixDrop → unpack eval(p,a,c,k,e,d) → MDCore.wurl → MP4 URL
-  //   VOE → follow JS redirect → find 'hls':'...' → M3U8 URL
-  // The extracted URLs play directly in a <video> element — no iframe, no ads.
+  // Health-check each Arabic source. The API already verifies sources
+  // server-side: either a direct video URL was extracted (m3u8/mp4) or the
+  // embed page was probed alive. Both arrive as status "ready" — the embed
+  // plays through /api/video-proxy either way (the host's own JS builds the
+  // stream). Only unverified sources get the client-side /api/extract-video
+  // check.
   useEffect(() => {
     if (!isArabicProvider) return
     if (arabicStream.loading) return
     if (arabicStream.sources.length === 0) return
 
     let cancelled = false
+    const myReferer = "https://alking.mycima.cv/"
     // Initialize extraction state (in a microtask to avoid set-state-in-effect)
     const initSources: ExtractedSource[] = arabicStream.sources.map((s) => ({
       embedUrl: s.url,
       host: s.host,
-      videoUrl: null,
-      videoType: null,
-      status: "pending" as const,
+      referer: s.referer || myReferer,
+      videoUrl: s.directUrl || (s.verified ? s.url : null),
+      videoType: s.videoType || null,
+      status: s.directUrl || s.verified ? ("ready" as const) : ("pending" as const),
     }))
     Promise.resolve().then(() => {
       if (!cancelled) {
         setExtractedSources(initSources)
-        setActiveExtractedIdx(0)
+        const firstReady = initSources.findIndex((s) => s.status === "ready")
+        setActiveExtractedIdx(firstReady >= 0 ? firstReady : 0)
       }
     })
 
-    // Extract from each source in parallel
+    // Health-check the sources that came back unverified
     arabicStream.sources.forEach((src, idx) => {
+      if (src.directUrl || src.verified) return // already verified server-side
+      const referer = src.referer || myReferer
       setExtractedSources((prev) => prev.map((s, i) => i === idx ? { ...s, status: "extracting" } : s))
-      fetch(`/api/extract-video?url=${encodeURIComponent(src.url)}&referer=${encodeURIComponent("https://tv10.egydead.live/")}`)
+      fetch(`/api/extract-video?url=${encodeURIComponent(src.url)}&referer=${encodeURIComponent(referer)}&host=${encodeURIComponent(src.host)}`)
         .then((r) => r.json())
         .then((data) => {
           if (cancelled) return
@@ -656,17 +668,27 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
 
   // The first successfully extracted video URL (auto-select it)
   const activeExtractedSource = extractedSources.find((s) => s.status === "ready" && s.videoUrl)
-  // Use the first ready source, or the one the user selected
-  const currentVideoSource = extractedSources[activeExtractedIdx]?.status === "ready"
-    ? extractedSources[activeExtractedIdx]
-    : activeExtractedSource ?? null
+  // Selection priority: the user-picked source (if not hard-failed), then the
+  // first verified one, then the first non-failed one — the embed can still
+  // play through the proxy even without a pre-extracted direct URL (the
+  // embed host's own JS builds the stream).
+  const picked = extractedSources[activeExtractedIdx]
+  const fallbackSource = extractedSources.find((s) => s.status !== "failed") ?? null
+  const currentVideoSource = picked && picked.status !== "failed"
+    ? picked
+    : activeExtractedSource ?? fallbackSource
 
-  // Use the video-proxy approach: serve the embed page same-origin through
-  // /api/video-proxy with the correct Referer + ad blocking. The video host's
-  // JS runs, builds the m3u8 URL, and plays the video as a blob URL.
-  // This was verified working — the video loads and plays.
+  // Playback strategy for Arabic sources:
+  //   • Default → iframe the embed DIRECTLY (fastvip.space etc. allow framing).
+  //     The user's browser fetches the page fresh, so the stream tokens baked
+  //     into the player JS are minted for the USER's network — critical,
+  //     because these CDNs key access to the requesting network.
+  //   • Ad-block ON → route through /api/video-proxy (same-origin, Referer
+  //     injected, anti-embed traps + jwplayer VAST ads stripped).
   const directVideoUrl = currentVideoSource?.embedUrl
-    ? `/api/video-proxy?url=${encodeURIComponent(currentVideoSource.embedUrl)}&referer=${encodeURIComponent("https://tv10.egydead.live/")}`
+    ? adBlockOn
+      ? `/api/video-proxy?url=${encodeURIComponent(currentVideoSource.embedUrl)}&referer=${encodeURIComponent(currentVideoSource.referer)}`
+      : currentVideoSource.embedUrl
     : null
   const directVideoType = null // iframe mode, not native video
 
@@ -1058,17 +1080,19 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
                     {extractedSources.map((s, idx) => (
                       <button
                         key={s.embedUrl}
-                        onClick={() => s.status === "ready" && setActiveExtractedIdx(idx)}
-                        disabled={s.status !== "ready"}
+                        onClick={() => s.status !== "failed" && setActiveExtractedIdx(idx)}
+                        disabled={s.status === "failed"}
                         className={cn(
                           "rounded-md px-2.5 py-1 text-[10px] font-bold transition",
-                          idx === activeExtractedIdx && s.status === "ready"
+                          idx === activeExtractedIdx && s.status !== "failed"
                             ? "bg-primary text-primary-foreground"
                             : s.status === "ready"
                               ? "bg-black/70 text-white/80 hover:bg-black/90"
                               : s.status === "extracting"
                                 ? "bg-black/50 text-white/40"
-                                : "bg-black/50 text-red-400/40"
+                                : s.status === "failed"
+                                  ? "bg-black/50 text-red-400/40"
+                                  : "bg-black/50 text-white/50"
                         )}
                         title={s.embedUrl}
                       >

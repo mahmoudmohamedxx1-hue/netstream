@@ -3,8 +3,8 @@
 import { useState, useRef, useCallback, useEffect } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import {
-  Download, X, Copy, Check, Loader2, AlertCircle, Zap, Server,
-  Terminal, FileVideo, HardDriveDownload, RefreshCw,
+  Download, X, Check, Loader2, AlertCircle, Zap, Server,
+  FileVideo, HardDriveDownload, RefreshCw,
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 import { useLanguage } from "@/hooks/use-language"
@@ -165,7 +165,6 @@ export function DownloadHelper({
   const [stats, setStats] = useState({ downloaded: 0, total: 0, speed: 0, eta: 0, segsDone: 0, segsTotal: 0 })
   const [statusText, setStatusText] = useState("")
   const [error, setError] = useState("")
-  const [copied, setCopied] = useState<string | null>(null)
   const [savedAs, setSavedAs] = useState("")
 
   const cancelRef = useRef(false)
@@ -211,7 +210,6 @@ export function DownloadHelper({
     if (type === "series") { p.set("season", String(season ?? 1)); p.set("episode", String(episode ?? 1)) }
     return `/api/download-file?${p.toString()}`
   }
-  const m3u8CopyUrl = source?.m3u8Url || ""
 
   useEffect(() => {
     if (open) {
@@ -488,15 +486,6 @@ export function DownloadHelper({
     URL.revokeObjectURL(url)
   }
 
-  const copy = (text: string, id: string) => {
-    navigator.clipboard.writeText(text)
-    setCopied(id)
-    setTimeout(() => setCopied(null), 2000)
-    toast({ title: isArabic ? "تم النسخ!" : "Copied!" })
-  }
-
-  const ytdlpCommand = `yt-dlp -o "${safeTitle}${suffix}.%(ext)s" "${m3u8CopyUrl || imdbId}"`
-
   return (
     <AnimatePresence>
       {open && (
@@ -737,55 +726,17 @@ export function DownloadHelper({
                 </div>
               )}
 
-              {/* ── Fallback options (when not actively downloading) ── */}
+              {/* ── Legal disclaimer (when not actively downloading) ── */}
+              {/* Manual options (raw m3u8 copy + yt-dlp command) were removed:
+                  provider CDN tokens are origin/referer-sandboxed, so URLs
+                  exported out of the app simply fail — misleading UX. */}
               {phase !== "downloading" && phase !== "converting" && phase !== "done" && (
-                <>
-                  <div className="my-4 border-t border-white/5" />
-                  <div className="space-y-2">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-white/30">
-                      {t("downloadManual")}
-                    </p>
-                    {m3u8CopyUrl && (
-                      <div className="flex items-center gap-2 rounded-xl border border-white/5 bg-white/[0.03] p-3">
-                        <Terminal className="size-4 shrink-0 text-white/30" />
-                        <input
-                          readOnly value={m3u8CopyUrl}
-                          className="min-w-0 flex-1 bg-transparent text-[11px] text-white/50 focus:outline-none"
-                          onFocus={(e) => e.target.select()}
-                        />
-                        <button
-                          onClick={() => copy(m3u8CopyUrl, "url")}
-                          className="flex shrink-0 items-center gap-1 rounded-md bg-white/10 px-2 py-1 text-[10px] font-semibold text-white transition hover:bg-white/20"
-                        >
-                          {copied === "url" ? <Check className="size-3 text-emerald-400" /> : <Copy className="size-3" />}
-                          {copied === "url" ? (isArabic ? "تم" : "Copied") : (isArabic ? "نسخ" : "Copy")}
-                        </button>
-                      </div>
-                    )}
-                    {m3u8CopyUrl && (
-                      <div className="rounded-xl border border-white/5 bg-black/40 p-3">
-                        <div className="flex items-center gap-2">
-                          <Terminal className="size-3.5 shrink-0 text-emerald-400/60" />
-                          <code className="min-w-0 flex-1 truncate text-[10px] text-emerald-400/80" dir="ltr">
-                            {ytdlpCommand}
-                          </code>
-                          <button
-                            onClick={() => copy(ytdlpCommand, "ytdlp")}
-                            className="shrink-0 rounded-md bg-white/10 px-2 py-1 text-[10px] font-semibold text-white hover:bg-white/20"
-                          >
-                            {copied === "ytdlp" ? <Check className="size-3 text-emerald-400" /> : <Copy className="size-3" />}
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                  <div className="mt-3 flex items-start gap-2 rounded-xl border border-yellow-500/10 bg-yellow-500/5 p-3">
-                    <AlertCircle className="size-3.5 shrink-0 text-yellow-500/70" />
-                    <p className="text-[10px] leading-relaxed text-yellow-500/60">
-                      {t("downloadDisclaimer").replace("⚠ ", "")}
-                    </p>
-                  </div>
-                </>
+                <div className="mt-4 flex items-start gap-2 rounded-xl border border-yellow-500/10 bg-yellow-500/5 p-3">
+                  <AlertCircle className="size-3.5 shrink-0 text-yellow-500/70" />
+                  <p className="text-[10px] leading-relaxed text-yellow-500/60">
+                    {t("downloadDisclaimer").replace("⚠ ", "")}
+                  </p>
+                </div>
               )}
             </div>
           </motion.div>

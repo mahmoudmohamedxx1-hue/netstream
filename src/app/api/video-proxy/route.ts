@@ -190,6 +190,55 @@ const KURO_ADS_SCRIPT = `
 `
 
 // CSS to hide ad elements
+// JWplayer VAST ad stripper — many embed hosts (fastvip.space, MixDrop
+// family, …) configure jwplayer with a VAST ad that blocks the video from
+// starting (the player waits for the ad to resolve). We intercept the
+// jwplayer global and drop the `advertising` block from every setup() call,
+// so the real video starts immediately.
+const JW_AD_STRIP_SCRIPT = `
+<script id="jw-ad-strip">
+(function() {
+  var realJw;
+  function wrap(fn) {
+    var wrapped = function() {
+      var player = fn.apply(this, arguments);
+      try {
+        if (player && typeof player.setup === "function") {
+          var origSetup = player.setup.bind(player);
+          player.setup = function(cfg) {
+            if (cfg && typeof cfg === "object") {
+              delete cfg.advertising;
+              if (Array.isArray(cfg.tracks)) {
+                cfg.tracks = cfg.tracks.filter(function(t) {
+                  return t && t.kind !== "ad";
+                });
+              }
+            }
+            return origSetup(cfg);
+          };
+        }
+      } catch (e) {}
+      return player;
+    };
+    try {
+      Object.keys(fn).forEach(function(k) { try { wrapped[k] = fn[k]; } catch (e) {} });
+      if (fn.prototype) { wrapped.prototype = fn.prototype; }
+    } catch (e) {}
+    return wrapped;
+  }
+  var current = window.jwplayer;
+  try {
+    Object.defineProperty(window, "jwplayer", {
+      configurable: true,
+      get: function() { return current; },
+      set: function(v) { current = typeof v === "function" ? wrap(v) : v; }
+    });
+    if (typeof current === "function") current = wrap(current);
+  } catch (e) {}
+})();
+</script>
+`
+
 const AD_BLOCK_CSS = `
 <style id="netstream-adblock">
   #sbxErr { display: none !important; }
@@ -212,9 +261,15 @@ export async function GET(req: NextRequest) {
   const embedUrl = url.searchParams.get("url")
   if (!embedUrl) return new NextResponse("url required", { status: 400 })
 
+  // Optional referer — some video hosts only serve their embed page when the
+  // linking site's referer is present (e.g. MyCima → fastvip.space).
+  const referer = url.searchParams.get("referer")
   const headers: Record<string, string> = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+  }
+  if (referer && /^https?:\/\//.test(referer)) {
+    headers["Referer"] = referer
   }
 
   try {
@@ -243,8 +298,22 @@ export async function GET(req: NextRequest) {
       "function isReallySandboxed() { return false; }"
     )
 
+    // 2b. Strip host anti-embed traps: some video hosts (fastvip.space and
+    // the StreamHG family) ship an inline "sandbox" checker plus an obfuscated
+    // ad/anti-adblock loader (hg-plugin.js) that redirect the page to
+    // /blocked.html when the embed runs outside the host's own origin.
+    // Remove both — the player setup lives in a separate packed script.
+    html = html.replace(
+      /<script(?![^>]*\bsrc\b)[^>]*>(?:(?!<\/script>)[\s\S])*?blocked\.html[\s\S]*?<\/script>/gi,
+      ""
+    )
+    html = html.replace(
+      /<script[^>]+src=["'][^"']*hg-plugin\.js[^"']*["'][^>]*>\s*<\/script>/gi,
+      ""
+    )
+
     // 3. Inject Kuro Ads Killer script + CSS
-    html = html.replace(/<head([^>]*)>/i, `<head$1>${AD_BLOCK_CSS}${KURO_ADS_SCRIPT}`)
+    html = html.replace(/<head([^>]*)>/i, `<head$1>${AD_BLOCK_CSS}${JW_AD_STRIP_SCRIPT}${KURO_ADS_SCRIPT}`)
 
     // 4. Add <base> tag
     html = html.replace(/<head([^>]*)>/i, `<head$1><base href="${finalUrl}">`)

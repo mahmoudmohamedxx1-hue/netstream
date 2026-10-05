@@ -54,13 +54,13 @@ export async function GET(req: NextRequest) {
   const url = new URL(req.url)
   const imdbId = url.searchParams.get("imdbId") || ""
   const type = (url.searchParams.get("type") || "movie") as "movie" | "series"
-  const sourceId = url.searchParams.get("sourceId") || "2embed.cc"
+  const sourceId = url.searchParams.get("sourceId") || "vidlink.pro"
   const title = url.searchParams.get("title") || "video"
   const season = url.searchParams.get("season")
   const episode = url.searchParams.get("episode")
 
   const source = getSource(sourceId)
-  const isArabic = source.region === "Arabic" && source.tier === 3
+  const isArabic = source.searchBased === true
   const safeTitle = sanitizeFilename(title)
 
   try {
@@ -165,7 +165,10 @@ async function extract2EmbedServers(
 }
 
 // All working Arabic sites — searched in parallel to find ALL sources.
-const ARABIC_SITES = ["egydead", "egybest", "shahid4u", "faselhd"]
+// (2026-10: mycima/ArabSeed added — the only Arabic site verified alive
+// end-to-end; egybest/shahid4u/faselhd domains are mostly dead or
+// Cloudflare-walled but are kept as best-effort extras.)
+const ARABIC_SITES = ["mycima", "egydead", "egybest", "shahid4u", "faselhd"]
 
 // ─── Search ALL Arabic sites in parallel ────────────────────────────────────
 //
