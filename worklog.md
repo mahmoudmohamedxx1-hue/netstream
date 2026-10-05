@@ -3749,3 +3749,31 @@ Stage Summary:
 - Provider list fully refreshed: 18 dead providers removed, domains fixed, 2 working providers added; dropdown shows only live options.
 - Download modal manual options removed (sandboxed URLs were misleading).
 - Known limits: MyCima coverage is strongest for recent Arabic releases; some hosts (vipserver, my_player tokens) are CF-walled and unreachable server-side — those sources are marked unverified and the player auto-falls back to VidLink.
+
+---
+Task ID: 7
+Agent: Super Z (main agent)
+Task: Fix user-reported regressions: (1) "Please Disable Sandbox" errors from some providers, (2) VidLink stopped working, (3) many Arabic titles not playing.
+
+Work Log:
+- REPRODUCED all three in real browser + hunted root causes in provider JS:
+  • "Please Disable Sandbox" = VidLink/VidCore/VidFast legacy self-check: `document.domain = document.domain` throws TypeError on modern Chrome → catch → overlay. Fires when framed even with NO sandbox attribute. 2embed.skin has the same check named isReallySandboxed (their check #3).
+  • VidLink broken: catalog is TMDB-only now; our rawPlayerUrl NEVER passed tmdbId to buildPlayerUrl (bug since TMDB support was added) → VidLink got IMDb ids → "We Couldn't Find This Content" for everything.
+  • Arabic series: episode pages expose my_player short tokens (CF-gated) + secure_stream zlib tokens; old decoder dropped BOTH → 0 sources for most series. Movies only had mycimafsd embeds working.
+- Deep probing findings: vidfast.pro→vidfast.vc rotation, player.videasy.net→player.videasy.to (DDoS-Guard), multiembed.mov→streamingnow.mov (CF challenge), vidsrc.su degraded ("No available servers" on blockbusters), 2embed.stream dead (empty 200), moviesapi.to rebranded VidSpark (VERIFIED working end-to-end in real browser), vidzee.wtf player backend 500s (skipped), egydead/faselhd/mosahim client-rendered search (dead ends), wecima TLS-blocked from sandbox, mycima mirrors mycima.cv/mycima.club are parked/different sites (alking.mycima.cv remains the only real one).
+- KEY DISCOVERY: secure_stream tokens on series episode pages are url-safe-base64 zlib that decode to link.mycima.cv/{hash} = DIRECT MP4 (video/mp4, byte ranges, ACAO:*, 291MB episode verified) — bypasses Cloudflare entirely.
+- Fixes shipped (commit 2448380):
+  • player-modal: meta.tmdbId now passed to buildPlayerUrl (deps updated); ALWAYS_PROXY = [vidlink, vidcore, vidfast, videasy, 2embed] — routed through proxy on ALL devices/adblock states; CLOUDFLARE_BLOCKED trimmed to [vidsrc.to, vidsrc.cc]; PREFERRED reordered (vidcore, vidlink, vidfast, vidspark, superembed); sourceForQuality updated; Arabic auto-fallback → moviesapi.to (VidSpark); native <video> rendering for kind=mp4 sources; quality chips (MyCima MP4 · 720p).
+  • video-proxy: SANDBOX_FIX_SCRIPT (no-op document.domain setter via Object.defineProperty) injected into EVERY proxied page — runs before provider scripts so the domain probe never throws; isReallySandboxed replaced with full-function regex anchored on document.domain (old lazy regex stopped at first nested brace and corrupted the script).
+  • vidsrc.ts: domain rotations (vidfast.vc, videasy.to, streamingnow.mov), vidsrc.su + 2embed.skin.alt + multiembed.mov-dup removed, MoviesApi→VidSpark rename, alwaysProxy flag added to type + 2embed entry, PREFERRED_IDS updated, header docs rewritten.
+  • video-extract.ts searchMycima rewrite: normalizeArabic (diacritics/tatweel/hamza/ة→ه/ى→ي) applied to BOTH URLs and patterns (fixed self-inflicted bug: "حلقة" must be searched as "حلقه" post-normalization); query variants (full, ال-stripped, first-2-words); series hub crawling (seed episode → /series/ hub → full حلقة list) for episodes missing from search; Arabic ordinal season mapping (الموسم الأول→1…); mycimaSourcesFromPage extracts 3 kinds (embed/player/mp4) incl. secure_stream→link.mycima.cv with quality labels.
+  • arabic-stream route: TMDB ar-SA + alternative_titles(ar) + original as fallback queries; kind-aware verification (mp4→ranged GET probe, embed→extraction/liveness, player→unverifiable-kept); kind-aware sorting (series: mp4>player>embed; movies: embed>mp4>player).
+  • check-servers: resolves TMDB id via tmdbFindId before probing + skips searchBased providers.
+- VERIFIED on production build in real browser: VidLink via proxy loads content (TMDB id 969681 in URL, jwplayer+poster, NO sandbox message); 2embed via proxy fully neutralized (clean function replacement, no dangling fragments); Arabic movie El Harifa → FastVIP embed via proxy w/ referer; Arabic series Al Hayba S1E1 → native <video> link.mycima.cv 720p readyState 4, 2730s duration, instant byte-range seek to 120s; check-servers all-ok (403s = CF-blocked-from-datacenter but browser-ok by design); ESLint 0/0, tsc 0 src errors.
+- Known limits: stream segment delivery for vidlink/vidfast/vidcore not verifiable from datacenter (CDNs key to ASN — same as before, works for real users); MyCima my_player pages CF-gated from datacenter (embedded directly, user's browser negotiates); MyCima catalog gaps remain for old/classic Arabic titles (كفرناحوم, باب الحارة not on the site).
+
+Stage Summary:
+- All 3 user-reported bugs root-caused and fixed: sandbox false-positive (document.domain no-op injection + always-proxy family), VidLink (tmdbId pass-through bug), Arabic series (secure_stream → direct MP4 native playback).
+- Provider list fully re-verified with real-browser testing: 3 domain rotations, 3 removals, 1 rebrand, VidSpark promoted to preferred.
+- Arabic playback now has 3 source kinds with series episodes playing natively (no iframe, no ads, seekable) — strongest Arabic playback the app has ever had.
+- Committed 2448380, pushed to main.
