@@ -3643,3 +3643,24 @@ Work Log:
 Stage Summary:
 - 7 verified UI/UX upgrades live: reduced-motion a11y, keyboard focus rings, CTA hierarchy, loading skeleton, dark chrome, recent searches, view transitions
 - Files: page.tsx, layout.tsx, globals.css, title-detail.tsx, search-overlay.tsx, use-language.ts
+
+---
+Task ID: 3
+Agent: Super Z (main agent)
+Task: Follow-up UX batch: player gestures, downloads panel, PWA
+
+Work Log:
+- Architectural finding: player is 100% cross-origin iframes → seek/volume gestures technically impossible (would be fake UX); pivoted to drag-down-to-close on card chrome
+- Downloads panel: src/lib/download-history.ts (localStorage, max 40, dedupe by imdbId+S/E+mode) + downloads-panel.tsx (useSyncExternalStore subscription after ESLint react-compiler rule rejected setState-in-effect; snapshot cache invalidated in persist() before event dispatch)
+- DownloadHelper lifecycle recording: done x4 outcomes (FSA-write, fmp4-memory, ts-remux, ts-fallback), canceled, failed (catch w/ variant in scope), server-mode = honest "started"; Esc-to-close added (guarded mid-download)
+- Navbar Download button + page-level re-download DownloadHelper (record → season/episode props verified E2E)
+- Player drag-to-close: scroll-safe (aborts if overlay scrolls), vertical-dominant >=90px, stiff spring tracks finger; verified: mid-drag translateY 122px @150px drag, release closes, 60px springs back no close
+- PWA: sw.js v2 (network-first _next/static — v1 cache-first broke hot reload; same-origin only; /api passthrough; inline branded offline HTML), manifest+appleWebApp+classic apple meta, PWARegister; verified SW active at /, offline navigation to uncached route serves offline page
+- BUG FIX discovered during E2E: router.push/replace silently no-op for replace-with-param + push-to-bare-'/' (search overlay URL, all close-cleanup paths broken); updateUrl now drives History API directly; full lifecycle verified (search=1 open/close, nav push+back, play open→close→'/')
+- E2E: panel empty state, seed→render (S1E2 chip, Completed, In-browser, MP4·720p, 135.8MB, date), live remove (2→1 without reload), clear-all, re-download opens helper preloaded S1E2, Esc closes helper; RTL Arabic panel (slides correct side, all AR strings); VLM review → 2 polish fixes (Zap red→yellow-400/80 mode icon, clear-all ghost style)
+- ESLint 0/0, tsc 0 src errors; commit ea40f2f pushed
+
+Stage Summary:
+- 3 features live: persistent downloads panel w/ re-download round-trip, PWA installable + offline, player drag-to-close
+- 1 latent router bug fixed (URL sync now works for all overlay open/close paths)
+- Files: download-history.ts (new), downloads-panel.tsx (new), pwa-register.tsx (new), download-helper.tsx, navbar.tsx, player-modal.tsx, page.tsx, layout.tsx, sw.js, manifest.json, use-language.ts
