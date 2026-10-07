@@ -26,6 +26,9 @@ export type TmdbTitle = {
   // Maturity rating (MPAA for movies e.g. "PG-13", TV Parental Guidelines for series e.g. "TV-MA").
   // Null when TMDB has no certification for this title in the US.
   maturityRating: string | null
+  // ISO 639-1 original language code ("ar", "en", "ko", …) — used by the
+  // player to default Arabic-language titles to the Arabic provider.
+  originalLanguage: string | null
   similar: { imdbId: string | null; title: string; poster: string | null; year: string; type: "movie" | "series" }[]
   // TMDB TV seasons (for series)
   tmdbSeasons: { season: number; name: string; episodes: number; poster: string | null; overview: string }[] | null
@@ -88,6 +91,7 @@ export async function getTmdbTitle(imdbId: string, lang?: string): Promise<TmdbT
           trailerKey: null,
           trailerSite: null,
           maturityRating: null,
+          originalLanguage: details.original_language ?? null,
           similar: (details.similar?.results ?? []).slice(0, 12).map((s: any) => ({
             imdbId: null,
             title: s.title ?? s.name ?? "",
@@ -249,6 +253,7 @@ export async function getTmdbTitle(imdbId: string, lang?: string): Promise<TmdbT
     trailerKey,
     trailerSite,
     maturityRating,
+    originalLanguage: details.original_language ?? null,
     similar,
     // TMDB TV seasons (skip season 0 = specials)
     tmdbSeasons: type === "series"

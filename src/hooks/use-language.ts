@@ -96,6 +96,7 @@ const DICT: Record<Lang, Record<string, string>> = {
     // Player
     closePlayer: "Close player",
     ifNothingPlays: "If nothing plays, switch the Server below or click Reload.",
+    slowServer: "This server may not have this title. Tap “Next” to try another server — Arabic titles work best on the 🌍 Arabic servers.",
     movieShort: "Movie",
     seriesShort: "Series",
     playbackTipsBody: "the provider is blocking iframe embedding. Fix it by clicking the",
@@ -305,6 +306,7 @@ const DICT: Record<Lang, Record<string, string>> = {
     // Player
     closePlayer: "إغلاق المشغل",
     ifNothingPlays: "إذا لم يعمل شيء، بدّل الخادم أدناه أو اضغط إعادة التحميل.",
+    slowServer: "قد لا يتوفر هذا العنوان على هذا الخادم. اضغط \"التالي\" لتجربة خادم آخر — العناوين العربية تعمل بشكل أفضل على خوادم 🌍 العربية.",
     movieShort: "فيلم",
     seriesShort: "مسلسل",
     playbackTipsBody: "المزود يحظر تضمين iframe. أصلحه بالضغط على",

@@ -137,13 +137,13 @@ function sourceForQuality(quality: string, isMobile: boolean): string {
   if (isMobile) {
     switch (quality) {
       case "1080p":
-        return "superembed"
+        return "vidlink.pro"
       case "720p":
-        return "superembed"
+        return "vidcore.net"
       case "480p":
         return "anyembed"
       default:
-        return "superembed" // auto → SuperEmbed on mobile
+        return "vidlink.pro" // auto → VidLink on mobile (proxied, CF-proof)
     }
   }
   switch (quality) {
@@ -226,11 +226,19 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   const isTmdbOnly = title.imdbId?.startsWith("tmdb-")
   const defaultSource = savedSourceId
     || lastProvider.get(title.imdbId)
-    || (isTmdbOnly ? "vidlink.pro" : isMobile ? "superembed" : "vidlink.pro")
+    || "vidlink.pro"
+  // (vidlink everywhere: always-proxied → no Cloudflare blocks, no sandbox
+  //  probes — the mobile-only superembed default hit CF challenges that left
+  //  the player blank on first open.)
   const [sourceId, setSourceId] = useState<string>(defaultSource)
   const [season, setSeason] = useState<number>(title.season ?? 1)
   const [episode, setEpisode] = useState<number>(title.episode ?? 1)
   const [reloads, setReloads] = useState(0)
+  // True when the current server has been loading for 20s+ without firing
+  // onLoad — the provider most likely has no stream for this title (e.g.
+  // vidlink on obscure Arabic cinema) and would spin forever. We then show a
+  // stronger "switch server" hint in the loading overlay.
+  const [slowLoad, setSlowLoad] = useState(false)
   const [loaded, setLoaded] = useState(false)
   const [prechecking, setPrechecking] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
@@ -374,7 +382,13 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     tmdbId: number | null
     poster: string | null
     backdrop: string | null
+    originalLanguage: string | null
   } | null>(null)
+  // True once the /api/tmdb lookup has settled (success OR failure). Used to
+  // hold TMDB-keyed providers (vidlink family) until we know the TMDB id —
+  // avoids a wasted first load with the IMDb id ("couldn't find this
+  // content" flash) before the URL switches.
+  const [tmdbMetaDone, setTmdbMetaDone] = useState(false)
   const { toggleWatchlist, isInWatchlist } = useLibrary()
   const { toast } = useToast()
   useEffect(() => { toastRef.current = toast }, [toast])
@@ -408,6 +422,16 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     },
   })
 
+  // 30-second watch-success reporter needs `loaded`; the slow-load timer
+  // resets on every server/episode/reload change and flips `slowLoad` after
+  // 20s without onLoad firing.
+  useEffect(() => {
+    setSlowLoad(false)
+    if (loaded) return
+    const timer = setTimeout(() => setSlowLoad(true), 20_000)
+    return () => clearTimeout(timer)
+  }, [loaded, sourceId, reloads, season, episode, title.imdbId])
+
   // Auto-fill: when the player opens, fetch real metadata from the backend
   // (local 11k-title dataset). This populates title/year/genres AND the real
   // season/episode counts for series. Also fetches the TMDB ID for episode
@@ -421,16 +445,23 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
       .then((data) => {
         if (cancelled || !data?.title) return
         const t = data.title
-        setMeta({
-          title: t.title,
-          year: t.year,
-          genres: t.genres ?? [],
-          runtimeMinutes: t.runtimeMinutes ?? null,
-          seasons: t.seasons ?? null,
-          tmdbId: t.tmdbId ?? null,
-          poster: null,
-          backdrop: null,
-        })
+        // FUNCTIONAL update — never clobber fields the /api/tmdb fetch may
+        // have already set. CRITICAL: /api/titles (uncached DB lookup) often
+        // resolves AFTER /api/tmdb; a plain setMeta({...}) would wipe the
+        // tmdbId and revert the player URL to the IMDb ID — which vidlink and
+        // the other TMDB-only providers can't resolve ("couldn't find this
+        // content").
+        setMeta((prev) => ({
+          title: prev?.title ?? t.title,
+          year: prev?.year ?? t.year,
+          genres: prev?.genres ?? t.genres ?? [],
+          runtimeMinutes: prev?.runtimeMinutes ?? t.runtimeMinutes ?? null,
+          seasons: prev?.seasons ?? t.seasons ?? null,
+          tmdbId: prev?.tmdbId ?? t.tmdbId ?? null,
+          poster: prev?.poster ?? t.poster ?? null,
+          backdrop: prev?.backdrop ?? null,
+          originalLanguage: prev?.originalLanguage ?? null,
+        }))
       })
       .catch(() => {})
     // Also fetch TMDB data (poster, backdrop, tmdbId for episodes)
@@ -443,6 +474,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
         const tmdbId = tmdbData?.tmdbId ?? null
         const poster = tmdbData?.poster ?? null
         const backdrop = tmdbData?.backdrop ?? null
+        const originalLanguage = tmdbData?.originalLanguage ?? tmdbData?.original_language ?? null
         if (tmdbId || poster || backdrop) {
           setMeta((prev) => ({
             title: prev?.title ?? title.title,
@@ -453,14 +485,40 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
             tmdbId: tmdbId ?? prev?.tmdbId ?? null,
             poster: poster ?? prev?.poster ?? null,
             backdrop: backdrop ?? prev?.backdrop ?? null,
+            originalLanguage: originalLanguage ?? prev?.originalLanguage ?? null,
           }))
         }
       })
       .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setTmdbMetaDone(true)
+      })
     return () => {
       cancelled = true
     }
   }, [title.imdbId])
+
+  // ── Arabic-language titles → default to the Arabic provider ──────────────
+  // The global providers (vidlink etc.) only carry POPULAR Arabic titles —
+  // most Arabic cinema isn't on their CDNs and playback then hangs forever at
+  // "Fetching Data". When the TMDB lookup reports original_language "ar" and
+  // the user hasn't already chosen a server for this title (no saved
+  // sourceId, no last-provider preference), switch to ArabSeed (MyCima),
+  // which searches Arabic sites by title. User choices always win.
+  const arabicDefaultRef = useRef(false)
+  const hasSavedProvider =
+    !!savedSourceId || !!lastProvider.get(title.imdbId)
+  useEffect(() => {
+    if (arabicDefaultRef.current) return
+    if (userInteractedRef.current) return
+    if (hasSavedProvider) return
+    if (meta?.originalLanguage !== "ar") return
+    // Only override the session defaults — never a provider the user picked.
+    if (sourceId !== "vidlink.pro" && sourceId !== "superembed") return
+    arabicDefaultRef.current = true
+    setSourceId("mycima")
+    setLoaded(false)
+  }, [meta?.originalLanguage, sourceId, hasSavedProvider])
 
   // Real season/episode counts from the IMDb dataset (fallback to a sensible
   // default if the title isn't in our local DB).
@@ -501,17 +559,19 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     setReloads((r) => r + 1)
   }, [adBlockOn])
 
-  // Cloudflare-protected providers can't be proxied (403) — verified 2026-10:
-  // vidcore.io and vidfast.vc now answer the proxy fine, so they're out of
-  // this list. vidsrc.to / vidsrc.cc still 403 behind CF challenges.
-  const CLOUDFLARE_BLOCKED = ["vidsrc.to", "vidsrc.cc"]
-  // Providers whose embed page MUST always go through /api/video-proxy — even on
-  // mobile or with the ad-blocker OFF. VidLink / VidCore / VidFast / 2Embed all
-  // ship a legacy sandbox self-check (`document.domain = document.domain` →
-  // TypeError on modern Chrome → "Please Disable Sandbox" overlay) when framed
-  // directly. The proxy injects a no-op document.domain setter that neutralizes
-  // the check before their scripts run.
-  const ALWAYS_PROXY = ["vidlink.pro", "vidcore.net", "vidfast.pro", "videasy.net", "2embed.skin"]
+  // Cloudflare-protected providers can't be proxied (403 from our datacenter
+  // IP) — verified 2026-10: vidsrc.to, vidsrc.cc/v2, streamingnow.mov
+  // (superembed) and vixsrc.to all 403 the proxy, so they MUST load directly
+  // in the user's browser (residential IPs pass the CF challenge).
+  const CLOUDFLARE_BLOCKED = ["vidsrc.to", "vidsrc.cc.v2", "superembed", "vixsrc.to"]
+  // Providers whose embed page MUST always go through /api/video-proxy — even
+  // on mobile or with the ad-blocker OFF. They ship sandbox self-checks
+  // (document.domain probe + "Chrome PDF Viewer" invalid-PDF object probe)
+  // that false-positive in ANY iframe → "Please Disable Sandbox" overlay that
+  // destroys the page. The proxy injects no-op shims for both probes before
+  // their scripts run. Family (2026-10): vidlink, vidcore, vidfast, videasy,
+  // 2embed.skin, moviesapi.to (VidSpark).
+  const ALWAYS_PROXY = ["vidlink.pro", "vidcore.net", "vidfast.pro", "videasy.net", "2embed.skin", "moviesapi.to"]
   const rawPlayerUrl = useMemo(
     () =>
       buildPlayerUrl({
@@ -1220,46 +1280,61 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
             )
           ) : (
             <>
-              {!loaded && (
-                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-black">
-                  <div className="h-10 w-10 animate-spin rounded-full border-2 border-white/20 border-t-primary" />
-                  <p className="text-sm text-white/60">
-                    {t("loading")} {source.name}…
-                  </p>
-                  <p className="text-xs text-white/40">
-                    {t("ifNothingPlays")}
-                  </p>
-                  <p className="mt-2 hidden text-[10px] text-white/30 sm:block">
-                    ⌨ R: reload · N: next server · T: test · F: fullscreen · Esc: close
-                  </p>
-                </div>
-              )}
-              {/* "Not playing?" helper — manual switch to next server */}
-              <div className="pointer-events-none absolute left-3 top-3 z-20 flex gap-2">
-                <button
-                  onClick={() => handleNextServer()}
-                  className="pointer-events-auto inline-flex items-center gap-1.5 rounded-md bg-black/70 px-3 py-1.5 text-[11px] font-semibold text-white transition hover:bg-black/90"
-                  title="Switch to the next server"
-                >
-                  <SkipForward className="h-3 w-3" />
-                  Not playing? Switch server
-                </button>
-              </div>
-              <iframe
-                key={`${sourceId}-${reloads}`}
-                src={playerUrl}
-                title={title.title}
-                allow="autoplay; fullscreen; encrypted-media; picture-in-picture; accelerometer; gyroscope; web-share"
-                allowFullScreen
-                referrerPolicy="no-referrer"
-                // NOTE: intentionally NO sandbox attribute — providers like
-                // vidcore hard-refuse to play inside ANY sandboxed frame
-                // ("This content can't be embedded in a sandboxed frame").
-                // Top-navigation hijacks from embed ad scripts are mitigated
-                // by the scoped beforeunload guard below instead.
-                onLoad={() => setLoaded(true)}
-                className="absolute inset-0 h-full w-full"
-              />
+              {/* TMDB-keyed providers (vidlink family): hold the iframe until
+                  the TMDB id is known — loading them with the IMDb id first
+                  shows a "couldn't find this content" error for ~1s before
+                  the URL switches. The lookup is fast (force-cache) and if it
+                  fails we proceed with whatever we have. */}
+              {(() => {
+                const waitingForTmdb =
+                  source.useTmdbId && !isTmdbOnly && !tmdbMetaDone
+                return (
+                  <>
+                    {(!loaded || waitingForTmdb) && (
+                      <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-black">
+                        <div className="h-10 w-10 animate-spin rounded-full border-2 border-white/20 border-t-primary" />
+                        <p className="text-sm text-white/60">
+                          {t("loading")} {source.name}…
+                        </p>
+                        <p className="text-xs text-white/40">
+                          {slowLoad && !waitingForTmdb ? t("slowServer") : t("ifNothingPlays")}
+                        </p>
+                        <p className="mt-2 hidden text-[10px] text-white/30 sm:block">
+                          ⌨ R: reload · N: next server · T: test · F: fullscreen · Esc: close
+                        </p>
+                      </div>
+                    )}
+                    {/* "Not playing?" helper — manual switch to next server */}
+                    <div className="pointer-events-none absolute left-3 top-3 z-20 flex gap-2">
+                      <button
+                        onClick={() => handleNextServer()}
+                        className="pointer-events-auto inline-flex items-center gap-1.5 rounded-md bg-black/70 px-3 py-1.5 text-[11px] font-semibold text-white transition hover:bg-black/90"
+                        title="Switch to the next server"
+                      >
+                        <SkipForward className="h-3 w-3" />
+                        Not playing? Switch server
+                      </button>
+                    </div>
+                    {!waitingForTmdb && (
+                      <iframe
+                        key={`${sourceId}-${reloads}`}
+                        src={playerUrl}
+                        title={title.title}
+                        allow="autoplay; fullscreen; encrypted-media; picture-in-picture; accelerometer; gyroscope; web-share"
+                        allowFullScreen
+                        referrerPolicy="no-referrer"
+                        // NOTE: intentionally NO sandbox attribute — providers like
+                        // vidcore hard-refuse to play inside ANY sandboxed frame
+                        // ("This content can't be embedded in a sandboxed frame").
+                        // Top-navigation hijacks from embed ad scripts are mitigated
+                        // by the scoped beforeunload guard below instead.
+                        onLoad={() => setLoaded(true)}
+                        className="absolute inset-0 h-full w-full"
+                      />
+                    )}
+                  </>
+                )
+              })()}
           {/* Watched-progress bar (Netflix-style red strip at bottom of video) */}
           {watchProgress > 0 && (
             <div className="absolute bottom-0 left-0 z-20 h-1 w-full bg-white/10">

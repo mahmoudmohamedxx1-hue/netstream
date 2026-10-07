@@ -22,6 +22,7 @@ const AD_DOMAINS = [
   "histats.com", "adskeeper.com", "syndication.exoclick.com",
   "main.exosrv.com", "a.realsrv.com", "syndication.realsrv.com",
   "taboola.com", "outbrain.com", "adnxs.com",
+  "adexchangerapid.com", "mgid.com", "revcontent.com",
 ]
 
 // Kuro Ads Killer content script — adapted for non-extension use
@@ -202,6 +203,10 @@ const KURO_ADS_SCRIPT = `
 const SANDBOX_FIX_SCRIPT = `
 <script id="netstream-sandbox-fix">
 (function() {
+  // Probe 1: legacy document.domain setter check. Modern Chrome disabled the
+  // setter, so assigning document.domain THROWS — provider catch-blocks read
+  // that as "we're sandboxed" and blank the page ("Please Disable Sandbox").
+  // Shadow the property with a no-op setter BEFORE any provider script runs.
   try {
     var host = location.hostname;
     Object.defineProperty(document, "domain", {
@@ -209,6 +214,48 @@ const SANDBOX_FIX_SCRIPT = `
       get: function() { return host; },
       set: function() { /* no-op: modern browsers throw here — don't */ }
     });
+  } catch (e) {}
+
+  // Probe 2 (2026-10, vidlink family: vidlink.pro / vidfast.vc / vidcore.io /
+  // player.videasy.to): they call navigator.plugins.namedItem("Chrome PDF
+  // Viewer") and, when it exists, append an <object> with an INVALID base64
+  // PDF (data:application/pdf;base64,aG1t). The object's onerror fires in
+  // EVERY iframe (sandboxed or not) → they render "Please Disable Sandbox"
+  // and destroy the body. Their guard: if namedItem returns null they bail
+  // out BEFORE the object test. So we make namedItem return null for PDF
+  // plugin names — video playback never depends on PDF plugin detection.
+  try {
+    var origNamedItem = PluginArray.prototype.namedItem;
+    if (typeof origNamedItem === "function") {
+      PluginArray.prototype.namedItem = function (name) {
+        if (name && /pdf/i.test(String(name))) return null;
+        return origNamedItem.call(this, name);
+      };
+    }
+  } catch (e) {}
+
+  // Probe 2 belt-and-braces: block the error page itself. All family members
+  // render the same markup when they "detect" a sandbox —
+  //   document.body.innerHTML = '<div ...><h1>Please Disable Sandbox</h1></div>'
+  // If a future probe variant slips past the patches above, swallow that
+  // specific write so the player keeps running. (Registered on the prototype
+  // before the body exists; getter/setter forward everything else verbatim.)
+  try {
+    var desc = Object.getOwnPropertyDescriptor(Element.prototype, "innerHTML");
+    if (desc && desc.set) {
+      var origSet = desc.set, origGet = desc.get;
+      Object.defineProperty(Element.prototype, "innerHTML", {
+        configurable: true,
+        get: function() { return origGet.call(this); },
+        set: function(v) {
+          if (typeof v === "string" && /disable\\s+sandbox/i.test(v)) {
+            try { console.warn("[netstream] blocked sandbox-error overlay"); } catch (e) {}
+            return;
+          }
+          return origSet.call(this, v);
+        }
+      });
+    }
   } catch (e) {}
 })();
 </script>
@@ -263,6 +310,143 @@ const JW_AD_STRIP_SCRIPT = `
 </script>
 `
 
+// URL-origin shim. React 19 (Next.js App Router providers like vidlink)
+// treats <base> as a managed "resource" element and REMOVES our injected
+// <base> during hydration. Afterwards every dynamically-assigned relative
+// URL ("/script.js", fetch("/api/…")) resolves against the PROXY origin
+// (localhost) instead of the provider's → 404 → the player hangs forever at
+// "Fetching Data". This shim patches the src/href property setters plus
+// fetch/XHR so relative references ALWAYS resolve against the provider
+// origin — exactly how they'd resolve in a direct embed. Runs before any
+// provider script and survives hydration (it's prototype-level JS).
+function urlShimScript(origin: string): string {
+  return `
+<script id="netstream-url-shim">
+(function() {
+  var ORIGIN = ${JSON.stringify(origin)};
+  function absolutize(v) {
+    if (typeof v !== "string" || !v) return v;
+    if (/^[a-z][a-z0-9+.-]*:/i.test(v)) return v;       // absolute (http:, data:, blob:)
+    if (v.indexOf("//") === 0 || v.indexOf("#") === 0) return v; // protocol-rel / hash
+    try { return new URL(v, ORIGIN).href; } catch (e) { return v; }
+  }
+  function patchProp(proto, prop) {
+    try {
+      var d = Object.getOwnPropertyDescriptor(proto, prop);
+      if (!d || !d.set) return;
+      Object.defineProperty(proto, prop, {
+        configurable: true,
+        get: d.get,
+        set: function(v) {
+          try { return d.set.call(this, absolutize(v)); }
+          catch (e) { return d.set.call(this, v); }
+        }
+      });
+    } catch (e) {}
+  }
+  patchProp(HTMLScriptElement.prototype, "src");
+  patchProp(HTMLIFrameElement.prototype, "src");
+  patchProp(HTMLImageElement.prototype, "src");
+  patchProp(HTMLSourceElement.prototype, "src");
+  patchProp(HTMLVideoElement.prototype, "src");
+  patchProp(HTMLAudioElement.prototype, "src");
+  patchProp(HTMLTrackElement.prototype, "src");
+  patchProp(HTMLLinkElement.prototype, "href");
+  patchProp(HTMLAnchorElement.prototype, "href");
+  // fetch("/api/…") → provider origin. Cross-origin fetches that the provider
+  // hasn't CORS-enabled (e.g. vidlink.pro/fu.wasm) fail with "Failed to
+  // fetch" — retry those through our same-origin CORS passthrough
+  // (/api/cors-proxy) so the player keeps working.
+  try {
+    var origFetch = window.fetch;
+    if (origFetch) {
+      var ANALYTICS = /(google-analytics\\.com|googletagmanager\\.com|doubleclick\\.net|mc\\.yandex\\.ru|facebook\\.net|hotjar|mixpanel|segment\\.io|cloudflareinsights\\.com)/i;
+      var AD_NETS = /(adexchangerapid|exoclick|exosrv|realsrv|popads|popunder|propellerads|adsterra|hilltopads|juicyads|trafficjunky|adskeeper|taboola|outbrain|adnxs|doubleclick|googlesyndication|connatix|mgid|revcontent)/i;
+      var CORS_RETRY = /Failed to fetch|NetworkError|Load failed|CORS/i;
+      var toAbs = function(u) {
+        try { return new URL(u, ORIGIN).href } catch (e) { return u }
+      };
+      window.fetch = function(input, init) {
+        var target, isRequest = false;
+        try {
+          if (typeof input === "string") target = toAbs(input);
+          else if (input && typeof input.url === "string") { target = toAbs(input.url); isRequest = true; }
+        } catch (e) {}
+        if (!target) return origFetch.call(this, input, init);
+        // Our own proxy paths (already same-origin) go direct.
+        if (target.indexOf(location.origin) === 0) {
+          return origFetch.call(this, input, init);
+        }
+        // Analytics beacons go direct (harmless if CORS-blocked). Known ad
+        // domains are killed with a synthetic empty 204 — never proxied
+        // (don't relay ads through our server) and never allowed to spawn
+        // redirect chains that navigate the player frame away.
+        if (ANALYTICS.test(target)) return origFetch.call(this, input, init);
+        if (AD_NETS.test(target)) return Promise.resolve(new Response("", { status: 204 }));
+        var self = this;
+        // Request objects already carry absolute URLs + method/headers/body —
+        // forward them untouched; only string inputs need the absolutized URL.
+        return origFetch.call(self, isRequest ? input : target, init).catch(function (err) {
+          if (err && CORS_RETRY.test(String(err && err.message || err))) {
+            var proxied = location.origin + "/api/cors-proxy?url=" + encodeURIComponent(target);
+            try {
+              if (isRequest) return origFetch.call(self, new Request(proxied, input));
+            } catch (e) {}
+            return origFetch.call(self, proxied, init);
+          }
+          throw err;
+        });
+      };
+    }
+  } catch (e) {}
+  // XMLHttpRequest.open("GET", "/api/…") — same absolutize + proxy-retry.
+  try {
+    var origOpen = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open = function(method, url) {
+      var self = this, args = arguments;
+      var target = (typeof url === "string") ? toAbs(url) : url;
+      if (typeof target !== "string" || target.indexOf(location.origin) === 0 || ANALYTICS.test(target)) {
+        args[1] = target;
+        return origOpen.apply(this, args);
+      }
+      // Kill ad-network XHRs without firing them (avoids redirect chains).
+      if (AD_NETS.test(target)) {
+        args[1] = "data:text/plain,";
+        return origOpen.apply(this, args);
+      }
+      var retried = false;
+      self.addEventListener("error", function () {
+        if (retried) return;
+        retried = true;
+        args[1] = location.origin + "/api/cors-proxy?url=" + encodeURIComponent(target);
+        origOpen.apply(self, args);
+        self.send();
+      });
+      args[1] = target;
+      return origOpen.apply(this, args);
+    };
+  } catch (e) {}
+  // Keep a <base> alive even if React removes the one we injected: re-add on
+  // DOM mutations if missing (cheap observer, self-disconnects after 30s).
+  try {
+    var ensureBase = function() {
+      if (document.querySelector("base[href]")) return;
+      var b = document.createElement("base");
+      b.setAttribute("href", ORIGIN + "/");
+      (document.head || document.documentElement).insertBefore(b, (document.head || document.documentElement).firstChild);
+    };
+    if (document.readyState === "loading") {
+      document.addEventListener("DOMContentLoaded", ensureBase);
+    } else { ensureBase(); }
+    var mo = new MutationObserver(function() { ensureBase(); });
+    mo.observe(document.documentElement, { childList: true, subtree: true });
+    setTimeout(function() { mo.disconnect(); }, 30000);
+  } catch (e) {}
+})();
+</script>
+`
+}
+
 const AD_BLOCK_CSS = `
 <style id="netstream-adblock">
   #sbxErr { display: none !important; }
@@ -272,9 +456,9 @@ const AD_BLOCK_CSS = `
   iframe[src*="doubleclick"], iframe[src*="googleads"], iframe[src*="exoclick"],
   iframe[src*="popads"], iframe[src*="adsterra"], iframe[src*="popunder"],
   .ad-banner, .ad-overlay, .ad-popup, #ad, #ads, .ad, .ads, .advert,
-  #sbxErr, .ad-frame, .ad-slot,
+  #sbxErr, .ad-frame, .ad-slot { display: none !important; }
   video, .jwplayer, .video-js, .vjs-tech, #videojs, #player, .player,
-  .fluid-player, .fluid_video_wrapper, .p2play,
+  .fluid-player, .fluid_video_wrapper, .p2play
   { width: 100% !important; height: 100% !important; }
   body { margin: 0; padding: 0; background: #000; overflow: hidden; }
 </style>
@@ -341,13 +525,18 @@ export async function GET(req: NextRequest) {
     )
 
     // 3. Inject Kuro Ads Killer script + CSS. The sandbox-fix script (no-op
-    //    document.domain setter) is injected into EVERY proxied page, not just
-    //    2embed's — VidLink / VidCore / VidFast ship the same legacy check
-    //    (`document.domain = document.domain` → catch → "Please Disable
-    //    Sandbox" overlay) inside lazily-loaded JS chunks, so it can't be
-    //    pattern-matched in the HTML. Shadowing the setter before any script
-    //    runs makes the probe a silent no-op for every provider.
-    html = html.replace(/<head([^>]*)>/i, `<head$1>${SANDBOX_FIX_SCRIPT}${AD_BLOCK_CSS}${JW_AD_STRIP_SCRIPT}${KURO_ADS_SCRIPT}`)
+    //    document.domain setter + PDF-plugin probe patch) is injected into
+    //    EVERY proxied page — the vidlink/vidfast/vidcore/videasy family
+    //    ships those probes inside lazily-loaded JS chunks, so they can't be
+    //    pattern-matched in the HTML. Shadowing the APIs before any script
+    //    runs neutralizes every variant. The URL shim (urlShimScript) keeps
+    //    relative URLs resolving against the provider origin after React 19
+    //    hydration strips our <base> tag.
+    const providerOrigin = new URL(finalUrl).origin
+    html = html.replace(
+      /<head([^>]*)>/i,
+      `<head$1>${urlShimScript(providerOrigin)}${SANDBOX_FIX_SCRIPT}${AD_BLOCK_CSS}${JW_AD_STRIP_SCRIPT}${KURO_ADS_SCRIPT}`
+    )
 
     // 4. Add <base> tag
     html = html.replace(/<head([^>]*)>/i, `<head$1><base href="${finalUrl}">`)
