@@ -57,7 +57,11 @@ async function probeEmbedLiveness(url: string, referer: string): Promise<boolean
   }
 }
 
-/** Verify a direct MP4 URL with a tiny ranged GET (content-type + reachability). */
+/** Verify a direct MP4 URL with a tiny ranged GET (content-type + reachability).
+ *  link.mycima.cv DISGUISES its videos as image/jpeg (hotlink protection) —
+ *  a 206 partial response or a huge content-length is the real signal, so
+ *  don't reject on the fake content-type (verified live 2026-10-09:
+ *  content-type image/jpeg + content-length 593MB = a series episode). */
 async function probeDirectMedia(url: string): Promise<boolean> {
   try {
     const res = await fetch(url, {
@@ -67,7 +71,14 @@ async function probeDirectMedia(url: string): Promise<boolean> {
     })
     if (!res.ok && res.status !== 206) return false
     const ct = res.headers.get("content-type") ?? ""
-    return ct.startsWith("video/") || ct.startsWith("audio/") || ct === "application/octet-stream"
+    if (ct.startsWith("video/") || ct.startsWith("audio/") || ct === "application/octet-stream") {
+      return true
+    }
+    // Disguised media: partial-content present, or "image" that is hundreds
+    // of MB (no real image is that big).
+    if (res.status === 206 && res.headers.get("content-range")) return true
+    const len = Number(res.headers.get("content-length") ?? 0)
+    return len > 10_000_000
   } catch {
     return false
   }
@@ -91,6 +102,10 @@ async function tmdbArabicTitles(
       const data = await res.json()
       const primary = data.name || data.title
       if (primary) titles.push(primary)
+      // The original title of Arabic content is usually the Arabic name —
+      // mycima slugs often match it better than TMDB's ar-SA rendering.
+      const original = data.original_name || data.original_title
+      if (original && /[\u0600-\u06FF]/.test(original)) titles.push(original)
     }
     // Alternative titles (any Arabic-script entry) — MyCima slugs often use
     // different transliterations than TMDB's primary ar-SA title.
@@ -187,18 +202,23 @@ export async function GET(req: Request) {
   let result: { sources: ArabicStreamSource[]; movieUrl: string | null } = { sources: [], movieUrl: null }
   let error: string | null = null
 
-  // 1st attempt: the title as given (usually already Arabic in the AR locale)
-  if (title) {
-    result = await resolve(title, type, seasonNum, episodeNum, true)
-  }
-  // 2nd attempt: Arabic titles from TMDB (primary + alternatives + original)
-  if (result.sources.length === 0 && imdbId) {
+  // Ordered candidate queries. Arabic titles FIRST — the MyCima catalog is
+  // Arabic-slugged, so a Latin title (e.g. the EN-locale display title
+  // "Omar & Salma 2") can only fuzzy-match garbage. The resolver's
+  // verification gate (matchTitleScore) rejects wrong titles regardless, so
+  // ordering only saves wasted search rounds.
+  const hasArabic = (s: string) => /[\u0600-\u06FF]/.test(s)
+  const candidates: string[] = []
+  if (title && hasArabic(title)) candidates.push(title)
+  if (imdbId) {
     const arTitles = await tmdbArabicTitles(imdbId, type)
-    for (const arTitle of arTitles) {
-      if (arTitle === title) continue
-      result = await resolve(arTitle, type, seasonNum, episodeNum, true)
-      if (result.sources.length > 0) break
-    }
+    for (const t of arTitles) if (!candidates.includes(t)) candidates.push(t)
+  }
+  if (title && !candidates.includes(title)) candidates.push(title)
+
+  for (const q of candidates) {
+    result = await resolve(q, type, seasonNum, episodeNum, true)
+    if (result.sources.length > 0) break
   }
 
   if (result.sources.length === 0) {

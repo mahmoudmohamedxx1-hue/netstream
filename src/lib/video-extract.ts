@@ -8,6 +8,10 @@
 
 import { unpack } from "unpacker"
 import zlib from "node:zlib"
+import { execFile } from "node:child_process"
+import { promisify } from "node:util"
+
+const execFileAsync = promisify(execFile)
 
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -383,11 +387,140 @@ export function normalizeArabic(s: string): string {
     .replace(/ة/g, "ه")
     .replace(/ؤ/g, "و")
     .replace(/ئ/g, "ي")
+    // Arabic-Indic digits → ASCII (slugs occasionally use ٠١٢…)
+    .replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)))
     .replace(/[\u200c-\u200f]/g, "")
     .replace(/[:：'"«»،؟?!.]/g, " ")
     .replace(/\s+/g, " ")
     .trim()
     .toLowerCase()
+}
+
+// ─── Title verification gate (2026-10-09) ────────────────────────────────────
+// User-reported bugs: "Omar & Salma 2 opens part 1" and "any series opens a
+// Turkish series". Root cause: the resolver picked the FIRST fuzzy search hit
+// (`anyMovie[0]`) / the first حلقة-N link on a series-hub page — mycima hub
+// pages mix in OTHER (often Turkish-dubbed) series' episodes. Every candidate
+// page URL must now pass this verification gate before it is used.
+
+/** Arabic stopwords never required when matching a slug. */
+const AR_STOPWORDS = new Set([
+  "في", "من", "على", "الى", "عن", "مع", "او", "و", "ثم", "يا", "الا", "هو", "هي", "مسلسل", "فيلم", "مشاهدة", "الموسم", "موسم", "الجزء", "جزء", "انمي",
+])
+
+/** Significant normalized words of a title (ال-prefix kept; substring checks
+ *  below also test the stripped form). */
+function titleWords(title: string): string[] {
+  return normalizeArabic(title)
+    .split(/[\s-]+/)
+    .filter((w) => w.length >= 2 && !AR_STOPWORDS.has(w) && !/^\d+$/.test(w))
+}
+
+/** Arabic ordinal names → number (الجزء الثاني → 2). */
+const AR_ORDINAL_WORDS: [RegExp, number][] = [
+  [/الاول|الاولي/, 1], [/الثاني|التاني/, 2], [/الثالث|التالت/, 3], [/الرابع/, 4],
+  [/الخامس/, 5], [/السادس/, 6], [/السابع/, 7], [/الثامن/, 8], [/التاسع/, 9], [/العاشر/, 10],
+]
+
+/** Sequel/sequence number of a title: trailing standalone digit (not a year)
+ *  or Arabic ordinal word. "عمر وسلمى 2" → 2; "الكبير أوي" → null. */
+function sequelNumberOf(text: string): number | null {
+  const n = normalizeArabic(text)
+  // standalone numbers 1-99 (sequels), not years
+  const digits = [...n.matchAll(/(?:^|\s|-)(\d{1,4})(?:\s|-|$)/g)].map((m) => Number(m[1]))
+  const nonYear = digits.filter((d) => d >= 1 && d <= 99)
+  if (nonYear.length > 0) return nonYear[nonYear.length - 1]
+  for (const [re, v] of AR_ORDINAL_WORDS) {
+    if (re.test(n)) return v
+  }
+  return null
+}
+
+function isYear(n: number): boolean {
+  return n >= 1900 && n <= 2035
+}
+
+/** The pure slug segment of a mycima page URL — strips the post-date path
+ *  (…/2026/10/05/مشاهدة-فيلم-X/) whose date numbers would otherwise pollute
+ *  the sequel-number gate with bogus 10 / 5 values. */
+function urlSlugSegment(pageUrl: string): string {
+  try {
+    const u = new URL(pageUrl)
+    const segs = u.pathname.split("/").filter(Boolean)
+    return segs[segs.length - 1] ?? u.pathname
+  } catch {
+    return pageUrl
+  }
+}
+
+/**
+ * Score how well a mycima page URL matches the requested title.
+ *   -1  = reject (a different title — NEVER play this)
+ *   50  = acceptable (all significant title words present)
+ *   80  = strong (words + correct sequel number)
+ * `opts.season` / `opts.episode`: for series episode pages the slug LEGITIMATELY
+ * contains the season/episode numbers (الكبير-اوي-8-حلقة-29) — those are
+ * structural, not sequel markers, and are excluded from the number gate.
+ */
+export function matchTitleScore(
+  pageUrl: string,
+  title: string,
+  opts?: { season?: number | null; episode?: number | null }
+): number {
+  const slug = normalizeArabic(decodeURIComponent(urlSlugSegment(pageUrl)))
+  const words = titleWords(title)
+  if (words.length === 0) return -1
+
+  // 1) Word gate: EVERY significant word must appear in the slug (with or
+  //    without the leading definite article — slug variants differ).
+  const stripAl = (w: string) => w.replace(/^ال/, "")
+  for (const w of words) {
+    if (!slug.includes(w) && !slug.includes(stripAl(w))) return -1
+  }
+  let score = 50
+
+  // 2) Sequel-number gate: "عمر وسلمى 2" must NOT resolve to part 1/3, and
+  //    "الحريفة" (no sequel) must NOT resolve to "الحريفة 2". Standalone
+  //    non-year numbers in the slug, excluding the requested season/episode.
+  const structural = new Set(
+    [opts?.season ?? null, opts?.episode ?? null].filter(
+      (n): n is number => n !== null && n > 0
+    )
+  )
+  const slugNums = [...slug.matchAll(/(?:^|[-/])(\d{1,4})(?:[-/]|$)/g)]
+    .map((m) => Number(m[1]))
+    .filter((d) => !isYear(d) && !structural.has(d))
+  const wantSeq = sequelNumberOf(title)
+  if (wantSeq !== null) {
+    const ordFor = AR_ORDINAL_WORDS.find(([re]) => re.test(slug))?.[1] ?? null
+    if (slugNums.includes(wantSeq) || ordFor === wantSeq) {
+      score += 30
+    } else if (slugNums.length > 0 || ordFor !== null) {
+      // The slug has a DIFFERENT sequel/ordinal number → different part.
+      return -1
+    }
+    // No sequel number in the slug at all → weak accept.
+  } else if (slugNums.length > 0) {
+    // Title has no sequel but the page is "…-2" → the sequel of the title.
+    return -1
+  }
+
+  return score
+}
+
+/** Verify the fetched watch page really is the requested title, via its
+ *  <title>/og:title (slugs can be aliased; the page title never lies). */
+function pageTitleMatches(pageHtml: string, title: string): boolean {
+  const og = pageHtml.match(/property="og:title"\s+content="([^"]+)"/)?.[1] ??
+    pageHtml.match(/content="([^"]+)"\s+property="og:title"/)?.[1] ??
+    pageHtml.match(/<title>([\s\S]*?)<\/title>/)?.[1] ?? ""
+  if (!og) return true // can't read a title — don't hard-block
+  const page = normalizeArabic(decodeURIComponent(og))
+  const words = titleWords(title)
+  if (words.length === 0) return true
+  const stripAl = (w: string) => w.replace(/^ال/, "")
+  const hits = words.filter((w) => page.includes(w) || page.includes(stripAl(w))).length
+  return hits / words.length >= 0.6
 }
 
 /** Search query variants for Arabic titles (MyCima slugs drop prefixes etc). */
@@ -434,6 +567,56 @@ function mycimaContentLinks(html: string): string[] {
       return true
     })
   return [...new Set(links)]
+}
+
+/** my_player page URLs on a MyCima watch page (mycima-my.com/?my_player=ID).
+ *  Iframing these shows the MyCima website (user-reported bug) — but FETCHING
+ *  them server-side reveals an ArtPlayer page with a direct
+ *  link.mycima.cv MP4 (see resolveMyPlayer). */
+function myPlayerUrlsFromPage(pageHtml: string): string[] {
+  const out: string[] = []
+  for (const m of pageHtml.matchAll(/data-watch="([^"]+)"/g)) {
+    const cand = m[1]
+    if (/^https?:\/\//.test(cand) && cand.includes("my_player=")) {
+      out.push(cand.startsWith("http") ? cand : `https://mycima-my.com/${cand.replace(/^\//, "")}`)
+    }
+  }
+  return [...new Set(out)]
+}
+
+/** curl-based fetch for hosts whose Cloudflare configuration challenges
+ *  Node's TLS ClientHello (mycima-my.com returns "Just a moment…" to every
+ *  node fetch/https variant, while curl passes — verified live 2026-10-09:
+ *  node → 403 CF challenge, curl → 200 with the ArtPlayer markup). */
+async function curlFetchHtml(url: string, referer: string): Promise<string | null> {
+  try {
+    const { stdout } = await execFileAsync(
+      "curl",
+      ["-s", "-L", "--max-time", "15", "-H", `User-Agent: ${UA}`, "-H", `Referer: ${referer}`, "-H", "Accept: text/html,*/*", url],
+      { timeout: 20000, maxBuffer: 5 * 1024 * 1024 }
+    )
+    return stdout && stdout.length > 500 ? stdout : null
+  } catch {
+    return null
+  }
+}
+
+/** Resolve a MyCima my_player page (mycima-my.com/?my_player=ID) to its
+ *  DIRECT media source. The player page embeds an ArtPlayer setup with
+ *  `const videoUrl = "https://link.mycima.cv/…"` — a direct MP4 (byte
+ *  ranges + ACAO:*; the server disguises content-type as image/jpeg —
+ *  browsers sniff the MP4 container and play it fine in a <video> element).
+ *  Verified live 2026-10-09: جعفر العمدة حلقة 1 → link.mycima.cv/ce22f53a…
+ *  (593MB, 206 partial content, ACAO:*). The page is fetched via curl —
+ *  node's TLS fingerprint gets Cloudflare-challenged. */
+async function resolveMyPlayer(myPlayerUrl: string): Promise<MycimaSource | null> {
+  const html = await curlFetchHtml(myPlayerUrl, MYCIMA_REFERER)
+  if (!html) return null
+  const m =
+    html.match(/const\s+videoUrl\s*=\s*["'](https?:\/\/link\.mycima\.cv\/[^"']+)["']/) ??
+    html.match(/["'](https?:\/\/link\.mycima\.cv\/[^"']+)["']/)
+  if (!m) return null
+  return { url: m[1], host: "MyCima", referer: "https://mycima-my.com/", kind: "mp4" }
 }
 
 /** Extract every playable source from a MyCima watch-page HTML. */
@@ -559,44 +742,69 @@ export async function searchMycima(
     if (links.length === 0) return { sources: [], pageUrl: null }
 
     const norm = (s: string) => normalizeArabic(decodeURIComponent(s))
-    let pageUrl: string | null = null
+    // VERIFIED candidates only — matchTitleScore() rejects every page whose
+    // slug doesn't contain ALL significant title words (with the correct
+    // sequel number). This is what guarantees "عمر وسلمى 2" never resolves
+    // to part 1/3 and a series never resolves to another (e.g. Turkish-dubbed)
+    // series that the fuzzy WordPress search mixed in.
+    let candidates: string[] = []
+    let lastVerifiedPage: string | null = null
 
     if (type === "movie") {
-      // Prefer the EXACT title (slug form, trailing slash — so searching
-      // "الحريفة" doesn't match "الحريفة-2"), then title-word match, then any movie.
-      // Patterns are pre-normalized (ة→ه, أ→ا…) to match the normalized URLs.
-      const normTitle = normalizeArabic(title)
+      // Movie pages: must contain the movie word (فيلم) and NOT be an episode
+      // page (حلقة) — an episode of a same-named series is not the movie.
       const normMovieWord = normalizeArabic("فيلم")
-      const slug = normTitle.replace(/\s+/g, "-")
-      const exact = links.filter((u) => norm(u).includes(`${normMovieWord}-${slug}/`))
-      const words = normTitle.split(" ").filter((w) => w.length > 2)
-      const firstWord = words[0] ?? null
-      const wordMatch = firstWord
-        ? links.filter((u) => norm(u).includes(normMovieWord) && norm(u).includes(firstWord))
-        : []
-      const anyMovie = links.filter((u) => norm(u).includes(normMovieWord))
-      pageUrl = exact[0] ?? wordMatch[0] ?? anyMovie[0] ?? null
+      const scored = links
+        .map((u) => ({ u, score: matchTitleScore(u, title) }))
+        .filter((c) => c.score > 0 && !/حلقه/.test(norm(c.u)))
+        // prefer watch pages that carry the movie word
+        .sort((a, b) => {
+          const aMovie = norm(a.u).includes(normMovieWord) ? 1 : 0
+          const bMovie = norm(b.u).includes(normMovieWord) ? 1 : 0
+          if (aMovie !== bMovie) return bMovie - aMovie
+          return b.score - a.score
+        })
+      candidates = scored.map((c) => c.u)
     } else {
-      // Series: find the exact episode page. Search results only index recent
-      // posts, so when the episode isn't there, crawl the series hub page
-      // (linked from any episode page) and pick حلقة-{ep} from the full list.
-      // NOTE: patterns are normalized the same way as the URLs — ة→ه means
-      // "حلقة" must be searched as "حلقه" on the normalized side.
+      // Series: the episode page must match حلقة-{ep} AND the series name.
+      // Search results only index recent posts, so when the episode isn't
+      // there, crawl the series hub page — whose episode list mixes in OTHER
+      // series (verified live 2026-10-09: related series' حلقة-1 appears on
+      // the hub) — so the hub results are name-verified too.
       const ep = episode ?? 1
       const s = season ?? 1
       const epPattern = new RegExp(`${normalizeArabic("حلقة")}-${ep}(/|$)`)
-      const epMatch = () => links.filter((u) => epPattern.test(norm(u)))
       const rankBySeason = (urls: string[]) => {
         const seasonHit = urls.filter((u) => seasonFromSlug(u) === s)
+        if (seasonHit.length) return seasonHit
         const noSeason = urls.filter((u) => seasonFromSlug(u) === null)
-        return seasonHit.length ? seasonHit : noSeason.length ? noSeason : urls
+        if (noSeason.length) return noSeason
+        // No exact season — same series, wrong season markers: prefer the
+        // season CLOSEST to the requested one (e.g. user opens S1 of a show
+        // whose hub only lists S7/S8 episodes).
+        return urls
+          .slice()
+          .sort(
+            (a, b) =>
+              Math.abs((seasonFromSlug(a) ?? 0) - s) - Math.abs((seasonFromSlug(b) ?? 0) - s)
+          )
       }
-      let candidates = rankBySeason(epMatch())
-      if (candidates.length === 0) {
-        // Crawl the hub: any episode/series link exposes the hub URL.
-        const seed =
-          links.find((u) => /حلقة/.test(decodeURIComponent(u))) ??
-          links.find((u) => /مسلسل/.test(decodeURIComponent(u)))
+      let eps = rankBySeason(
+        links.filter(
+          (u) =>
+            epPattern.test(norm(u)) &&
+            matchTitleScore(u, title, { season: s, episode: ep }) > 0
+        )
+      )
+      if (eps.length === 0) {
+        // Crawl the hub: the SEED must also be a verified episode of the
+        // requested series — a fuzzy-search episode of another series must
+        // never hand us the wrong hub.
+        const seed = links.find(
+          (u) =>
+            /حلقة/.test(decodeURIComponent(u)) &&
+            matchTitleScore(u, title, { season: s, episode: ep }) > 0
+        )
         if (seed) {
           const seedRes = await fetch(seed, {
             headers: { "User-Agent": UA, "Accept-Language": "ar,en-US;q=0.9,en;q=0.8", Accept: "text/html,*/*" },
@@ -609,25 +817,52 @@ export async function searchMycima(
               seedHtml.match(/href="(https?:\/\/alking\.mycima\.cv\/series\/[^"]+)"/i)?.[1] ?? null
             if (hubUrl) {
               const hubEpisodes = await mycimaEpisodeLinksFromHub(hubUrl)
-              candidates = rankBySeason(hubEpisodes.filter((u) => epPattern.test(norm(u))))
+              eps = rankBySeason(
+                hubEpisodes.filter(
+                  (u) =>
+                    epPattern.test(norm(u)) &&
+                    matchTitleScore(u, title, { season: s, episode: ep }) > 0
+                )
+              )
             }
           }
         }
       }
-      pageUrl = candidates[0] ?? null
+      candidates = eps
     }
-    if (!pageUrl) return { sources: [], pageUrl: null }
+    if (candidates.length === 0) return { sources: [], pageUrl: null }
 
-    // Step 3: fetch the watch page and pull every playable source.
-    const pageRes = await fetch(pageUrl, {
-      headers: { "User-Agent": UA, "Accept-Language": "ar,en-US;q=0.9,en;q=0.8", Accept: "text/html,*/*" },
-      redirect: "follow",
-      signal: AbortSignal.timeout(15000),
-    })
-    if (!pageRes.ok) return { sources: [], pageUrl: pageRes.url }
-    const pageHtml = await pageRes.text()
-    const sources = mycimaSourcesFromPage(pageHtml)
-    return { sources, pageUrl: pageRes.url || pageUrl }
+    // Step 3: fetch the watch page(s) — the page <title>/og:title is the FINAL
+    // verification (slug aliases can't fool it). Try up to 3 verified
+    // candidates and use the first that has playable sources.
+    for (const cand of candidates.slice(0, 3)) {
+      const pageRes = await fetch(cand, {
+        headers: { "User-Agent": UA, "Accept-Language": "ar,en-US;q=0.9,en;q=0.8", Accept: "text/html,*/*" },
+        redirect: "follow",
+        signal: AbortSignal.timeout(15000),
+      })
+      if (!pageRes.ok) continue
+      const pageHtml = await pageRes.text()
+      if (!pageTitleMatches(pageHtml, title)) continue
+      lastVerifiedPage = pageRes.url || cand
+      const sources = mycimaSourcesFromPage(pageHtml)
+      if (sources.length > 0) {
+        return { sources, pageUrl: lastVerifiedPage }
+      }
+      // No embed/mp4 sources on the watch page — currently-airing series
+      // pages (e.g. جعفر العمدة, الكبير أوي 8) carry ONLY my_player links.
+      // Resolve them to their direct link.mycima.cv MP4s instead.
+      const myPlayers = myPlayerUrlsFromPage(pageHtml)
+      for (const mp of myPlayers.slice(0, 2)) {
+        const resolved = await resolveMyPlayer(mp)
+        if (resolved) {
+          sources.push(resolved)
+          return { sources, pageUrl: lastVerifiedPage }
+        }
+      }
+      // Verified page but nothing playable at all — try the next candidate.
+    }
+    return { sources: [], pageUrl: lastVerifiedPage }
   } catch {
     return { sources: [], pageUrl: null }
   }

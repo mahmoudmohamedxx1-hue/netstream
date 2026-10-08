@@ -647,24 +647,28 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   }, [isArabicProvider, source.id, displayTitle, title.type, title.title, title.imdbId, season, episode])
 
   // Auto-fallback: if the Arabic provider search returns 0 sources, switch to
-  // a verified-working global provider (VidSpark — IMDb-keyed, end-to-end
-  // tested 2026-10). Otherwise, stay on the Arabic provider. A toast explains
-  // the switch so the user isn't confused by the silent server change.
+  // a verified-working global provider. WHICH one depends on the title's ID
+  // scheme: VidSpark (moviesapi.to) is IMDb-keyed — a tmdb-only title (no
+  // IMDb ID — common for Arabic series like جعفر العمدة) would produce a
+  // garbage URL like moviesapi.to/tv/-1-1 and their server answers
+  // HTTP 403 (user-reported). TMDB-only titles must fall back to AnyEmbed
+  // (tmdb-keyed routes) instead.
+  const arabicFallbackProvider = isTmdbOnly ? "anyembed" : "moviesapi.to"
   useEffect(() => {
     if (!isArabicProvider) return
     if (arabicStream.loading) return
     if (arabicStream.sources.length > 0) return
     if (arabicStream.error === null) return // still resolving
-    // No sources found — switch to VidSpark (moviesapi.to)
+    // No sources found — switch to the best provider for this title's IDs
     const timer = setTimeout(() => {
       toast({
         title: t("arabicFallback"),
         description: displayTitle || title.title,
       })
-      setSourceId("moviesapi.to")
+      setSourceId(arabicFallbackProvider)
     }, 1500)
     return () => clearTimeout(timer)
-  }, [isArabicProvider, arabicStream.loading, arabicStream.sources.length, arabicStream.error, toast, t, displayTitle, title.title])
+  }, [isArabicProvider, arabicStream.loading, arabicStream.sources.length, arabicStream.error, toast, t, displayTitle, title.title, arabicFallbackProvider])
 
   // Health-check each Arabic source. The API already verifies sources
   // server-side. By kind:
