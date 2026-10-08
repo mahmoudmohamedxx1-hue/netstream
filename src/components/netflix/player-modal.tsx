@@ -20,8 +20,6 @@ import {
   Maximize,
   Minimize,
   SkipForward,
-  ShieldCheck,
-  ShieldOff,
 } from "lucide-react"
 import { Poster } from "./poster"
 import { EpisodeGrid } from "./episode-grid"
@@ -37,6 +35,7 @@ import {
   MOBILE_FALLBACK_CHAIN,
   buildPlayerUrl,
   getSource,
+  isValidSourceId,
   type VideoSource,
 } from "@/lib/vidsrc"
 import { useLibrary } from "@/lib/library-store"
@@ -47,7 +46,6 @@ import { estimateHourlyData, estimateTotalData, parseQuality } from "@/lib/data-
 import { useLastProvider } from "@/hooks/use-last-provider"
 import { usePlaybackProgress } from "@/hooks/use-playback-progress"
 import { useLang } from "@/lib/lang-context"
-import { getAdBlockEnabled, setAdBlockEnabled } from "@/components/netflix/navbar"
 import { upsertWatchItem } from "@/lib/client-history"
 
 // ── Favorite servers — saved in localStorage ────────────────────────────────
@@ -68,14 +66,14 @@ function toggleFavorite(id: string): string[] {
 
 // ── Preferred providers (top 5, live-tested 2026-10) ──────────────────────
 // These are tried first by the auto-switch logic, in this order.
-// 2026-10 refresh: vidsrc.su removed ("No available servers" backend-wide);
-// vidlink re-verified with TMDB ids (their catalog is TMDB-only now — the
-// player passes meta.tmdbId, see rawPlayerUrl); VidSpark (ex-MoviesApi)
-// verified working end-to-end.
-const PREFERRED_PROVIDERS = ["vidcore.net", "vidlink.pro", "vidfast.pro", "moviesapi.to", "superembed"]
+// 2026-10-08 live test (real browser): VidSpark leads — framed direct,
+// correct runtimes, movies + series. AnyEmbed aggregates 20+ servers behind
+// one embed. The old vidlink/vidcore/vidfast/videasy family was REMOVED —
+// their anti-embed probes break every playback path (see src/lib/vidsrc.ts).
+const PREFERRED_PROVIDERS = ["moviesapi.to", "anyembed"]
 // TMDB-supporting providers — used when a title has no IMDB ID (tmdb- prefix).
-// These providers can play titles using TMDB IDs directly.
-const TMDB_PROVIDERS = ["vidlink.pro", "vidfast.pro", "videasy.net"]
+// AnyEmbed accepts /embed/tmdb-movie-{id} and /embed/tmdb-tv-{id}-{s}-{e}.
+const TMDB_PROVIDERS = ["anyembed"]
 
 // ── Watched episodes — saved in localStorage per imdbId+season ──────────────
 const WATCHED_KEY = "netstream:watched"
@@ -132,29 +130,30 @@ const QUALITY_OPTIONS = [
 ] as const
 
 // Map quality to providers that work in browser iframes.
-// Default provider: vidlink on desktop, superembed on mobile.
+// Default provider: VidSpark everywhere — the strongest verified server
+// (2026-10-08 live test: framed direct, correct runtimes, movie + series).
 function sourceForQuality(quality: string, isMobile: boolean): string {
   if (isMobile) {
     switch (quality) {
       case "1080p":
-        return "vidlink.pro"
+        return "moviesapi.to"
       case "720p":
-        return "vidcore.net"
+        return "anyembed"
       case "480p":
         return "anyembed"
       default:
-        return "vidlink.pro" // auto → VidLink on mobile (proxied, CF-proof)
+        return "moviesapi.to" // auto → VidSpark on mobile
     }
   }
   switch (quality) {
     case "1080p":
-      return "vidlink.pro"
-    case "720p":
-      return "vidcore.net"
-    case "480p":
       return "moviesapi.to"
+    case "720p":
+      return "anyembed"
+    case "480p":
+      return "anyembed"
     default:
-      return "vidlink.pro" // auto → VidLink on desktop
+      return "moviesapi.to" // auto → VidSpark on desktop
   }
 }
 
@@ -220,16 +219,18 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   const isMobile = useIsMobile()
   const lastProvider = useLastProvider()
   const { t } = useLang()
-  // Default provider: vidcore.net — user-requested default.
   const [quality, setQuality] = useState<string>("auto")
   const savedSourceId = title.sourceId ?? undefined
   const isTmdbOnly = title.imdbId?.startsWith("tmdb-")
-  const defaultSource = savedSourceId
-    || lastProvider.get(title.imdbId)
-    || "vidlink.pro"
-  // (vidlink everywhere: always-proxied → no Cloudflare blocks, no sandbox
-  //  probes — the mobile-only superembed default hit CF challenges that left
-  //  the player blank on first open.)
+  // Default provider: VidSpark — strongest verified server (2026-10-08 live
+  // test). A saved/last provider wins, BUT only if it still exists in the
+  // catalog — users who last used a removed provider (vidlink etc.) get a
+  // clean fallback instead of a phantom server id.
+  const savedLastProvider = lastProvider.get(title.imdbId)
+  const defaultSource =
+    (savedSourceId && isValidSourceId(savedSourceId) ? savedSourceId : undefined) ||
+    (savedLastProvider && isValidSourceId(savedLastProvider) ? savedLastProvider : undefined) ||
+    "moviesapi.to"
   const [sourceId, setSourceId] = useState<string>(defaultSource)
   const [season, setSeason] = useState<number>(title.season ?? 1)
   const [episode, setEpisode] = useState<number>(title.episode ?? 1)
@@ -385,7 +386,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     originalLanguage: string | null
   } | null>(null)
   // True once the /api/tmdb lookup has settled (success OR failure). Used to
-  // hold TMDB-keyed providers (vidlink family) until we know the TMDB id —
+  // hold TMDB-keyed providers (AnyEmbed) until we know the TMDB id —
   // avoids a wasted first load with the IMDb id ("couldn't find this
   // content" flash) before the URL switches.
   const [tmdbMetaDone, setTmdbMetaDone] = useState(false)
@@ -448,9 +449,8 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
         // FUNCTIONAL update — never clobber fields the /api/tmdb fetch may
         // have already set. CRITICAL: /api/titles (uncached DB lookup) often
         // resolves AFTER /api/tmdb; a plain setMeta({...}) would wipe the
-        // tmdbId and revert the player URL to the IMDb ID — which vidlink and
-        // the other TMDB-only providers can't resolve ("couldn't find this
-        // content").
+        // tmdbId and revert the player URL to the IMDb ID — which AnyEmbed's
+        // TMDB-keyed routes can't resolve (wider catalog comes from TMDB ids).
         setMeta((prev) => ({
           title: prev?.title ?? t.title,
           year: prev?.year ?? t.year,
@@ -499,12 +499,12 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   }, [title.imdbId])
 
   // ── Arabic-language titles → default to the Arabic provider ──────────────
-  // The global providers (vidlink etc.) only carry POPULAR Arabic titles —
-  // most Arabic cinema isn't on their CDNs and playback then hangs forever at
-  // "Fetching Data". When the TMDB lookup reports original_language "ar" and
-  // the user hasn't already chosen a server for this title (no saved
-  // sourceId, no last-provider preference), switch to ArabSeed (MyCima),
-  // which searches Arabic sites by title. User choices always win.
+  // The global providers only carry POPULAR Arabic titles — most Arabic
+  // cinema isn't on their CDNs and playback then hangs forever. When the TMDB
+  // lookup reports original_language "ar" and the user hasn't already chosen
+  // a server for this title (no saved sourceId, no last-provider preference),
+  // switch to ArabSeed (MyCima), which searches Arabic sites by title. User
+  // choices always win.
   const arabicDefaultRef = useRef(false)
   const hasSavedProvider =
     !!savedSourceId || !!lastProvider.get(title.imdbId)
@@ -513,8 +513,8 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     if (userInteractedRef.current) return
     if (hasSavedProvider) return
     if (meta?.originalLanguage !== "ar") return
-    // Only override the session defaults — never a provider the user picked.
-    if (sourceId !== "vidlink.pro" && sourceId !== "superembed") return
+    // Only override the session default — never a provider the user picked.
+    if (sourceId !== "moviesapi.to") return
     arabicDefaultRef.current = true
     setSourceId("mycima")
     setLoaded(false)
@@ -543,35 +543,16 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   const displayGenres = meta?.genres ?? []
   const displayPoster = meta?.poster ?? title.poster ?? null
 
-  // Kuro Ads Killer integration (https://github.com/KuroShonenJPN/Ads-Block)
-  // Non-Cloudflare providers route through /api/video-proxy which injects
-  // the Kuro Ads Killer script to remove ads, overlays, popunders.
-  // Cloudflare-protected providers (vidcore, vidfast) load directly.
-  // NO sandbox anywhere — no 'Disable Sandbox' error.
-  const [adBlockOn, setAdBlockOn] = useState(true)
-  useEffect(() => {
-    setAdBlockOn(getAdBlockEnabled())
-  }, [])
-  const toggleAdBlock = useCallback(() => {
-    const next = !adBlockOn
-    setAdBlockOn(next)
-    setAdBlockEnabled(next)
-    setReloads((r) => r + 1)
-  }, [adBlockOn])
+  // ── Direct embeds only (2026-10-08) ────────────────────────────────────────
+  // The old ad-blocker toggle routed providers through /api/video-proxy so we
+  // could inject the Kuro Ads Killer. That proxy now BREAKS every surviving
+  // provider: VidSpark renders a blank page, AnyEmbed serves its 404 shell,
+  // and the removed vidlink family's stream tokens were bound to the original
+  // client IP (server-side fetch exited from the wrong IP → "FETCHING DATA"
+  // forever). All global providers therefore load DIRECTLY in the user's
+  // browser — cross-origin iframes can't be script-injected anyway, so the
+  // toggle was removed from the UI entirely.
 
-  // Cloudflare-protected providers can't be proxied (403 from our datacenter
-  // IP) — verified 2026-10: vidsrc.to, vidsrc.cc/v2, streamingnow.mov
-  // (superembed) and vixsrc.to all 403 the proxy, so they MUST load directly
-  // in the user's browser (residential IPs pass the CF challenge).
-  const CLOUDFLARE_BLOCKED = ["vidsrc.to", "vidsrc.cc.v2", "superembed", "vixsrc.to"]
-  // Providers whose embed page MUST always go through /api/video-proxy — even
-  // on mobile or with the ad-blocker OFF. They ship sandbox self-checks
-  // (document.domain probe + "Chrome PDF Viewer" invalid-PDF object probe)
-  // that false-positive in ANY iframe → "Please Disable Sandbox" overlay that
-  // destroys the page. The proxy injects no-op shims for both probes before
-  // their scripts run. Family (2026-10): vidlink, vidcore, vidfast, videasy,
-  // 2embed.skin, moviesapi.to (VidSpark).
-  const ALWAYS_PROXY = ["vidlink.pro", "vidcore.net", "vidfast.pro", "videasy.net", "2embed.skin", "moviesapi.to"]
   const rawPlayerUrl = useMemo(
     () =>
       buildPlayerUrl({
@@ -585,21 +566,11 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     [title, season, episode, sourceId, meta?.tmdbId]
   )
 
-  const playerUrl = useMemo(() => {
-    if (!rawPlayerUrl) return rawPlayerUrl
-    // Always-proxied providers (2embed sandbox false-positive) — proxy on every
-    // device regardless of the ad-blocker setting.
-    if (ALWAYS_PROXY.includes(sourceId)) {
-      return `/api/video-proxy?url=${encodeURIComponent(rawPlayerUrl)}`
-    }
-    if (!adBlockOn) return rawPlayerUrl
-    // On mobile: load ALL other providers directly (proxy breaks mobile video players)
-    if (isMobile) return rawPlayerUrl
-    // On desktop: Cloudflare-protected providers load directly (proxy gets 403)
-    if (CLOUDFLARE_BLOCKED.includes(sourceId)) return rawPlayerUrl
-    // Desktop non-Cloudflare: route through proxy with Kuro Ads Killer
-    return `/api/video-proxy?url=${encodeURIComponent(rawPlayerUrl)}`
-  }, [rawPlayerUrl, adBlockOn, sourceId, isMobile])
+  // Global providers always load DIRECTLY — no proxy:
+  //  • VidSpark + AnyEmbed render correctly only on their own origin.
+  //  • Any Cloudflare negotiation happens in the user's browser, not from
+  //    our datacenter IP.
+  const playerUrl = rawPlayerUrl
 
   // Arabic / search-based provider streaming — when the user selects a
   // search-based provider (ArabSeed/MyCima), we:
@@ -620,8 +591,8 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     precheckDoneRef.current = true
      
   }, [title.imdbId, title.type, season, episode])
-  type ArabicSource = { url: string; host: string; referer?: string; directUrl?: string | null; videoType?: "mp4" | "hls" | null; verified?: boolean; kind?: "embed" | "mp4" | "player"; quality?: string }
-  type ExtractedSource = { embedUrl: string; host: string; referer: string; videoUrl: string | null; videoType: "mp4" | "hls" | null; status: "pending" | "extracting" | "ready" | "failed"; kind: "embed" | "mp4" | "player"; quality?: string }
+  type ArabicSource = { url: string; host: string; referer?: string; directUrl?: string | null; videoType?: "mp4" | "hls" | null; verified?: boolean; kind?: "embed" | "mp4"; quality?: string }
+  type ExtractedSource = { embedUrl: string; host: string; referer: string; videoUrl: string | null; videoType: "mp4" | "hls" | null; status: "pending" | "extracting" | "ready" | "failed"; kind: "embed" | "mp4"; quality?: string }
   const [arabicStream, setArabicStream] = useState<{
     sources: ArabicSource[]
     movieUrl: string | null
@@ -693,12 +664,11 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   // server-side. By kind:
   //   • mp4    → direct MP4 on link.mycima.cv (video/mp4 + ranges + ACAO:*).
   //              Arrives verified (ranged GET probe) → ready, native playback.
-  //   • player → MyCima's own CF-gated player page. Can't be verified from a
-  //              datacenter — marked ready WITHOUT a server check; the user's
-  //              browser negotiates the Cloudflare challenge inside the iframe.
   //   • embed  → direct video-host embed (fastvip/hglink). Verified via
   //              extraction or liveness probe → ready; unverified ones get the
   //              client-side /api/extract-video check.
+  // (The old "player" kind — iframing MyCima's own mycima-my.com page — was
+  //  removed: it showed users the MyCima WEBSITE instead of the title.)
   useEffect(() => {
     if (!isArabicProvider) return
     if (arabicStream.loading) return
@@ -709,15 +679,6 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     // Initialize extraction state (in a microtask to avoid set-state-in-effect)
     const initSources: ExtractedSource[] = arabicStream.sources.map((s) => {
       const kind = s.kind ?? "embed"
-      if (kind === "player") {
-        // Unverifiable from a datacenter (Cloudflare) — playable attempt, the
-        // user's browser may pass the challenge.
-        return {
-          embedUrl: s.url, host: s.host, referer: s.referer || myReferer,
-          videoUrl: s.url, videoType: null, status: "ready" as const, kind,
-          quality: s.quality,
-        }
-      }
       if (kind === "mp4") {
         return {
           embedUrl: s.url, host: s.host, referer: s.referer || myReferer,
@@ -785,25 +746,19 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   //   • mp4    → NATIVE <video> element. link.mycima.cv serves video/mp4 with
   //              byte ranges + access-control-allow-origin:*, so it plays and
   //              seeks without any proxy. (Best path for series episodes.)
-  //   • player → iframe the MyCima player page DIRECTLY (never proxied — the
-  //              proxy's datacenter IP gets 403'd by Cloudflare; the user's
-  //              browser can negotiate the challenge).
-  //   • embed  → iframe the video-host embed. Default → DIRECT (fastvip.space
-  //              etc. allow framing; tokens are minted for the USER's network
-  //              — these CDNs key access to the requesting network). Ad-block
-  //              ON → route through /api/video-proxy (same-origin, Referer
-  //              injected, anti-embed traps + jwplayer VAST ads stripped).
+  //   • embed  → iframe the video-host embed DIRECTLY — never proxied, never a
+  //              mycima page. The embed hosts (fastvip.space etc.) mint stream
+  //              tokens for the USER's network: fetching them through our
+  //              server-side proxy exits from a different IP and breaks. (The
+  //              old "player" kind iframed mycima-my.com and showed users the
+  //              MyCima website instead of the title — removed 2026-10-08.)
   const currentKind = currentVideoSource?.kind ?? "embed"
   const nativeVideoUrl =
     currentVideoSource && currentKind === "mp4" && currentVideoSource.videoUrl
       ? currentVideoSource.videoUrl
       : null
   const directVideoUrl = currentVideoSource?.embedUrl
-    ? currentKind === "player"
-      ? currentVideoSource.embedUrl
-      : adBlockOn
-        ? `/api/video-proxy?url=${encodeURIComponent(currentVideoSource.embedUrl)}&referer=${encodeURIComponent(currentVideoSource.referer)}`
-        : currentVideoSource.embedUrl
+    ? currentVideoSource.embedUrl
     : null
   const directVideoType = nativeVideoUrl ? (currentVideoSource?.videoType ?? "mp4") : null
 
@@ -871,11 +826,8 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     setSourceId(id)
     setLoaded(false)
     // Remember this choice for next time the user opens this title.
-    // But DON'T save providers that are known to 403 in browser iframes.
-    const BLOCKED = ["vidsrc.to", "vidsrc.cc", "vidsrc.pro"]
-    if (!BLOCKED.includes(id)) {
-      lastProvider.set(title.imdbId, id)
-    }
+    // (All catalog providers are verified working 2026-10-08 — no blocklist.)
+    lastProvider.set(title.imdbId, id)
   }
 
   // Report provider outcome (working/broken) when the user closes the player
@@ -927,6 +879,12 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     if (isTmdbOnly) {
       chain = chain.filter((s) => s.useTmdbId)
     }
+    // Search-based providers (ArabSeed) only make sense for Arabic titles —
+    // cycling an English title through an Arabic-site search wastes a click
+    // (it finds nothing and auto-falls back anyway).
+    if (meta?.originalLanguage !== "ar") {
+      chain = chain.filter((s) => !s.searchBased)
+    }
     if (chain.length === 0) return
     const currentIdx = chain.findIndex((s) => s.id === sourceId)
     const next = chain[(currentIdx + 1) % chain.length]
@@ -939,7 +897,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
         description: `Now trying ${next.name}`,
       })
     }
-  }, [sourceId, health, title.imdbId, lastProvider, toast, reportProvider])
+  }, [sourceId, health, title.imdbId, lastProvider, toast, reportProvider, isTmdbOnly, meta?.originalLanguage])
 
   // ── Auto-fallback DISABLED per user request ──────────────────────────────
   // The user wants to stay on the selected server — no auto-switching.
@@ -1237,6 +1195,16 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
                     allow="autoplay; fullscreen; encrypted-media; picture-in-picture; accelerometer; gyroscope; web-share"
                     allowFullScreen
                     referrerPolicy="no-referrer"
+                    // Arabic video-host embeds (fastvip/hglink) ship aggressive
+                    // popunder ads (zfg/propeller) whose scripts hijack the TOP
+                    // window on click — window.top.location = … replaces the
+                    // whole app with ad junk (user-reported as "opens another
+                    // website"). Sandboxing WITHOUT allow-top-navigation makes
+                    // those writes throw a SecurityError inside the frame while
+                    // the host's own JW-style player keeps working (needs
+                    // allow-scripts + allow-same-origin for storage). Popups
+                    // still open (in tabs) — standard free-streaming behavior.
+                    sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
                     className="absolute inset-0 h-full w-full"
                   />
                 )}
@@ -1280,7 +1248,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
             )
           ) : (
             <>
-              {/* TMDB-keyed providers (vidlink family): hold the iframe until
+              {/* TMDB-keyed providers (AnyEmbed): hold the iframe until
                   the TMDB id is known — loading them with the IMDb id first
                   shows a "couldn't find this content" error for ~1s before
                   the URL switches. The lookup is fast (force-cache) and if it
@@ -1323,11 +1291,12 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
                         allow="autoplay; fullscreen; encrypted-media; picture-in-picture; accelerometer; gyroscope; web-share"
                         allowFullScreen
                         referrerPolicy="no-referrer"
-                        // NOTE: intentionally NO sandbox attribute — providers like
-                        // vidcore hard-refuse to play inside ANY sandboxed frame
-                        // ("This content can't be embedded in a sandboxed frame").
-                        // Top-navigation hijacks from embed ad scripts are mitigated
-                        // by the scoped beforeunload guard below instead.
+                        // NOTE: intentionally NO sandbox attribute — streaming
+                        // providers refuse to play inside sandboxed frames and
+                        // several run sandbox self-checks ("Please Disable
+                        // Sandbox"). Top-navigation hijacks from embed ad
+                        // scripts are mitigated by the scoped beforeunload
+                        // guard below instead.
                         onLoad={() => setLoaded(true)}
                         className="absolute inset-0 h-full w-full"
                       />
@@ -1569,17 +1538,6 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
               title={`${t("reload")} (R)`}
             >
               <RotateCw className="h-3.5 w-3.5" />
-            </button>
-            <button
-              onClick={toggleAdBlock}
-              className={cn(
-                "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs font-semibold text-white transition",
-                adBlockOn ? "bg-emerald-500/20 hover:bg-emerald-500/30" : "bg-white/10 hover:bg-white/20"
-              )}
-              title={adBlockOn ? "Ad-block ON — pop-up ads are blocked" : "Ad-block OFF — pop-up ads may appear"}
-            >
-              {adBlockOn ? <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" /> : <ShieldOff className="h-3.5 w-3.5" />}
-              <span className="hidden sm:inline">{adBlockOn ? "Ad-Block" : "No Block"}</span>
             </button>
             <button
               onClick={handleNextServer}

@@ -529,8 +529,8 @@ export function TmdbHome({ onPlay, onPlayNow, continueWatching, myList, onPlayHi
           t.imdbId = data.imdbId
           handler({ imdbId: data.imdbId, title: t.title, type: t.type, year: t.year, poster: data.poster ?? t.poster, overview: t.overview, rating: t.rating })
         } else {
-          // No IMDB ID found — fall back to TMDB ID. Some providers
-          // (vidlink, vidfast, videasy) support TMDB IDs directly.
+          // No IMDB ID found — fall back to TMDB ID. AnyEmbed supports
+          // TMDB IDs directly (/embed/tmdb-movie-{id} and /embed/tmdb-tv-{id}-{s}-{e}).
           // We pass a synthetic imdbId of "tmdb-{id}" so the player knows
           // to use the TMDB ID for providers that support it.
           handler({

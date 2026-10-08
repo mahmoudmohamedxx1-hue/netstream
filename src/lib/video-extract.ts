@@ -348,15 +348,16 @@ export async function searchArabicSite(
 //      • Series: when the exact episode isn't in the search results (the search
 //        indexes recent posts only), fetch the series hub page linked from any
 //        episode page and pick حلقة-N from the full episode list.
-//   3. GET the watch page         → three kinds of playable sources:
+//   3. GET the watch page         → two kinds of playable sources:
 //      a) mycimafsd={base64} token     → direct video-host embed (fastvip.space,
-//         hglink.to, …) — movies, plays in an iframe through /api/video-proxy
-//      b) ?my_player={id}             → MyCima's own player page (Cloudflare-
-//         gated from datacenters — embedded directly, the user's browser
-//         negotiates the challenge)
-//      c) ?secure_stream={zlib-b64}   → decodes to a DIRECT MP4 on
+//         hglink.to, …) — movies; MUST be iframed DIRECTLY in the user's
+//         browser (stream tokens are minted for the requesting network)
+//      b) ?secure_stream={zlib-b64}   → decodes to a DIRECT MP4 on
 //         link.mycima.cv (video/mp4 + byte ranges + ACAO:*) — the reliable
 //         path for SERIES EPISODES, plays natively in a <video> element
+//      The ?my_player={id} links (MyCima's own mycima-my.com player page) are
+//      SKIPPED: iframing them shows the MyCima WEBSITE instead of the title
+//      (user-reported bug) and they are Cloudflare-gated. (2026-10-08)
 // Arabic text normalization + multiple query variants fix most "title not
 // found" cases (ال-prefix, diacritics, hamza forms, ة/ه, ى/ي).
 
@@ -364,11 +365,11 @@ const MYCIMA_BASE = "https://alking.mycima.cv"
 const MYCIMA_REFERER = "https://alking.mycima.cv/"
 
 export type MycimaSource = {
-  url: string      // embed URL (kind=embed|player) or direct MP4 URL (kind=mp4)
+  url: string      // embed URL (kind=embed) or direct MP4 URL (kind=mp4)
   host: string     // human host name (FastVIP, HGLink, MyCima MP4…)
   referer: string  // referer that unlocks the host (= MyCima)
   /** How the player should render this source. */
-  kind: "embed" | "mp4" | "player"
+  kind: "embed" | "mp4"
   /** Quality label when known (e.g. "720p"). */
   quality?: string
 }
@@ -447,17 +448,14 @@ function mycimaSourcesFromPage(pageHtml: string): MycimaSource[] {
     }
   }
 
-  // a) data-watch attributes: mycimafsd base64 tokens (direct video hosts) and
-  //    my_player short tokens (MyCima's own CF-gated player page).
+  // a) data-watch attributes: mycimafsd base64 tokens (direct video hosts).
+  //    my_player short tokens (MyCima's own CF-gated mycima-my.com player
+  //    page) are SKIPPED — iframing them shows the MyCima WEBSITE instead of
+  //    the title (user-reported bug, 2026-10-08).
   for (const m of pageHtml.matchAll(/data-watch="([^"]+)"/g)) {
     const cand = m[1]
     if (/^https?:\/\//.test(cand)) {
-      if (cand.includes("my_player=")) {
-        // MyCima player page — Cloudflare-gated from datacenters, but the
-        // user's browser can usually negotiate the challenge.
-        push({ url: cand, host: "MyCima Player", referer: MYCIMA_REFERER, kind: "player" })
-        continue
-      }
+      if (cand.includes("my_player=")) continue
       const pm = cand.match(/[?&][a-z_]+=([A-Za-z0-9_=+/-]{20,})/i)
       const decoded = pm ? decodeMycimafsd(pm[1]) : null
       const url = decoded ?? (cand.startsWith("http") && !cand.includes("mycima-my.com") ? cand : null)

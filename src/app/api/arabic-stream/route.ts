@@ -3,14 +3,14 @@
 //
 // Resolves a PLAYABLE source for (mostly Arabic) titles through the
 // MyCima / ArabSeed aggregator (alking.mycima.cv) — live-tested end-to-end:
-//   search → watch page → three source kinds:
+//   search → watch page → two source kinds:
 //     • kind "embed"  — mycimafsd base64 token → direct video-host embed
-//                       (fastvip.space / hglink.to / …) → iframe via proxy
+//                       (fastvip.space / hglink.to / …) → iframe DIRECTLY in
+//                       the user's browser (tokens are network-bound)
 //     • kind "mp4"    — secure_stream zlib token → link.mycima.cv DIRECT MP4
 //                       (video/mp4 + byte ranges + ACAO:*) → native <video>
-//     • kind "player" — my_player page (Cloudflare-gated from datacenters) →
-//                       direct iframe, the user's browser negotiates the CF
-//                       challenge
+//   (The old "player" kind — MyCima's own mycima-my.com page — was removed
+//    2026-10-08: iframing it showed users the MyCima website, not the title.)
 //
 // Title matching: 1st attempt uses the client-supplied title; when that finds
 // nothing and an imdbId is supplied, we look up ARABIC titles from TMDB
@@ -112,10 +112,10 @@ async function tmdbArabicTitles(
   }
 }
 
-// Source-kind priority: series rely on direct MP4s + the CF-gated player;
-// movies usually have working embed hosts.
-const KIND_ORDER_SERIES = { mp4: 0, player: 1, embed: 2 } as const
-const KIND_ORDER_MOVIE = { embed: 0, mp4: 1, player: 2 } as const
+// Source-kind priority: series rely on direct MP4s; movies usually have
+// working embed hosts.
+const KIND_ORDER_SERIES = { mp4: 0, embed: 1 } as const
+const KIND_ORDER_MOVIE = { embed: 0, mp4: 1 } as const
 
 async function resolve(
   title: string,
@@ -129,16 +129,12 @@ async function resolve(
     return { sources: sources.map((s) => ({ ...s, directUrl: null, videoType: null })), movieUrl: pageUrl }
   }
   // Verify each source. kind=mp4 → tiny ranged GET; kind=embed → direct-video
-  // extraction with a liveness fallback; kind=player → unverifiable from a
-  // datacenter (Cloudflare) — kept unverified, the client embeds it directly.
+  // extraction with a liveness fallback.
   const probed = await Promise.all(
     sources.slice(0, 5).map(async (s): Promise<ArabicStreamSource> => {
       if (s.kind === "mp4") {
         const ok = await probeDirectMedia(s.url)
         return { ...s, directUrl: ok ? s.url : null, videoType: ok ? "mp4" : null, verified: ok }
-      }
-      if (s.kind === "player") {
-        return { ...s, directUrl: null, videoType: null, verified: false }
       }
       // embed
       try {

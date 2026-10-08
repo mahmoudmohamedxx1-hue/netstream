@@ -3800,3 +3800,27 @@ Stage Summary:
 - vidlink un-broken: base-tag survival shim + CORS retry proxy + meta race fix + dev-watcher remount fix (db moved outside project tree — see .env.example note)
 - Arabic titles: auto-default to ArabSeed provider for ar-language titles, verified real playback end-to-end; slow-load hint added
 - New route: /api/cors-proxy; modified: video-proxy, player-modal, tmdb lib, use-language, restart-dev.sh, .env(.example)
+
+---
+Task ID: 8
+Agent: main (Z.ai Code)
+Task: Fix "Please Disable Sandbox" errors, Arabic titles opening the MyCima website instead of the title, and dead providers — verify everything LIVE in a real browser as a user before responding.
+
+Work Log:
+- Live-tested every provider in a REAL headless browser (agent-browser) as a user, framed the way the app embeds them:
+  - vidlink.pro / vidcore.io / vidfast.vc / player.videasy.to (the vidlink family): extracted their CURRENT probe from page chunk JS — frameElement.hasAttribute("sandbox") + document.domain + an INVALID PDF <object> (data:application/pdf;base64,aG1t) whose onerror fires in EVERY framed Chrome load → "Please Disable Sandbox" whenever framed directly. Through /api/video-proxy their stream API tokens are bound to the original client IP (server-side fetch exits from our IP) → stuck at "FETCHING DATA" forever. ALSO found an intellipopup.com social-bar ad inside the proxied page that navigates the iframe to the https-schemed proxy URL (kills the player). Both paths dead → REMOVED from catalog.
+  - vidsrc.to / vidsrc.cc/v2 / vixsrc.to / streamingnow.mov (superembed) / 2embed.skin: real-browser test = permanent Cloudflare "Just a moment…" challenge or hard block (even top-level); 2embed.skin empty through proxy → REMOVED.
+  - VERIFIED WORKING framed direct: VidSpark (moviesapi.to — nested cdn.vidspark.to player, correct runtimes) and AnyEmbed (anyembed.xyz — new SPA routes /embed/imdb-movie-tt…, /embed/imdb-tv-tt…-s-e, /embed/tmdb-movie-{id}, /embed/tmdb-tv-{id}-{s}-{e}; the old route only 404s when served through our proxy, so it must load DIRECT).
+- Rewrote src/lib/vidsrc.ts catalog: VidSpark (imdb-keyed) + AnyEmbed (imdb + tmdb builders, useTmdbId) + ArabSeed (search-based). Added isValidSourceId() so stale saved provider prefs (e.g. vidlink) self-heal to the default.
+- player-modal.tsx: default provider moviesapi.to (VidSpark); ALL global providers load DIRECT (removed ALWAYS_PROXY/CLOUDFLARE_BLOCKED proxy branching — the proxy breaks every surviving provider); removed the Ad-Block toggle (it only ever toggled the proxy path); quality→provider map and TMDB_PROVIDERS updated; Arabic auto-default now keys off the moviesapi.to session default; next-server chain skips search-based providers for non-Arabic titles.
+- Arabic flow fix (the "opens mycima website" bug): the old "player" kind iframed mycima-my.com (MyCima's own page → showed the MyCima WEBSITE + CF gate, not the title). Removed the kind end-to-end: video-extract.ts skips ?my_player= data-watch candidates; arabic-stream route drops it from KIND_ORDER + probes; player-modal drops its branches. Arabic embeds (fastvip etc.) now load DIRECT (stream tokens are minted for the user's network — proxying breaks them).
+- Sandbox-protection for Arabic embeds: found the fastvip embed's zfg/propeller popunder hijacks window.top.location on click (replaced the WHOLE app with ad junk — reproduced live). Added sandbox="allow-scripts allow-same-origin allow-forms allow-popups" (NO allow-top-navigation) to the Arabic embed iframe — verified live that two clicks no longer hijack the app while the frame keeps working.
+- E2E verified LIVE as a real user: EN series plays on VidSpark (video frames + subtitles, PLAYING); server switch → AnyEmbed plays via TMDB route (auto-started, 56:28 ep); Arabic movie صوت هند رجب auto-switches to ArabSeed → fastvip embed (NOT mycima); Arabic series لم الشمل S1E1 → NATIVE link.mycima.cv MP4 playing (readyState 4, paused:false, 44:06, ACAO:* + ranges); Arabic title absent from ArabSeed (كفرناحوم) → clean auto-fallback to VidSpark; server dropdown clean (Primary: VidSpark+AnyEmbed; Arabic: ArabSeed+globals).
+- bunx tsc --noEmit: clean (app files). eslint on all changed files: clean.
+
+Stage Summary:
+- Root causes found by live browser testing: (1) sandbox error = vidlink family's anti-embed probe (fires in ANY iframe) + IP-bound API tokens breaking the proxy path; (2) Arabic bug = "player" kind iframing the MyCima site itself; (3) dead providers = Cloudflare walls.
+- Catalog reduced to 3 live-verified providers; everything loads direct (no proxy) — no more sandbox errors or stuck "FETCHING DATA".
+- Arabic: mp4 native path (ad-free) for series, direct embeds for movies, top-window hijack blocked by iframe sandbox, MyCima pages never iframed.
+- Files: src/lib/vidsrc.ts (rewritten), src/components/netflix/player-modal.tsx, src/lib/video-extract.ts, src/app/api/arabic-stream/route.ts, src/components/netflix/tmdb-home.tsx.
+- Content limitation (not a bug): the MyCima site only keeps currently-airing series; older Arabic series (الاختيار، الحفرة، الكبير اوي) are not on it — those titles fall back to the global providers. Also many catalog 2026 unreleased movies legitimately don't exist on any pirate CDN yet.
