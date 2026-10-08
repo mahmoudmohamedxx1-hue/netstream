@@ -3824,3 +3824,27 @@ Stage Summary:
 - Arabic: mp4 native path (ad-free) for series, direct embeds for movies, top-window hijack blocked by iframe sandbox, MyCima pages never iframed.
 - Files: src/lib/vidsrc.ts (rewritten), src/components/netflix/player-modal.tsx, src/lib/video-extract.ts, src/app/api/arabic-stream/route.ts, src/components/netflix/tmdb-home.tsx.
 - Content limitation (not a bug): the MyCima site only keeps currently-airing series; older Arabic series (الاختيار، الحفرة، الكبير اوي) are not on it — those titles fall back to the global providers. Also many catalog 2026 unreleased movies legitimately don't exist on any pirate CDN yet.
+
+---
+Task ID: 8
+Agent: main (Super Z)
+Task: Fix recurring sandbox error + Arabic titles opening mycima website; verify everything live in a real browser before responding
+
+Work Log:
+- Reproduced in real browser (agent-browser): Arabic movie (El Harifa, tt30869622) on ArabSeed → fastvip embed rendered "Sandboxed embed is not allowed! / Please contact your website owner!" — caused by OUR iframe sandbox attribute; fastvip ships the same 3-probe anti-embed framework as vidlink (frameElement sandbox check)
+- Traced "opens mycima website": old build iframed mycima-my.com player pages; current code skips my_player links, BUT decoded mycimafsd tokens were pushed unchecked — mycima-domain URLs could still slip through as embed sources. Also scanned 10 titles' watch pages: several series' only token IS a mycima-my.com my_player link (skipped → 0 sources)
+- Verified Arabic series path end-to-end: Al Hayba (tt7035576) S1E1 resolves to link.mycima.cv direct MP4 and PLAYS (currentTime advancing, readyState 4)
+- Verified global path: VidSpark (moviesapi.to) plays Spider-Man: Brand New Day (Columbia logo visible); AnyEmbed loads and scans its 20 sources
+- Found and fixed: sandbox attr removed from Arabic embed iframe (beforeunload guard already mitigates ad top-nav hijacks)
+- Fixed: mycimaSourcesFromPage now filters mycima-domain URLs + ak.sv from embed sources (mp4 kind exempt — link.mycima.cv direct media still allowed)
+- Fixed: native <video> onError marks source failed and auto-advances to next source (no more black screen on dead MP4 URLs)
+- Added: last-resort iframe when ALL embed extractions fail (embed JS player runs client-side; works from user networks even when datacenter probes fail — verified with hglink embed for El Harifa 2)
+- Added: bilingual toast (arabicFallback key EN/AR) when no Arabic sources found and auto-switch to VidSpark fires
+- Datacenter limitation documented: fastvip/hglink stream CDNs block this sandbox's egress (curl + headless browser both hang / "السيرفر قام بقطع الاتصال"); player UI, play initiation, and stream fetch all verified working — final video frames only verifiable from a residential network
+- Gates: tsc clean, eslint clean, next build pass; committed ded2cc6
+
+Stage Summary:
+- Sandbox error: FIXED (root cause = our sandbox attribute; hosts refuse sandboxed frames)
+- mycima-website bug: FIXED (hard filter on mycima domains in embed sources)
+- Arabic playback: series verified playing (native MP4); movies load embed players without error
+- Auto-provider default (Arabic → ArabSeed), auto-fallback (→ VidSpark + toast) verified live
