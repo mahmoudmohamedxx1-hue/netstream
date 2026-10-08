@@ -648,17 +648,23 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
 
   // Auto-fallback: if the Arabic provider search returns 0 sources, switch to
   // a verified-working global provider (VidSpark — IMDb-keyed, end-to-end
-  // tested 2026-10). Otherwise, stay on the Arabic provider.
+  // tested 2026-10). Otherwise, stay on the Arabic provider. A toast explains
+  // the switch so the user isn't confused by the silent server change.
   useEffect(() => {
     if (!isArabicProvider) return
     if (arabicStream.loading) return
     if (arabicStream.sources.length > 0) return
+    if (arabicStream.error === null) return // still resolving
     // No sources found — switch to VidSpark (moviesapi.to)
     const timer = setTimeout(() => {
+      toast({
+        title: t("arabicFallback"),
+        description: displayTitle || title.title,
+      })
       setSourceId("moviesapi.to")
     }, 1500)
     return () => clearTimeout(timer)
-  }, [isArabicProvider, arabicStream.loading, arabicStream.sources.length])
+  }, [isArabicProvider, arabicStream.loading, arabicStream.sources.length, arabicStream.error, toast, t, displayTitle, title.title])
 
   // Health-check each Arabic source. The API already verifies sources
   // server-side. By kind:
@@ -683,7 +689,10 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
         return {
           embedUrl: s.url, host: s.host, referer: s.referer || myReferer,
           videoUrl: s.directUrl || s.url, videoType: (s.videoType ?? "mp4") as "mp4" | "hls",
-          status: (s.directUrl || s.verified ? "ready" : "ready") as "ready", // attempt even unverified (datacenter probes can false-negative)
+          // Attempt playback even when the server-side probe failed — datacenter
+          // probes false-negative on some CDNs, and the native <video> onError
+          // handler now falls back to the next source if the URL is really dead.
+          status: "ready" as const,
           kind, quality: s.quality,
         }
       }
@@ -733,11 +742,14 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   // The first successfully extracted video URL (auto-select it)
   const activeExtractedSource = extractedSources.find((s) => s.status === "ready" && s.videoUrl)
   // Selection priority: the user-picked source (if not hard-failed), then the
-  // first verified one, then the first non-failed one — the embed can still
-  // play through the proxy even without a pre-extracted direct URL (the
-  // embed host's own JS builds the stream).
+  // first verified one, then the first non-failed one. LAST RESORT: when every
+  // embed source failed our server-side extraction/probe, still iframe the
+  // first one — the embed host's own JS player runs in the USER's browser and
+  // often works from residential networks even when our datacenter probes
+  // can't reach the host (verified: hglink/fasvip CDNs block datacenter IPs).
   const picked = extractedSources[activeExtractedIdx]
-  const fallbackSource = extractedSources.find((s) => s.status !== "failed") ?? null
+  const fallbackSource =
+    extractedSources.find((s) => s.status !== "failed") ?? extractedSources[0] ?? null
   const currentVideoSource = picked && picked.status !== "failed"
     ? picked
     : activeExtractedSource ?? fallbackSource
@@ -1178,13 +1190,32 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
                 {nativeVideoUrl ? (
                   /* Direct MP4 (link.mycima.cv) — native <video>: no iframe, no
                      ads, seeking works via byte ranges, plays cross-origin
-                     thanks to access-control-allow-origin:*. */
+                     thanks to access-control-allow-origin:*. If the URL is
+                     dead (datacenter probes can false-negative → we attempt
+                     unverified sources), onError marks this source failed and
+                     auto-advances to the next one instead of a black screen. */
                   <video
                     key={nativeVideoUrl}
                     src={nativeVideoUrl}
                     controls
                     autoPlay
                     playsInline
+                    onError={() => {
+                      setExtractedSources((prev) =>
+                        prev.map((s) =>
+                          s.videoUrl === nativeVideoUrl || s.embedUrl === nativeVideoUrl
+                            ? { ...s, status: "failed" as const }
+                            : s
+                        )
+                      )
+                      // Jump to the next non-failed source (if any)
+                      setActiveExtractedIdx((prev) => {
+                        const next = extractedSources.findIndex(
+                          (s, i) => i !== prev && s.status !== "failed"
+                        )
+                        return next >= 0 ? next : prev
+                      })
+                    }}
                     className="absolute inset-0 h-full w-full bg-black"
                   />
                 ) : (
@@ -1195,16 +1226,18 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
                     allow="autoplay; fullscreen; encrypted-media; picture-in-picture; accelerometer; gyroscope; web-share"
                     allowFullScreen
                     referrerPolicy="no-referrer"
-                    // Arabic video-host embeds (fastvip/hglink) ship aggressive
-                    // popunder ads (zfg/propeller) whose scripts hijack the TOP
-                    // window on click — window.top.location = … replaces the
-                    // whole app with ad junk (user-reported as "opens another
-                    // website"). Sandboxing WITHOUT allow-top-navigation makes
-                    // those writes throw a SecurityError inside the frame while
-                    // the host's own JW-style player keeps working (needs
-                    // allow-scripts + allow-same-origin for storage). Popups
-                    // still open (in tabs) — standard free-streaming behavior.
-                    sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+                    // NOTE: intentionally NO sandbox attribute — live-tested
+                    // 2026-10-09: the Arabic video-host embeds (fastvip.space,
+                    // hglink.to, …) run the same 3-probe anti-embed framework as
+                    // the vidlink family. Their script reads window.frameElement
+                    // and, when ANY sandbox attribute is present, refuses to
+                    // play and renders "Sandboxed embed is not allowed! /
+                    // Please contact your website owner!" (user-reported as the
+                    // "sandbox error"). Without the attribute the player loads
+                    // and plays normally. Popunder ad hijacks (window.top
+                    // navigation) are mitigated by the scoped beforeunload
+                    // guard mounted for the player's lifetime — NOT by
+                    // sandboxing, which breaks playback outright.
                     className="absolute inset-0 h-full w-full"
                   />
                 )}

@@ -441,11 +441,24 @@ function mycimaSourcesFromPage(pageHtml: string): MycimaSource[] {
   const sources: MycimaSource[] = []
   const seen = new Set<string>()
 
+  // Never treat MyCima's OWN pages as playable EMBEDS — iframing them shows
+  // the user the MyCima website instead of the title (user-reported bug,
+  // 2026-10-09). Embed sources must point at third-party video hosts.
+  // ak.sv is also skipped: it's a full streaming SITE (301 → redirect chain),
+  // not a clean embed player — it renders a website UI inside the player.
+  // NOTE: kind "mp4" (link.mycima.cv direct media) is exempt — those ARE
+  // playable direct video URLs.
+  const isPlayableEmbedUrl = (u: string) =>
+    !!u &&
+    !/mycima\.(cv|com|net)/i.test(u) &&
+    !/mycima-my\.com/i.test(u) &&
+    !/^https?:\/\/ak\.sv\//i.test(u)
+
   const push = (s: MycimaSource) => {
-    if (s.url && !seen.has(s.url)) {
-      seen.add(s.url)
-      sources.push(s)
-    }
+    if (!s.url || seen.has(s.url)) return
+    if (s.kind === "embed" && !isPlayableEmbedUrl(s.url)) return
+    seen.add(s.url)
+    sources.push(s)
   }
 
   // a) data-watch attributes: mycimafsd base64 tokens (direct video hosts).
