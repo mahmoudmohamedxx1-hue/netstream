@@ -3848,3 +3848,35 @@ Stage Summary:
 - mycima-website bug: FIXED (hard filter on mycima domains in embed sources)
 - Arabic playback: series verified playing (native MP4); movies load embed players without error
 - Auto-provider default (Arabic → ArabSeed), auto-fallback (→ VidSpark + toast) verified live
+
+---
+Task ID: 9
+Agent: main (Super Z)
+Task: Fix wrong-title playback (Omar & Salma 2 → part 1, series → Turkish content), HTTP 403 on Arabic series, and verify EVERYTHING live in a real browser before responding
+
+Work Log:
+- Reproduced all user-reported bugs live. Root causes found by direct investigation of alking.mycima.cv:
+  1. Wrong movie part: the exact-slug check required `فيلم-عمر-وسلمي-2/` but mycima slugs carry the year (`عمر-وسلمي-2-2009/`) → exact match never fired → first-word fallback picked عمر وسلمى 1 (2007). Proven via API: request for tt1822275 returned the 2007 page.
+  2. Wrong series: series-hub pages mix OTHER series' episode links (جعفر العمدة hub carries 6 foreign series' حلقة links incl. تحت-الأرض ج2) and the resolver picked any حلقة-N without checking the series name → "Turkish movie" bug.
+  3. HTTP 403: Arabic auto-fallback hard-coded moviesapi.to; tmdb-only titles (no IMDb id — common for Arabic series, e.g. جعفر العمدة) built `moviesapi.to/tv/-1-1` → their server 403s.
+  4. Airing series had 0 playable sources: their watch pages carry ONLY my_player links (previously skipped entirely).
+- Fixes in src/lib/video-extract.ts:
+  - normalizeArabic: Arabic-Indic digits ٠-٩ → ASCII (TMDB ar-SA titles use ٢, e.g. عمر وسلمى ٢).
+  - NEW matchTitleScore(url, title, {season, episode}): word gate (ALL significant words, ال-stripped variants) + sequel-number gate (digits + Arabic ordinals, years 1900-2035 excluded, season/episode numbers treated structural) + slug-segment-only scoring (post-date path /2026/10/05/ excluded — it polluted the number gate with 10/5).
+  - searchMycima rewritten: movies scored & sorted (no anyMovie fallback); series episode candidates + hub-crawl SEEDS must pass the gate; watch-page og:title/<title> is the final verification; up to 3 candidates tried; closest-season ranking.
+  - NEW resolveMyPlayer(): my_player pages (mycima-my.com) embed `const videoUrl = "https://link.mycima.cv/…"` — a direct MP4 (byte ranges + ACAO:*, content-type disguised as image/jpeg, 593MB for ep1). Fetch via curl because Cloudflare challenges node's TLS ClientHello (node fetch/https → 403 "Just a moment", curl+Referer → 200). Fires when a verified watch page has no other sources.
+- src/app/api/arabic-stream/route.ts: Arabic-first candidate queries (client Arabic title → TMDB ar-SA primary + original + alts → Latin title last); probeDirectMedia relaxed (206/content-range or >10MB image/* = disguised media).
+- src/components/netflix/player-modal.tsx: Arabic auto-fallback now ID-scheme aware (isTmdbOnly → AnyEmbed tmdb routes, else VidSpark).
+- Gates: tsc --noEmit clean (src), eslint clean on all changed files, next build pass. Committed 774acc7.
+- LIVE browser verification (agent-browser, real user flow on localhost:3000):
+  - Lanterns S1E1 on VidSpark: HLS segments (bx.netrocdn.site seg-26..31) streaming, no errors.
+  - عمر وسلمى ٢ (tt1822275, from TMDB search in AR locale): ArabSeed → native <video> link.mycima.cv/186e79c0… → readyState 4, duration 2886s, PLAYING (currentTime 0→6s over 6s). Correct part 2 (resolved page فيلم-عمر-وسلمي-2-2009).
+  - جعفر العمدة S1E1 (tmdb-218739, tmdb-only): ArabSeed → my_player-resolved MP4 ce22f53a… → PLAYING (63min, 8.6→13.6s). VLM frame check at 45:00 confirms Mohamed Ramadan (correct series; the 25:00 frame VLM misguess of "Mona Zaki" ruled out via cast list). S1E5 → different correct MP4 a0afb65a… PLAYING (44min).
+  - الحريفة on ArabSeed: correct fastvip embed (page title "فيلم الحريفة 2024" via its analytics beacon), iframe has NO sandbox attr; switched to VidSpark → moviesapi.to/movie/tt30869622 → segments streaming.
+  - Server dropdown: Primary (VidSpark, AnyEmbed), Mobile, Arabic (ArabSeed + VidSpark + AnyEmbed) — no dead providers. No sandbox/403/"not found" text anywhere in the UI.
+- Screenshots saved: download/e2e-01-lanterns-vidspark.png, e2e-02-omar-salma2-arabseed.png, e2e-03-jaafar-ep1-arabseed.png, e2e-04-harifa-fastvip.png, e2e-05-harifa-vidspark.png, e2e-06/07-jaafar frames.
+
+Stage Summary:
+- Wrong-title class of bugs eliminated by a three-layer verification gate (slug words + sequel/season numbers + page og:title). The resolver now returns NO sources rather than a wrong title; the player then auto-falls back to a global provider that matches the title's ID scheme.
+- Airing Arabic series unlocked via my_player → direct link.mycima.cv MP4 (curl fetch bypasses the node-TLS Cloudflare challenge).
+- All fixes browser-verified end-to-end as a real user: correct titles, actual playback (time advancing / segments streaming), zero sandbox errors, zero 403s.
