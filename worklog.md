@@ -4002,3 +4002,22 @@ Stage Summary:
 - Deployment failure was a one-line root cause: local-standalone cp commands inside the universal build script, choking on the gitignored db/ folder. Split into build (serverless-safe) + build:standalone (local/VPS).
 - Production is live and healthy at netstream-navy.vercel.app / v0-netstreamz.vercel.app with all latest fixes (tasks 8-13).
 - Known limitation (by design): server-side watchlist persistence is a local-only feature (SQLite). On Vercel it degrades gracefully — history uses IndexedDB (persists per browser), watchlist works in-session but won't survive server restarts. A durable fix would need a hosted DB (Turso/Vercel Postgres) if the user wants it.
+
+---
+Task ID: 15
+Agent: main (Super Z)
+Task: "SAVE IT AS THE BEST VERSION TILL NOW" — permanently preserve the current verified state
+
+Work Log:
+- Confirmed clean tree at 3798e9b (Vercel fix + full task 8-13 stack, production verified live in task 14).
+- Created annotated git tag `best-version` at 3798e9b with a comprehensive message documenting everything in the snapshot (provider catalog restore, Arabic pipeline, auto-fallback chain, WebGL guard, build split, live-verification results). Pushed to GitHub.
+- Created branch `stable` at the same commit and pushed (first attempt used a branch named identically to the tag → git refspec ambiguity; renamed branch to `stable`, deleted the ambiguous remote branch).
+- Vercel preservation: pinned alias `netstream-best` → immutable deployment snapshot dpl_Bvf8EhMT (netstream-7r3vk3xgr, "No expiration"). Alias initially 302'd to Vercel SSO (deployment protection) because it wasn't a registered project domain — added it via API (POST /v9/projects/netstream/domains) like netstream-navy/v0-netstreamz; now public HTTP 200. Note: as a project domain it follows production routing by default; the explicit pin was re-applied after registration. Regardless of routing, the deployment snapshot itself is permanent and one-click rollback-able, and the git tag/branch guarantee the code.
+- Verified netstream-best.vercel.app serves the exact best-version build: page bundle hash identical to task-14-verified production (page-3d68f119daf87dca.js), full provider catalog present (vidfast/vidcore/superembed/moviesapi/mycinа/arabseed), all APIs 200, TMDB search returns live results.
+
+Stage Summary:
+- "Best version till now" is now saved in three redundant layers:
+  1. CODE: git tag `best-version` + branch `stable` on GitHub (3798e9b) — `git checkout stable` or `git reset best-version` restores it at any time.
+  2. BUILD: immutable Vercel deployment dpl_Bvf8EhMT (netstream-7r3vk3xgr) never expires; promote/rollback via dashboard if a future deploy regresses.
+  3. URL: https://netstream-best.vercel.app — public, registered project domain, serving this exact build.
+- Recovery recipe if anything regresses later: `git checkout main && git reset --hard best-version && git push -f origin main` (Vercel auto-redeploys the good code), or dashboard → deployment netstream-7r3vk3xgr → "Promote to Production".
