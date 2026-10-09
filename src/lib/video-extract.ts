@@ -368,6 +368,163 @@ export async function searchArabicSite(
 const MYCIMA_BASE = "https://alking.mycima.cv"
 const MYCIMA_REFERER = "https://alking.mycima.cv/"
 
+// ── Mycina page fetching ──────────────────────────────────────────────
+// Resilient 3-layer fetch: direct first (fast, normal path). The "degraded
+// page" scare that once motivated a sidecar-first order was actually a HAMZA
+// SPELLING typo in tests: mycima's WordPress search matches EXACTLY, so
+// searching الكبير اوي (plain alef) genuinely returns zero results while
+// الكبير أوي (hamza) returns everything (verified live 2026-10-09 — same
+// client, same instant, different letter). The sidecar
+// (scripts/mycina-sidecar.mjs, localhost:3999) stays as an exotic-degradation
+// fallback, then curl (different TLS fingerprint).
+const SIDECAR_BASE = "http://127.0.0.1:3999"
+
+/** Fetch a mycima page HTML — direct fetch, then sidecar, then curl. */
+async function fetchMycimaPage(url: string, referer: string = MYCIMA_REFERER): Promise<string | null> {
+  // 1) direct fetch (normal path — fastest)
+  try {
+    const r = await fetch(url, {
+      headers: { "User-Agent": UA, "Accept-Language": "ar,en-US;q=0.9,en;q=0.8", Accept: "text/html,*/*" },
+      redirect: "follow",
+      signal: AbortSignal.timeout(15000),
+    })
+    if (r.ok) {
+      const body = await r.text()
+      if (body.length > 500) return body
+    }
+  } catch {
+    /* fall through */
+  }
+  // 2) sidecar (different process — exotic-degradation fallback; short
+  //    timeout so a hung sidecar never stalls the resolver)
+  try {
+    const r = await fetch(
+      `${SIDECAR_BASE}/fetch?url=${encodeURIComponent(url)}&referer=${encodeURIComponent(referer)}`,
+      { cache: "no-store", signal: AbortSignal.timeout(8000) }
+    )
+    if (r.ok) {
+      const d = (await r.json()) as { ok?: boolean; status?: number; body?: string }
+      if (d.ok && d.status === 200 && typeof d.body === "string" && d.body.length > 500) {
+        return d.body
+      }
+    }
+  } catch {
+    /* sidecar down — fall through */
+  }
+  // 3) curl (different TLS fingerprint — sometimes passes when node doesn't)
+  return curlFetchHtml(url, referer)
+}
+
+
+// ── Direct-content verification (content-disposition) ────────────────
+// link.mycima.cv responses carry `content-disposition: attachment;
+// filename*=UTF-8''<REAL CONTENT NAME>.mp4` — the CDN literally names the
+// file's true content. This is the ONLY reliable defense against mycina's
+// crossed download links (verified live 2026-10-09: the عمر وسلمى trilogy
+// pages' ONLY mp4 each resolved to «مسلسل سلمى الحلقة 9/12/20» — a
+// completely different, wrong title; user-reported as "opens a Turkish
+// series"). Every direct mp4 must pass this gate before reaching the player.
+
+export type ContentVerify = {
+  title: string
+  type: "movie" | "series"
+  season?: number | null
+  episode?: number | null
+}
+
+/** Read the content-disposition filename of a media URL (HEAD, then a tiny
+ * ranged GET — some CDNs omit the header on HEAD). */
+async function mediaDispositionFilename(url: string): Promise<string | null> {
+  try {
+    const h = await fetch(url, {
+      method: "HEAD",
+      headers: { "User-Agent": UA, Referer: MYCIMA_REFERER },
+      redirect: "follow",
+      signal: AbortSignal.timeout(10000),
+    })
+    const cd = h.headers.get("content-disposition")
+    if (cd) return cd
+  } catch {
+    /* fall through to ranged GET */
+  }
+  try {
+    const r = await fetch(url, {
+      headers: { Range: "bytes=0-64", "User-Agent": UA, Referer: MYCIMA_REFERER },
+      redirect: "follow",
+      signal: AbortSignal.timeout(10000),
+    })
+    return r.headers.get("content-disposition")
+  } catch {
+    return null
+  }
+}
+
+function decodeDispositionName(cd: string): string | null {
+  const raw =
+    cd.match(/filename\*=UTF-8''([^;]+)/i)?.[1] ??
+    cd.match(/filename="?([^";]+)"?/i)?.[1] ??
+    ""
+  if (!raw.trim()) return null
+  try {
+    return decodeURIComponent(raw.trim())
+  } catch {
+    return raw.trim()
+  }
+}
+
+/** Verify a direct media URL's real content against the requested title.
+ *  "match"    — filename names the requested title (movie: all words + sequel;
+ *              series: all words + episode number)
+ *  "mismatch" — filename names DIFFERENT content (wrong title / movie-vs-
+ *              series swap / wrong episode). NEVER play these.
+ *  "unknown"  — no disposition filename (Latin-only names for Arabic titles,
+ *              header absent) — can't judge; keep the source.
+ */
+export async function verifyDirectContent(
+  url: string,
+  want: ContentVerify
+): Promise<"match" | "mismatch" | "unknown"> {
+  const cd = await mediaDispositionFilename(url)
+  if (!cd) return "unknown"
+  const name = decodeDispositionName(cd)
+  if (!name) return "unknown"
+  // Latin-only filenames can't be matched against Arabic titles — don't judge.
+  if (!/[\u0600-\u06FF]/.test(name) && /[\u0600-\u06FF]/.test(want.title)) return "unknown"
+
+  const fn = normalizeArabic(name)
+  const words = titleWords(want.title)
+  const stripAl = (w: string) => w.replace(/^ال/, "")
+  const hasSeriesMarkers = /مسلسل|حلقه/.test(fn)
+
+  if (want.type === "movie") {
+    // A series/episode file is never the requested movie.
+    if (hasSeriesMarkers) return "mismatch"
+    if (words.length === 0) return "unknown"
+    const hits = words.filter((w) => fn.includes(w) || fn.includes(stripAl(w))).length
+    if (hits < words.length) return "mismatch"
+    // Sequel gate: عمر وسلمى 2 must not resolve to part 1/3's file, and part 1
+    // must not resolve to a sequel file.
+    const wantSeq = sequelNumberOf(want.title)
+    const fnSeq = sequelNumberOf(name)
+    if (wantSeq !== null && fnSeq !== null && wantSeq !== fnSeq) return "mismatch"
+    if (wantSeq === null && fnSeq !== null) return "mismatch"
+    return "match"
+  }
+
+  // Series request
+  if (/فيلم/.test(fn) && !hasSeriesMarkers) return "mismatch" // a movie file for a series request
+  if (words.length > 0) {
+    const hits = words.filter((w) => fn.includes(w) || fn.includes(stripAl(w))).length
+    if (hits < words.length) return "mismatch"
+  }
+  // Episode gate: the file's حلقة-N must equal the requested episode.
+  if (want.episode != null && want.episode > 0) {
+    const ep = fn.match(/حلقه[^0-9]*(\d{1,3})/)?.[1]
+    if (ep && Number(ep) !== want.episode) return "mismatch"
+  }
+  return "match"
+}
+
 export type MycimaSource = {
   url: string      // embed URL (kind=embed) or direct MP4 URL (kind=mp4)
   host: string     // human host name (FastVIP, HGLink, MyCima MP4…)
@@ -523,10 +680,33 @@ function pageTitleMatches(pageHtml: string, title: string): boolean {
   return hits / words.length >= 0.6
 }
 
-/** Search query variants for Arabic titles (MyCima slugs drop prefixes etc). */
+/** Search query variants for Arabic titles (MyCima slugs drop prefixes etc).
+ *  Includes HAMZA/SPELLING variants — mycima's WordPress search matches
+ *  EXACTLY, so الكبير اوي (plain alef) finds nothing for الكبير أوي (hamza):
+ *  verified live 2026-10-09. We generate normalized-spelling variants
+ *  (أ/إ/آ→ا, ى→ي, ة→ه) so a spelling difference never zeroes the search. */
 function mycimaQueryVariants(title: string): string[] {
   const clean = title.replace(/[:：]/g, " ").replace(/\s+/g, " ").trim()
   const variants = new Set<string>([clean])
+  // Normalized spelling (أ→ا etc.) — covers source-title vs slug disagreements.
+  const normalized = clean
+    .replace(/[أإآ]/g, "ا")
+    .replace(/ى/g, "ي")
+    .replace(/ة/g, "ه")
+  if (normalized !== clean) variants.add(normalized)
+  // Reversal: if the title is ALREADY normalized (plain alef), the site may
+  // spell it with hamza — try re-hamza-ing each plain alef that is NOT part
+  // of the definite article ال (e.g. الكبير اوي → الكبير أوي, never ألكبير).
+  else {
+    for (let i = 0; i < clean.length; i++) {
+      if (clean[i] !== "ا") continue
+      const prev = i > 0 ? clean[i - 1] : " "
+      const next = clean[i + 1] ?? ""
+      // skip the definite article: ا followed by ل at a word start
+      if (next === "ل" && (i === 0 || prev === " ")) continue
+      variants.add(clean.slice(0, i) + "أ" + clean.slice(i + 1))
+    }
+  }
   const words = clean.split(" ").filter((w) => w.length > 1)
   // Drop the leading definite article: "الحيطة" → "حيطة" (slugs vary)
   if (clean.startsWith("ال") && clean.length > 4) variants.add(clean.slice(2))
@@ -534,6 +714,7 @@ function mycimaQueryVariants(title: string): string[] {
   if (words.length > 2) variants.add(words.slice(0, 2).join(" "))
   return [...variants]
 }
+
 
 /** Decode a mycimafsd token (base64 / base64url) into the real embed URL. */
 function decodeMycimafsd(token: string): string | null {
@@ -687,13 +868,8 @@ function mycimaSourcesFromPage(pageHtml: string): MycimaSource[] {
 /** Series hub crawling: fetch a hub page and return its حلقة-N episode links. */
 async function mycimaEpisodeLinksFromHub(hubUrl: string): Promise<string[]> {
   try {
-    const res = await fetch(hubUrl, {
-      headers: { "User-Agent": UA, "Accept-Language": "ar,en-US;q=0.9,en;q=0.8", Accept: "text/html,*/*" },
-      redirect: "follow",
-      signal: AbortSignal.timeout(15000),
-    })
-    if (!res.ok) return []
-    const html = await res.text()
+    const html = await fetchMycimaPage(hubUrl)
+    if (!html) return []
     return mycimaContentLinks(html).filter((u) => /حلقة/.test(decodeURIComponent(u)))
   } catch {
     return []
@@ -727,15 +903,11 @@ export async function searchMycima(
 ): Promise<{ sources: MycimaSource[]; pageUrl: string | null }> {
   try {
     // Step 1: search — try query variants until one returns content links.
+    // (fetchMycimaPage routes through the sidecar — see its comment.)
     let links: string[] = []
     for (const q of mycimaQueryVariants(title)) {
-      const searchRes = await fetch(`${MYCIMA_BASE}/?s=${encodeURIComponent(q)}`, {
-        headers: { "User-Agent": UA, "Accept-Language": "ar,en-US;q=0.9,en;q=0.8", Accept: "text/html,*/*" },
-        redirect: "follow",
-        signal: AbortSignal.timeout(15000),
-      })
-      if (!searchRes.ok) continue
-      const searchHtml = await searchRes.text()
+      const searchHtml = await fetchMycimaPage(`${MYCIMA_BASE}/?s=${encodeURIComponent(q)}`)
+      if (!searchHtml) continue
       links = mycimaContentLinks(searchHtml)
       if (links.length > 0) break
     }
@@ -806,13 +978,8 @@ export async function searchMycima(
             matchTitleScore(u, title, { season: s, episode: ep }) > 0
         )
         if (seed) {
-          const seedRes = await fetch(seed, {
-            headers: { "User-Agent": UA, "Accept-Language": "ar,en-US;q=0.9,en;q=0.8", Accept: "text/html,*/*" },
-            redirect: "follow",
-            signal: AbortSignal.timeout(15000),
-          })
-          if (seedRes.ok) {
-            const seedHtml = await seedRes.text()
+          const seedHtml = await fetchMycimaPage(seed)
+          if (seedHtml) {
             const hubUrl =
               seedHtml.match(/href="(https?:\/\/alking\.mycima\.cv\/series\/[^"]+)"/i)?.[1] ?? null
             if (hubUrl) {
@@ -836,29 +1003,37 @@ export async function searchMycima(
     // verification (slug aliases can't fool it). Try up to 3 verified
     // candidates and use the first that has playable sources.
     for (const cand of candidates.slice(0, 3)) {
-      const pageRes = await fetch(cand, {
-        headers: { "User-Agent": UA, "Accept-Language": "ar,en-US;q=0.9,en;q=0.8", Accept: "text/html,*/*" },
-        redirect: "follow",
-        signal: AbortSignal.timeout(15000),
-      })
-      if (!pageRes.ok) continue
-      const pageHtml = await pageRes.text()
+      const pageHtml = await fetchMycimaPage(cand)
+      if (!pageHtml) continue
       if (!pageTitleMatches(pageHtml, title)) continue
-      lastVerifiedPage = pageRes.url || cand
-      const sources = mycimaSourcesFromPage(pageHtml)
+      lastVerifiedPage = cand
+      let sources = mycimaSourcesFromPage(pageHtml)
+      // ── Content gate: verify each DIRECT mp4's real content via its CDN
+      // content-disposition filename. mycina's download links are frequently
+      // CROSSED with other titles' files (عمر وسلمى 2 → مسلسل سلمى الحلقة 9,
+      // verified live 2026-10-09) — those must never reach the player.
+      const embeds = sources.filter((s) => s.kind !== "mp4")
+      const mp4s: MycimaSource[] = []
+      for (const s of sources.filter((x) => x.kind === "mp4")) {
+        const verdict = await verifyDirectContent(s.url, { title, type, season, episode })
+        if (verdict !== "mismatch") mp4s.push(s)
+      }
+      sources = [...mp4s, ...embeds]
       if (sources.length > 0) {
         return { sources, pageUrl: lastVerifiedPage }
       }
       // No embed/mp4 sources on the watch page — currently-airing series
       // pages (e.g. جعفر العمدة, الكبير أوي 8) carry ONLY my_player links.
-      // Resolve them to their direct link.mycima.cv MP4s instead.
+      // Resolve them to their direct link.mycima.cv MP4s instead — and pass
+      // the resolved file through the SAME content gate (my_player pages can
+      // serve crossed files too).
       const myPlayers = myPlayerUrlsFromPage(pageHtml)
       for (const mp of myPlayers.slice(0, 2)) {
         const resolved = await resolveMyPlayer(mp)
-        if (resolved) {
-          sources.push(resolved)
-          return { sources, pageUrl: lastVerifiedPage }
-        }
+        if (!resolved) continue
+        const verdict = await verifyDirectContent(resolved.url, { title, type, season, episode })
+        if (verdict === "mismatch") continue
+        return { sources: [resolved], pageUrl: lastVerifiedPage }
       }
       // Verified page but nothing playable at all — try the next candidate.
     }

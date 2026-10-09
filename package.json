@@ -18,7 +18,8 @@
     "test:android": "playwright test --project='Pixel 7'",
     "test:headed": "playwright test --headed",
     "test:debug": "playwright test --debug",
-    "test:report": "playwright show-report tests/reports/html"
+    "test:report": "playwright show-report tests/reports/html",
+    "predev": "node scripts/mycina-sidecar.mjs >/dev/null 2>&1 & sleep 0.3 || true"
   },
   "dependencies": {
     "@ffmpeg/core": "0.12.6",

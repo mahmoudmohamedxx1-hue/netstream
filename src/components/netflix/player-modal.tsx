@@ -230,7 +230,10 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   const defaultSource =
     (savedSourceId && isValidSourceId(savedSourceId) ? savedSourceId : undefined) ||
     (savedLastProvider && isValidSourceId(savedLastProvider) ? savedLastProvider : undefined) ||
-    "moviesapi.to"
+    // TMDB-only titles (no IMDb id) can ONLY play on TMDB-keyed providers —
+    // VidSpark would get a garbage /movie/ URL (user-reported "HTTP 403"/
+    // black screen). AnyEmbed accepts tmdb-{id} directly.
+    (isTmdbOnly ? "anyembed" : "moviesapi.to")
   const [sourceId, setSourceId] = useState<string>(defaultSource)
   const [season, setSeason] = useState<number>(title.season ?? 1)
   const [episode, setEpisode] = useState<number>(title.episode ?? 1)
@@ -432,6 +435,53 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     const timer = setTimeout(() => setSlowLoad(true), 20_000)
     return () => clearTimeout(timer)
   }, [loaded, sourceId, reloads, season, episode, title.imdbId])
+
+  // ── Auto-fallback chain (2026-10-09) ──────────────────────────────────
+  // "Nothing plays at all" fix: when the AUTO-SELECTED provider shows no
+  // sign of life (iframe never fires onLoad, or loads its shell but never
+  // plays — e.g. VidSpark on a title whose sources all 502), automatically
+  // advance to the next provider with a toast. A provider that already
+  // failed for THIS (title, season, episode) is never retried, so the chain
+  // always terminates. MANUAL server picks are always respected — the chain
+  // only runs while the user hasn't interacted with the source picker.
+  const failedChainRef = useRef<Set<string>>(new Set())
+  const chainExhaustedRef = useRef(false)
+  const [chainExhausted, setChainExhausted] = useState(false)
+  // Reset the chain when the episode/context changes.
+  useEffect(() => {
+    failedChainRef.current = new Set()
+    chainExhaustedRef.current = false
+    setChainExhausted(false)
+  }, [title.imdbId, title.type, season, episode])
+
+  // Chain order: Arabic content starts on ArabSeed (it indexes Arabic
+  // titles the global CDNs don't carry), then VidSpark (IMDb-keyed — only
+  // when an IMDb id exists), then AnyEmbed last (its multi-server check UI
+  // is slow but covers TMDB-keyed catalogs).
+  const isArabicTitle = meta?.originalLanguage === "ar"
+  const providerChain = useMemo(() => {
+    const chain: string[] = []
+    if (isArabicTitle) chain.push("mycima")
+    if (!isTmdbOnly) chain.push("moviesapi.to")
+    chain.push("anyembed")
+    return chain
+  }, [isArabicTitle, isTmdbOnly])
+
+  // Report provider outcome (working/broken) to /api/provider-stats. Used by
+  // the auto-fallback chain, the arabic fallback and handleNextServer — must
+  // be declared above all of them (TDZ: deps arrays evaluate during render).
+  const reportProvider = useCallback(
+    async (sid: string, ok: boolean) => {
+      try {
+        await fetch("/api/provider-stats", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imdbId: title.imdbId, sourceId: sid, ok }),
+        })
+      } catch {}
+    },
+    [title.imdbId]
+  )
 
   // Auto-fill: when the player opens, fetch real metadata from the backend
   // (local 11k-title dataset). This populates title/year/genres AND the real
@@ -653,7 +703,12 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   // garbage URL like moviesapi.to/tv/-1-1 and their server answers
   // HTTP 403 (user-reported). TMDB-only titles must fall back to AnyEmbed
   // (tmdb-keyed routes) instead.
-  const arabicFallbackProvider = isTmdbOnly ? "anyembed" : "moviesapi.to"
+  // Auto-fallback: if the Arabic provider search returns 0 sources, advance
+  // the AUTO-FALLBACK CHAIN to the next global provider (chain-aware — never
+  // bounces back to a provider that already failed for this episode, and
+  // respects manual picks). TMDB-only titles (no IMDb id — common for Arabic
+  // series) can only fall back to AnyEmbed; VidSpark would get a garbage
+  // /tv/-1-1 URL and answer HTTP 403 (user-reported).
   useEffect(() => {
     if (!isArabicProvider) return
     if (arabicStream.loading) return
@@ -661,14 +716,24 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     if (arabicStream.error === null) return // still resolving
     // No sources found — switch to the best provider for this title's IDs
     const timer = setTimeout(() => {
+      if (userInteractedRef.current) return // manual pick — respect it
+      failedChainRef.current.add(sourceIdRef.current) // mycima had nothing
+      const next = providerChain.find((id) => !failedChainRef.current.has(id))
+      if (!next) {
+        chainExhaustedRef.current = true
+        setChainExhausted(true)
+        return
+      }
       toast({
         title: t("arabicFallback"),
-        description: displayTitle || title.title,
+        description: `${displayTitle || title.title} → ${getSource(next).name}`,
       })
-      setSourceId(arabicFallbackProvider)
+      reportProvider(sourceIdRef.current, false)
+      setSourceId(next)
+      setLoaded(false)
     }, 1500)
     return () => clearTimeout(timer)
-  }, [isArabicProvider, arabicStream.loading, arabicStream.sources.length, arabicStream.error, toast, t, displayTitle, title.title, arabicFallbackProvider])
+  }, [isArabicProvider, arabicStream.loading, arabicStream.sources.length, arabicStream.error, toast, t, displayTitle, title.title, providerChain, reportProvider])
 
   // Health-check each Arabic source. The API already verifies sources
   // server-side. By kind:
@@ -846,21 +911,12 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     lastProvider.set(title.imdbId, id)
   }
 
-  // Report provider outcome (working/broken) when the user closes the player
-  // A4 — Report provider working/broken. Moved here (before handleNextServer)
-  // to avoid "Cannot access variable before it is declared" error.
-  const reportProvider = useCallback(
-    async (sid: string, ok: boolean) => {
-      try {
-        await fetch("/api/provider-stats", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imdbId: title.imdbId, sourceId: sid, ok }),
-        })
-      } catch {}
-    },
-    [title.imdbId]
-  )
+  // Report provider outcome (working/broken) — used by the auto-fallback
+  // chain, the arabic fallback and handleNextServer. Must stay ABOVE all of
+  // them (TDZ: deps arrays evaluate during render).
+  //
+  // (kept here for reference — actual definition moved above the arabic
+  // stream section)
 
 
   // "Next server" — advance to the next WORKING server, skipping dead ones
@@ -915,12 +971,82 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     }
   }, [sourceId, health, title.imdbId, lastProvider, toast, reportProvider, isTmdbOnly, meta?.originalLanguage])
 
-  // ── Auto-fallback DISABLED per user request ──────────────────────────────
-  // The user wants to stay on the selected server — no auto-switching.
-  // The user can manually switch servers via the dropdown or "Next" button.
+  // ── Auto-fallback chain — the advance step (defined here, after its deps) ──
+  // Advances to the next untried provider in the chain. Runs ONLY while the
+  // user hasn't manually picked a server. When the chain is exhausted the
+  // loading overlay switches to a "no working server" panel (manual options).
+  const advanceChain = useCallback(
+    (reasonKey: "noLoad" | "noStream") => {
+      if (userInteractedRef.current) return // respect manual picks
+      const current = sourceIdRef.current
+      if (failedChainRef.current.has(current)) return // already marked failed
+      failedChainRef.current.add(current)
+      const next = providerChain.find((id) => !failedChainRef.current.has(id))
+      if (!next) {
+        if (!chainExhaustedRef.current) {
+          chainExhaustedRef.current = true
+          setChainExhausted(true)
+        }
+        return
+      }
+      reportProvider(current, false)
+      toast({
+        title: t("autoSwitchToast"),
+        description: `${getSource(current).name} ${reasonKey === "noLoad" ? "didn't load" : "has no stream for this title"} → ${getSource(next).name}`,
+      })
+      setSourceId(next)
+      setLoaded(false)
+    },
+    [providerChain, toast, t, reportProvider]
+  )
+
+  // User-interaction signal: clicking inside the provider iframe (play /
+  // pause / fullscreen / quality) moves focus into it — window blur fires
+  // and activeElement becomes the iframe element. That means the user is
+  // actively using the provider's player → cancel ALL auto-advance for this
+  // session (never interrupt a stream the user is watching).
+  useEffect(() => {
+    const onBlur = () => {
+      const el = document.activeElement as HTMLElement | null
+      if (el && el.tagName === "IFRAME") {
+        userInteractedRef.current = true
+        // also dismiss the exhausted panel if it's up — the user chose this server
+        if (chainExhaustedRef.current) {
+          chainExhaustedRef.current = false
+          setChainExhausted(false)
+        }
+      }
+    }
+    window.addEventListener("blur", onBlur)
+    return () => window.removeEventListener("blur", onBlur)
+  }, [])
+
+  // Trigger 1 — the iframe never even fires onLoad (provider down / blocked).
+  useEffect(() => {
+    if (isArabicProvider) return // arabic flow resolves via its own API
+    if (loaded) return
+    const timer = setTimeout(() => advanceChain("noLoad"), 15_000)
+    return () => clearTimeout(timer)
+  }, [loaded, sourceId, reloads, isArabicProvider, advanceChain])
+
+  // Trigger 2 — the iframe loaded its shell but nothing played for 75s AND
+  // the user never interacted with the player. Cross-origin iframes expose
+  // NO playback signal, so this is unavoidably time-based; 75s because
+  // working streams start within ~20s and a watching user almost always
+  // clicks something by then (which cancels the chain via the blur signal
+  // above). Canceled by any manual server pick. Manual options are always
+  // on screen: "Not playing? Switch server" + the Next/Retry buttons.
+  useEffect(() => {
+    if (isArabicProvider) return
+    if (!loaded) return
+    const timer = setTimeout(() => advanceChain("noStream"), 75_000)
+    return () => clearTimeout(timer)
+  }, [loaded, sourceId, reloads, isArabicProvider, advanceChain])
+
+  // ── Auto-fallback (old, time-based) — superseded by the chain above ──────
   const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => {
-    // No-op — auto-fallback disabled
+    // No-op — replaced by advanceChain + triggers above
   }, [sourceId, title.imdbId])
   // A4 — 30-second watch-success reporter.
   const reportedOkRef = useRef<Set<string>>(new Set())
@@ -1295,18 +1421,68 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
                   source.useTmdbId && !isTmdbOnly && !tmdbMetaDone
                 return (
                   <>
-                    {(!loaded || waitingForTmdb) && (
-                      <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-black">
-                        <div className="h-10 w-10 animate-spin rounded-full border-2 border-white/20 border-t-primary" />
-                        <p className="text-sm text-white/60">
-                          {t("loading")} {source.name}…
-                        </p>
-                        <p className="text-xs text-white/40">
-                          {slowLoad && !waitingForTmdb ? t("slowServer") : t("ifNothingPlays")}
-                        </p>
-                        <p className="mt-2 hidden text-[10px] text-white/30 sm:block">
-                          ⌨ R: reload · N: next server · T: test · F: fullscreen · Esc: close
-                        </p>
+                    {(!loaded || waitingForTmdb || chainExhausted) && (
+                      <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-black px-4 text-center">
+                        {chainExhausted && !waitingForTmdb ? (
+                          <>
+                            <AlertCircle className="h-10 w-10 text-white/40" />
+                            <p className="text-sm font-semibold text-white/80">
+                              {t("noServerFound")}
+                            </p>
+                            <p className="max-w-md text-xs text-white/50">
+                              {t("noServerFoundHint")}
+                            </p>
+                            <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
+                              <button
+                                onClick={() => {
+                                  failedChainRef.current = new Set()
+                                  chainExhaustedRef.current = false
+                                  setChainExhausted(false)
+                                  setLoaded(false)
+                                  setReloads((r) => r + 1)
+                                }}
+                                className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-1.5 text-xs font-semibold text-primary-foreground transition hover:bg-primary/90"
+                              >
+                                <RotateCw className="h-3.5 w-3.5" />
+                                {t("retry")}
+                              </button>
+                              <button
+                                onClick={() => handleNextServer()}
+                                className="inline-flex items-center gap-1.5 rounded-md bg-white/10 px-4 py-1.5 text-xs font-semibold text-white transition hover:bg-white/20"
+                              >
+                                <SkipForward className="h-3.5 w-3.5" />
+                                {t("nextServer")}
+                              </button>
+                              <button
+                                onClick={() => {
+                                  // Hide the panel, give the CURRENT server
+                                  // unlimited time (it keeps loading underneath),
+                                  // and STOP the auto-chain for this session —
+                                  // the user explicitly chose to wait.
+                                  userInteractedRef.current = true
+                                  chainExhaustedRef.current = false
+                                  setChainExhausted(false)
+                                }}
+                                className="rounded-md px-4 py-1.5 text-xs font-semibold text-white/60 transition hover:text-white"
+                              >
+                                {t("keepWaiting")}
+                              </button>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div className="h-10 w-10 animate-spin rounded-full border-2 border-white/20 border-t-primary" />
+                            <p className="text-sm text-white/60">
+                              {t("loading")} {source.name}…
+                            </p>
+                            <p className="text-xs text-white/40">
+                              {slowLoad && !waitingForTmdb ? t("slowServer") : t("ifNothingPlays")}
+                            </p>
+                            <p className="mt-2 hidden text-[10px] text-white/30 sm:block">
+                              ⌨ R: reload · N: next server · T: test · F: fullscreen · Esc: close
+                            </p>
+                          </>
+                        )}
                       </div>
                     )}
                     {/* "Not playing?" helper — manual switch to next server */}

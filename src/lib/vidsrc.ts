@@ -22,13 +22,24 @@
 //
 //   ✓ VidSpark (moviesapi.to) — VERIFIED framed direct: nested
 //     cdn.vidspark.to player + HLS backend, correct runtimes.
+//     NOTE (2026-10-09 live re-test): VidSpark's catalog is spotty for
+//     brand-new / regional titles (its upstream scrapers 502) — the player's
+//     auto-fallback chain advances to the next server after a 50s no-play
+//     window.
 //   ✓ AnyEmbed (anyembed.xyz) — VERIFIED framed direct with BOTH id schemes
 //     (/embed/imdb-movie-tt1375666, /embed/tmdb-movie-27205,
 //      /embed/tmdb-tv-1396-1-5). Their old /embed/imdb-movie-… route 404s
 //     when served through our proxy — must be iframed DIRECTLY.
+//     ⚠ 2026-10-09 12:20 UTC: entire domain answers HTTP 451 (Cloudflare
+//     legal block) — kept in the catalog because these providers flap in
+//     and out; the auto-fallback chain skips it transparently while down.
 //   ✓ ArabSeed (alking.mycima.cv) — search-based Arabic resolver via
-//     /api/arabic-stream. Movies verified (fastvip embeds + direct HLS);
-//     series only while a show is airing (the site prunes old content).
+//     /api/arabic-stream. Direct MP4s are CONTENT-VERIFIED through the
+//     CDN's content-disposition filename (the site's download links are
+//     frequently crossed with other titles' files — e.g. the عمر وسلمى
+//     trilogy pages each serve «مسلسل سلمى الحلقة 9/12/20», and even the
+//     الكبير أوي S8E1 page's file is a different-cut label; wrong files
+//     are rejected before reaching the player).
 
 export type Region = "Global" | "Arabic" | "Indonesian"
 

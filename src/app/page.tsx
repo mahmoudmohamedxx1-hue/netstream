@@ -67,6 +67,10 @@ function HomeContent() {
   const initialDetailId = searchParams.get("detail")
   const initialPlayId = searchParams.get("play")
   const initialSearch = searchParams.get("search") === "1"
+  // Optional season/episode deep-link params for ?play=tt… series URLs:
+  //   /?play=tt2290891&s=8&e=1  → open الكبير أوي S8E1 directly.
+  const initialSeason = Number(searchParams.get("s")) || null
+  const initialEpisode = Number(searchParams.get("e")) || null
 
   const [player, setPlayer] = useState<PlayerTitle | null>(null)
   const [detail, setDetail] = useState<{ imdbId: string; title: string; type: "movie" | "series"; year?: string | null; poster?: string | null; overview?: string | null; rating?: string | null } | null>(null)
@@ -176,8 +180,8 @@ function HomeContent() {
                 year: (data.first_air_date ?? "").slice(0, 4) || null,
                 overview: data.overview ?? null,
                 rating: data.vote_average ? String(data.vote_average) : null,
-                season: 1,
-                episode: 1,
+                season: initialSeason ?? 1,
+                episode: initialEpisode ?? 1,
               })
             } else {
               // Try movie
@@ -217,8 +221,8 @@ function HomeContent() {
               year: t.year ?? null,
               overview: t.overview ?? null,
               rating: t.rating ?? null,
-              season: null,
-              episode: null,
+              season: t.type === "series" ? (initialSeason ?? 1) : null,
+              episode: t.type === "series" ? (initialEpisode ?? 1) : null,
             })
           }
         })

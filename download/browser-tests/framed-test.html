@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>Framed provider test</title></head>
+<body style="margin:0;background:#111;color:#fff;font-family:sans-serif">
+<h3 id="status">Testing providers framed…</h3>
+<div id="report"></div>
+<script>
+  // Frame each candidate provider exactly like the app does (no sandbox attr)
+  // and report whether its page signals playback. Cross-origin content can't
+  // be read directly, so we watch for: iframe load errors, HTTP status via
+  // fetch (CORS permitting), and console messages from the frame.
+  const candidates = [
+    { name: "2embed", url: "https://www.2embed.cc/embed/movie?id=tt22084616" },
+    { name: "vidlink", url: "https://vidlink.pro/movie/tt22084616" },
+    { name: "vidfast", url: "https://vidfast.vc/movie/tt22084616" },
+    { name: "videasy", url: "https://player.videasy.to/movie/tt22084616" },
+    { name: "vidsrc.to", url: "https://vidsrc.to/embed/movie/tt22084616" },
+  ]
+  const report = document.getElementById("report")
+  window.__results = {}
+  for (const c of candidates) {
+    const f = document.createElement("iframe")
+    f.src = c.url
+    f.width = 420
+    f.height = 236
+    f.style.border = "1px solid #444"
+    f.allow = "autoplay; fullscreen; encrypted-media"
+    f.referrerPolicy = "no-referrer"
+    const label = document.createElement("div")
+    label.textContent = c.name + " — loading…"
+    label.style.padding = "8px 0 4px"
+    report.appendChild(label)
+    f.addEventListener("load", () => {
+      label.textContent = c.name + " — iframe onLoad FIRED"
+      window.__results[c.name] = "loaded"
+    })
+    f.addEventListener("error", () => {
+      label.textContent = c.name + " — iframe ERROR"
+      window.__results[c.name] = "error"
+    })
+    report.appendChild(f)
+  }
+</script>
+</body>
+</html>
