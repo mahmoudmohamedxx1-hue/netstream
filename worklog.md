@@ -3937,3 +3937,20 @@ Stage Summary:
 - The "all providers broken" report was three stacked issues: an app-crashing WebGL guard bug (looked like total failure), providers that require a manual ▶ click (looked like "opens nothing"), and an over-eager auto-switch chain that interrupted slow-but-working streams (looked like "each one has an error").
 - All three fixed and live-verified; provider catalog re-validated (3 providers remain the only live ones — everything else tested and dead/unverifiable today).
 - Datacenter-egress limitation unchanged: fastvip CDN frames unverifiable from this sandbox (player engagement verified via beacons), some VidSpark titles buffer slowly here but play on user networks.
+
+---
+Task ID: 12
+Agent: main (Super Z)
+Task: User reports identical errors persist — verify whether fixes were actually pushed to GitHub
+
+Work Log:
+- git status audit: local main was [ahead 13, behind 1] of origin/main. Root cause of user's complaint confirmed: commits 71ec79e…40f7e68 (tasks 8–11: WebGL crash guard, auto-fallback chain, content-disposition verification, ArabSeed auto-provider, autoplay/mute fixes, click-to-play hints, hamza spelling variants, sidecar, deep-link s/e params) were NEVER pushed. GitHub still served task-7-era code (cc4023a) with every original bug.
+- Divergence archaeology: origin/main = 2448380 → cc4023a (orphan worklog-only commit, also deletes stray `3000` file — both changes already subsumed locally). Local = 2448380 → 13 fix/worklog commits.
+- Reconciled: git merge -X ours origin/main (kept local side; merge commit 63354d9). Clean ort merge, worklog.md auto-merged.
+- Appended this entry, committed, then `git push origin main` — first push to actually land since task 7.
+- Post-push verification: fetched, rev-list HEAD...origin/main == 0/0; origin/main HEAD == local HEAD. GitHub now carries the full fix chain.
+- Deploy note for user: their deployment must rebuild from GitHub (Vercel/Netlify auto-deploy or manual pull), then a hard refresh (Ctrl+F5) — service-worker/browser caches may otherwise serve the stale task-7 bundle that still shows the old errors.
+
+Stage Summary:
+- The "same errors" complaint was a delivery failure, not a code failure: 13 verified commits sat on this machine. History reconciled (merge 63354d9) and pushed; GitHub + any auto-deploy now receive tasks 8–11 in full.
+- Lesson recorded: every future task MUST end with `git push` + remote-state verification (rev-list 0/0), not just a local commit.
