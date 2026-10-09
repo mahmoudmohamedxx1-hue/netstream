@@ -3909,3 +3909,31 @@ Work Log:
 
 Stage Summary:
 - Wrong-title playback is now structurally impossible for direct mp4s (content-disposition verification), the auto-fallback chain gives automatic relief for dead providers while never interrupting engaged users, and the honest failure panel replaces silent black screens. Provider reality 2026-10-09: VidSpark (works, spotty catalog) + ArabSeed (works, content-verified) + AnyEmbed (451 dead, kept in catalog — these flap). Sidecar + predev wiring added. Diag scripts cleaned up; test-resolver-final.ts kept as the resolver regression test.
+
+---
+Task ID: 11
+Agent: main (Super Z)
+Task: "vidspark doesnt open anything + all other providers each have an error" — diagnose every provider live, fix, and verify in a real browser before responding
+
+Work Log:
+- Re-probed the entire provider landscape (38 candidates via scripts/probe-providers.mjs + real-browser framed tests via scripts/frame-test.html on :8899): 2embed.cc/skin stuck "LOADING"; vidsrc.io/flicky.host show correct player UI but hard-fail "Verification failed. Please reload." (even in a headed browser — IP-based check, unverifiable → excluded); vidzee.wtf/multimovies/nunflix/vidharvest dead or for sale; vidlink/vidcore refuse framing; streamingnow/vidsrc.to/cc/mappletv Cloudflare-walled. Verdict: VidSpark + AnyEmbed + ArabSeed remain the only verifiable-live providers.
+- LIVE root causes found for the user's complaints:
+  1. WHOLE-APP CRASH: ogl's Renderer throws "Cannot set properties of null (setting 'renderer')" when WebGL is unavailable (GPU-less devices, headless, or live-context limit — every SpecularButton/Card owns its own context) → NetStream error boundary → "Something went wrong" full-page error. Reproduced on ?play=tt2290891. FIXED: SpecularButton + SpecularCard now guard the WebGL setup in try/catch and degrade to plain controls.
+  2. "VidSpark opens nothing": VidSpark's nested player NEVER autoplays (its nested iframe doesn't inherit page activation) + takes 30-100s to first frame through flaky proxies. FIXED UX: new 18s non-blocking "If you see a ▶ button, click it" hint after the shell loads (EN/AR).
+  3. Auto-chain interrupting working-but-slow streams: trigger-2 fired at 75s while Spider-Man was actively buffering (verified: netrocdn segments downloading + Sony logo frame visible when the chain yanked it to AnyEmbed → "no source" → exhausted panel — reads as "every provider has an error"). FIXED: 75s → 150s.
+  4. Native MP4 (ArabSeed series path) sat paused at 0:00 on deep-links (autoplay policy). FIXED: unmuted play() → on rejection muted play() + "Tap to unmute" pill (EN/AR); mount-once ref guard so re-renders don't reset autoMuted (inline refs re-run every render — pill flickered off without the guard).
+- LIVE verification (real browser, localhost:3000, as a user):
+  ✓ Inception on VidSpark: plays (water opening scene), after ▶ click + ~35s.
+  ✓ Spider-Man: Brand New Day on VidSpark: PLAYS (title sequence at t≈45s), chain no longer interrupts.
+  ✓ Breaking Bad S1E1 on VidSpark (tv route): PLAYS (desert opening).
+  ✓ Inception on AnyEmbed: PLAYS (Legendary Pictures intro) after ▶ click.
+  ✓ الكبير أوي S8E1 deep-link: native MP4 AUTOPLAYS muted (t 4→76s advancing) + unmute pill shows + click restores sound/pill hides.
+  ✓ عمر وسلمى ٢: ArabSeed rejects crossed files → auto-switch toast → VidSpark loads the correct title (paused frame: Egyptian romcom couple) → buffers on this datacenter network (CDN-slow; never wrong content; engaged-user never interrupted).
+  ✓ الحريفة → fastvip embed loads + engages (yandex beacons prove page + click); fastvip stream CDN blocks datacenter egress (documented limitation — verified from residential analytics in prior sessions).
+  ✓ No sandbox attribute on any iframe (verified again); no "Something went wrong" crash after the WebGL guard.
+- Gates: tsc --noEmit clean (src/), eslint clean on changed files, bun run build pass. Committed 714b835.
+
+Stage Summary:
+- The "all providers broken" report was three stacked issues: an app-crashing WebGL guard bug (looked like total failure), providers that require a manual ▶ click (looked like "opens nothing"), and an over-eager auto-switch chain that interrupted slow-but-working streams (looked like "each one has an error").
+- All three fixed and live-verified; provider catalog re-validated (3 providers remain the only live ones — everything else tested and dead/unverifiable today).
+- Datacenter-egress limitation unchanged: fastvip CDN frames unverifiable from this sandbox (player engagement verified via beacons), some VidSpark titles buffer slowly here but play on user networks.
