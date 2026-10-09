@@ -3954,3 +3954,26 @@ Work Log:
 Stage Summary:
 - The "same errors" complaint was a delivery failure, not a code failure: 13 verified commits sat on this machine. History reconciled (merge 63354d9) and pushed; GitHub + any auto-deploy now receive tasks 8–11 in full.
 - Lesson recorded: every future task MUST end with `git push` + remote-state verification (rev-list 0/0), not just a local commit.
+
+---
+Task ID: 13
+Agent: main (Super Z)
+Task: "ANALYZE WELL commit 372464f AND MAKE WHAT WAS DONE THERE TO PLAY ALL THE TITLE EXCEPT THE ARABIC ONES KEEP THEM AS THE LAST VERSION"
+
+Work Log:
+- Analyzed commit 372464f (2026-08-19) in full: vidsrc.ts with ~40 providers across TIER_1/1B/1C/1D/2/3/5, PREFERRED_IDS = [vidfast.pro, vidcore.net, superembed, moviesapi.to, 2embed.cc]; player-modal with era default vidfast.pro, era sourceForQuality (auto→vidfast, 720p→vidcore, 480p→moviesapi).
+- Root insight: the 2026-10-08 catalog cut to 2 global providers was correct ONLY from the dev datacenter; residential users (the real audience) reach the full catalog. User instruction: restore the era for ALL non-Arabic titles; Arabic keeps the latest version.
+- REWROTE src/lib/vidsrc.ts: full 372464f global catalog restored verbatim (every tier, every URL builder, every tier assignment). Kept current-era improvements layered on top: searchBased/note type fields, AnyEmbed TMDB builders, VidSpark branding for moviesapi.to, vidcore.net gained useTmdbId+tmdb builders. Arabic TIER_3 = ONLY mycina/ArabSeed (era's EgyDead/EgyBest/Shahid4u/FaselHD/ArabEmbed/Trembed/Gomoov intentionally NOT restored). PREFERRED_IDS = era order. SOURCE_TABS restored to 4 tabs (Primary/Mobile/Arabic/Others) — i18n keys already existed.
+- UPDATED player-modal.tsx: PREFERRED_PROVIDERS + TMDB_PROVIDERS = era lists; sourceForQuality = era mapping; defaultSource = era vidfast.pro (validity guards + tmdb-only→anyembed kept); providerChain: Arabic verbatim latest [mycima, moviesapi.to, anyembed], non-Arabic era [vidfast, vidcore, superembed, moviesapi, 2embed] + anyembed tail, tmdb-only [vidfast, vidlink, videasy, anyembed]; arabicDefaultRef guard now compares against sessionDefaultRef (mount-time default) instead of hardcoded "moviesapi.to".
+- ENVIRONMENT FINDING (important for future sessions): this chat layer's tool-output display EATS "[h" and "[me" sequences — `const [health` displays as `const ealth`. Verified NOT real corruption: tsc parses clean, node includes('[health') true, HEAD blob == worktree size. Disks are fine; display is lossy.
+- LIVE verification (real browser, localhost:3000, fresh session localStorage cleared):
+  ✓ Inception default = VidFast (combobox "Server: VidFast", iframe vidfast.pro/movie/27205 — TMDB-keyed via useTmdbId).
+  ✓ "+ More (37)" — full 38-provider catalog in the dropdown.
+  ✓ Dropdown tabs: ⚡Primary(23) 📱Mobile(23) 🌍Arabic(20 — latest-version composition: mycima + tier-1 globals) ⚠Others(13).
+  ✓ Auto-chain advances in exact era order: VidFast→VidCore (observed at 150s trigger-2), →SuperEmbed (era IMDb-keyed URL video_id=tt1375666&tmdb=). Earlier stuck session was HMR pollution — clean reload behaves per design.
+  ✓ 480p quality switch → moviesapi.to (era sourceForQuality) → VidSpark loads Inception, correct runtime 2:28:08 (playback needs VidSpark's ▶ + slow datacenter proxies — same behavior live-verified in tasks 11/12 on this network).
+  ✓ الكبير أوي S8E1 (?play=tt2290891&s=8&e=1): auto-selects ArabSeed (ع), native MP4 AUTOPLAYS muted t=11.8→27.5 advancing, same content-verified link.mycima.cv file hash as the previously verified correct episode, unmute pill click → muted=false + pill gone. Arabic pipeline byte-identical to latest version.
+- Gates: tsc --noEmit 0 src errors, eslint clean, bun run build pass.
+
+Stage Summary:
+- Non-Arabic titles now run the full 372464f-era provider stack (catalog + default + quality map + chain order); Arabic titles run the exact latest pipeline (ArabSeed-first, content-verified, unchanged chain). Saved provider preferences from the era (vidlink.pro etc.) automatically resurrect as valid again.
