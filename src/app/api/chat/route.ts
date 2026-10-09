@@ -2,10 +2,13 @@ import { NextRequest, NextResponse } from "next/server"
 
 // AI Chat API — Movie & Series Recommendation Assistant
 // Supports multiple keyless models:
-//   - "pollinations" (default) — gpt-oss-20b via Pollinations, keyless
-//   - "llm7" — codestral via LLM7, keyless
-//   - "glm" — GLM via Z.ai SDK (only works in sandbox, not Vercel)
-// The user can switch models in the chat UI.
+//   - "glm" (DEFAULT) — GLM 5.3 Flash keyless via Z.ai (glm-keyless client;
+//      works in sandbox via /etc/.z-ai-config and on serverless via the
+//      ZAI_KEYLESS_CONFIG env var). Circuit-breaker protected: if the
+//      endpoint is unreachable, later requests skip it instantly.
+//   - "pollinations" — gpt-oss-20b via Pollinations, keyless (1st fallback)
+//   - "llm7" — codestral via LLM7, keyless (2nd fallback)
+// The user can switch models in the chat UI; GLM is the default everywhere.
 
 const TMDB_API_KEY = process.env.TMDB_API_KEY || "1c5d8fc6971ccb06fcc873d748bcba92"
 const TMDB_BASE = "https://api.themoviedb.org/3"
@@ -221,37 +224,21 @@ async function callLLM7(messages: { role: string; content: string }[]): Promise<
   return data.choices?.[0]?.message?.content ?? ""
 }
 
-// GLM via Z.ai SDK — the DEFAULT model.
-// In sandbox: works directly via internal-api.z.ai (keyless)
-// On Vercel: the .z-ai-config file is deployed but internal-api.z.ai is
-// blocked from Vercel's network. GLM will fail fast (3s timeout) and
-// fall back to Pollinations automatically. The model badge shows which
-// model actually responded.
-async function callGLM(messages: { role: string; content: string }[]): Promise<string> {
-  const ZAI = (await import("z-ai-web-dev-sdk")).default
-  const zai = await ZAI.create()
-  // 3-second timeout — if GLM doesn't respond (e.g. on Vercel where
-  // internal-api.z.ai is blocked), fail fast so the fallback kicks in
-  const completion = await Promise.race([
-    zai.chat.completions.create({
-      messages: messages as any,
-      thinking: { type: "disabled" },
-    }),
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("GLM timeout")), 3000)
-    ),
-  ])
-  return (completion as any).choices[0]?.message?.content ?? ""
-}
+// GLM 5.3 Flash keyless — the DEFAULT model. Direct-fetch client (see
+// src/lib/glm-keyless.ts): no SDK file dependency, config from env var on
+// serverless or /etc/.z-ai-config in sandbox. Circuit breaker: if GLM is
+// unreachable, it is skipped instantly (0ms) for 10 minutes instead of
+// hanging every request. Fallback to Pollinations/LLM7 stays automatic.
 
 // GET /api/chat — health check / model list
 export async function GET() {
+  const { isGLMConfigured, isGLMCircuitOpen } = await import("@/lib/glm-keyless")
   return NextResponse.json({
     status: "ok",
     models: [
+      { id: "glm", name: "GLM 5.3 Flash (Keyless)", available: isGLMConfigured(), circuitOpen: isGLMCircuitOpen() },
       { id: "pollinations", name: "GPT-OSS 20B (Keyless)", available: true },
       { id: "llm7", name: "Codestral (Keyless)", available: true },
-      { id: "glm", name: "GLM 5.3 Flash", available: true },
     ],
     timestamp: Date.now(),
   })
@@ -280,27 +267,30 @@ export async function POST(req: NextRequest) {
       { role: "user", content: message },
     ]
 
-    // Determine which model to use
-    // GLM 5.3 Flash is the default in the UI, but on Vercel/production
-    // internal-api.z.ai is blocked (403). Skip GLM on production to avoid
-    // 3s latency from the timeout. Use Pollinations directly.
-    const isProduction = process.env.VERCEL === "1" || process.env.NODE_ENV === "production"
-    const requestedModel = model || (isProduction ? "pollinations" : "glm")
+    // Determine which model to use — GLM 5.3 Flash keyless is the DEFAULT
+    // everywhere (sandbox AND Vercel). The glm-keyless circuit breaker means
+    // an unreachable GLM costs at most one timeout per 10-minute window per
+    // server instance; after that it is skipped instantly.
+    const requestedModel = model || "glm"
     let aiText = ""
     let usedModel = ""
 
-    // Build model order — skip GLM on production (always times out)
-    const modelOrder: string[] = isProduction
-      ? (requestedModel === "llm7" ? ["llm7", "pollinations"] : ["pollinations", "llm7"])
-      : (requestedModel === "glm" ? ["glm", "pollinations", "llm7"]
-        : requestedModel === "llm7" ? ["llm7", "pollinations", "glm"]
-        : ["pollinations", "llm7", "glm"])
+    // Build model order — requested model first, then fallbacks
+    const modelOrder: string[] = requestedModel === "glm"
+      ? ["glm", "pollinations", "llm7"]
+      : requestedModel === "llm7"
+        ? ["llm7", "pollinations", "glm"]
+        : ["pollinations", "llm7", "glm"]
 
     for (const m of modelOrder) {
       try {
         if (m === "pollinations") { aiText = await callPollinations(messages); usedModel = "pollinations" }
         else if (m === "llm7") { aiText = await callLLM7(messages); usedModel = "llm7" }
-        else if (m === "glm") { aiText = await callGLM(messages); usedModel = "glm" }
+        else if (m === "glm") {
+          const { glmChatCompletion } = await import("@/lib/glm-keyless")
+          aiText = await glmChatCompletion(messages as any)
+          usedModel = "glm"
+        }
         if (aiText) break
       } catch (e) {
         console.error(`[api/chat] ${m} failed:`, e)
