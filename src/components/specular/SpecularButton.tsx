@@ -127,6 +127,13 @@ const SpecularButton = ({
     const fx = fxRef.current
     if (!btn || !fx) return
 
+    // WebGL can be unavailable (GPU-less/headless browsers, or the browser's
+    // live-context limit exhausted — every SpecularButton/Card owns its own
+    // context). ogl's Renderer then throws "Cannot set properties of null
+    // (setting 'renderer')" which used to crash the whole app through the
+    // error boundary. Degrade gracefully: the control keeps working, just
+    // without the specular shine.
+    const setup = (): (() => void) => {
     const dpr = window.devicePixelRatio || 1
     const renderer = new Renderer({ alpha: true, premultipliedAlpha: true, antialias: true, dpr })
     const gl = renderer.gl
@@ -239,6 +246,12 @@ const SpecularButton = ({
       window.removeEventListener("pointermove", onPointerMove)
       if (gl.canvas.parentNode === fx) fx.removeChild(gl.canvas)
       gl.getExtension("WEBGL_lose_context")?.loseContext()
+    }
+    }
+    try {
+      return setup()
+    } catch {
+      return undefined // no WebGL — plain button, no shine effect
     }
   }, [])
 

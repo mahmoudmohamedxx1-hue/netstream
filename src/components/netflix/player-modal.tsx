@@ -652,6 +652,35 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   }>({ sources: [], movieUrl: null, loading: false, error: null, activeSourceIdx: 0 })
   const [extractedSources, setExtractedSources] = useState<ExtractedSource[]>([])
   const [activeExtractedIdx, setActiveExtractedIdx] = useState(0)
+  // ── Native-video autoplay fallback ─────────────────────────────────────
+  // Chrome blocks unmuted autoplay when the page has no user activation yet
+  // (e.g. deep-links ?play=…, Continue Watching auto-opens). The video then
+  // sits paused at 0:00 and looks "broken". Strategy: try unmuted play();
+  // if the browser rejects it, mute and retry — muted autoplay is always
+  // allowed — and surface a one-tap "Tap to unmute" pill. The video always
+  // shows motion; sound is one tap away.
+  const nativeVideoRef = useRef<HTMLVideoElement | null>(null)
+  const nativeVideoAutoplayRanRef = useRef<HTMLVideoElement | null>(null)
+  const [autoMuted, setAutoMuted] = useState(false)
+  const tryAutoplay = useCallback((el: HTMLVideoElement) => {
+    el.play().catch(() => {
+      el.muted = true
+      el.play()
+        .then(() => setAutoMuted(true))
+        .catch(() => {
+          // Even muted autoplay failed (rare): the native controls render a
+          // play button — nothing more we can do.
+        })
+    })
+  }, [])
+  const unmuteNative = useCallback(() => {
+    const el = nativeVideoRef.current
+    if (!el) return
+    el.muted = false
+    el.volume = 1
+    setAutoMuted(false)
+    el.play().catch(() => {})
+  }, [])
 
   useEffect(() => {
     if (!isArabicProvider) return
@@ -1029,19 +1058,36 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     return () => clearTimeout(timer)
   }, [loaded, sourceId, reloads, isArabicProvider, advanceChain])
 
-  // Trigger 2 — the iframe loaded its shell but nothing played for 75s AND
+  // Trigger 2 — the iframe loaded its shell but nothing played for 150s AND
   // the user never interacted with the player. Cross-origin iframes expose
-  // NO playback signal, so this is unavoidably time-based; 75s because
-  // working streams start within ~20s and a watching user almost always
-  // clicks something by then (which cancels the chain via the blur signal
-  // above). Canceled by any manual server pick. Manual options are always
-  // on screen: "Not playing? Switch server" + the Next/Retry buttons.
+  // NO playback signal, so this is unavoidably time-based. 2026-10-10 live
+  // re-test RAISED this from 75s → 150s: VidSpark's HLS regularly takes
+  // 60-100s to show first frames through its flaky proxies (verified: the
+  // chain interrupted a stream that was actively buffering the Sony logo on
+  // Spider-Man). A user facing a truly dead server clicks "Not playing?
+  // Switch server" (always visible) long before 150s; a slow stream gets a
+  // fair chance. Canceled by any interaction with the player iframe.
   useEffect(() => {
     if (isArabicProvider) return
     if (!loaded) return
-    const timer = setTimeout(() => advanceChain("noStream"), 75_000)
+    const timer = setTimeout(() => advanceChain("noStream"), 150_000)
     return () => clearTimeout(timer)
   }, [loaded, sourceId, reloads, isArabicProvider, advanceChain])
+
+  // ── Click-to-play hint ─────────────────────────────────────────────────
+  // The surviving providers (VidSpark, AnyEmbed) load a player shell that
+  // does NOT autoplay until the user clicks ▶ inside it (their nested
+  // iframes don't inherit our page's activation). Users read the resulting
+  // black screen as "nothing opens". Show a short, non-blocking hint right
+  // after the iframe loads so they know to click. Auto-hides after 18s.
+  const [showPlayHint, setShowPlayHint] = useState(false)
+  useEffect(() => {
+    if (isArabicProvider) return
+    if (!loaded) return
+    setShowPlayHint(true)
+    const timer = setTimeout(() => setShowPlayHint(false), 18_000)
+    return () => clearTimeout(timer)
+  }, [loaded, sourceId, reloads, isArabicProvider])
 
   // ── Auto-fallback (old, time-based) — superseded by the chain above ──────
   const fallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -1326,6 +1372,21 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
                      auto-advances to the next one instead of a black screen. */
                   <video
                     key={nativeVideoUrl}
+                    ref={(el) => {
+                      nativeVideoRef.current = el
+                      // Inline refs re-run on every render — only kick the
+                      // autoplay sequence when a NEW element actually mounted
+                      // (key={nativeVideoUrl} remount), never on re-renders of
+                      // the same element (that would reset autoMuted to false
+                      // and hide the unmute pill right after it appears).
+                      if (el && el !== nativeVideoAutoplayRanRef.current) {
+                        nativeVideoAutoplayRanRef.current = el
+                        // New source mounted — clear any stale muted state,
+                        // then attempt autoplay (unmuted → muted fallback).
+                        setAutoMuted(false)
+                        tryAutoplay(el)
+                      }
+                    }}
                     src={nativeVideoUrl}
                     controls
                     autoPlay
@@ -1370,6 +1431,19 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
                     // sandboxing, which breaks playback outright.
                     className="absolute inset-0 h-full w-full"
                   />
+                )}
+                {/* Unmute pill — shown when autoplay fell back to MUTED (the
+                    browser blocked unmuted autoplay because the page had no
+                    user activation yet, e.g. deep-links). One tap restores
+                    sound. */}
+                {nativeVideoUrl && autoMuted && (
+                  <button
+                    onClick={unmuteNative}
+                    className="absolute bottom-16 left-1/2 z-30 -translate-x-1/2 inline-flex items-center gap-2 rounded-full bg-black/80 px-4 py-2 text-xs font-semibold text-white shadow-lg ring-1 ring-white/20 backdrop-blur transition hover:bg-black/95"
+                  >
+                    <span className="text-sm">🔇</span>
+                    {t("tapToUnmute")}
+                  </button>
                 )}
                 {/* Watched-progress bar */}
                 {watchProgress > 0 && (
@@ -1496,6 +1570,17 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
                         Not playing? Switch server
                       </button>
                     </div>
+                    {/* Click-to-play hint — providers don't autoplay until the
+                        user clicks ▶ inside their player. Non-blocking pill at
+                        the bottom of the video area; auto-hides after 18s. */}
+                    {loaded && showPlayHint && !chainExhausted && (
+                      <div className="pointer-events-none absolute bottom-3 left-1/2 z-20 -translate-x-1/2">
+                        <div className="flex items-center gap-2 rounded-full bg-black/80 px-4 py-2 text-[11px] font-semibold text-white/90 shadow-lg ring-1 ring-white/15 backdrop-blur">
+                          <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-white/15 text-[10px]">▶</span>
+                          {t("clickPlayHint")}
+                        </div>
+                      </div>
+                    )}
                     {!waitingForTmdb && (
                       <iframe
                         key={`${sourceId}-${reloads}`}
