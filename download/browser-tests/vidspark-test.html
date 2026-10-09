@@ -1,0 +1,10 @@
+<!doctype html><html><head><meta charset="utf-8"><title>VS test</title>
+<style>body{margin:0;background:#000;color:#fff;font:12px monospace}iframe{width:100%;height:90vh;border:0}#log{padding:4px 8px;color:#0f0;white-space:pre-wrap}</style></head>
+<body><div id="log">loading…</div>
+<iframe id="f" src="https://moviesapi.to/movie/tt31049299" allow="autoplay; fullscreen; encrypted-media" referrerpolicy="origin"></iframe>
+<script>
+const log=document.getElementById('log');let t0=Date.now();
+window.addEventListener('message',e=>{log.textContent+='\\n[message] '+JSON.stringify(e.data).slice(0,200)});
+document.getElementById('f').addEventListener('load',()=>{log.textContent='\\n[iframe onload at '+((Date.now()-t0)/1000).toFixed(1)+'s]'});
+setTimeout(()=>{log.textContent+='\\n[8s] shell loaded; inner state unknown (cross-origin)'},8000);
+</script></body></html>

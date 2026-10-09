@@ -1,0 +1,14 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Arabic embeds test</title>
+<style>body{margin:0;background:#111;color:#eee;font:13px monospace;padding:10px}h3{margin:6px 0}iframe{width:100%;height:42vh;border:1px solid #333}</style></head>
+<body>
+<h3>1. qfilm: عمر وسلمى 2 — liiivideo (embed.php direct)</h3>
+<iframe id="f1" src="https://a.qfilm.tv/embed.php?vid=974f8a701" allow="autoplay; fullscreen; encrypted-media" referrerpolicy="no-referrer-when-downgrade"></iframe>
+<h3>2. mycimanew: الكبير أوي S8E1 — film77.xyz</h3>
+<iframe id="f2" src="https://rty1.film77.xyz/embed-2nf4qecb63js.html" allow="autoplay; fullscreen; encrypted-media"></iframe>
+<h3>3. mycimanew: الحريفة 2024 — via play.php (need to extract first)</h3>
+<iframe id="f3" src="about:blank" allow="autoplay; fullscreen"></iframe>
+<script>
+let t0=Date.now();
+['f1','f2','f3'].forEach(id=>{const f=document.getElementById(id);f.addEventListener('load',()=>console.log(id,'loaded',((Date.now()-t0)/1000).toFixed(1)+'s'));});
+window.addEventListener('error',e=>console.log('err',e.message));
+</script></body></html>
