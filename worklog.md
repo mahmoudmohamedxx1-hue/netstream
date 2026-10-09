@@ -3977,3 +3977,28 @@ Work Log:
 
 Stage Summary:
 - Non-Arabic titles now run the full 372464f-era provider stack (catalog + default + quality map + chain order); Arabic titles run the exact latest pipeline (ArabSeed-first, content-verified, unchanged chain). Saved provider preferences from the era (vidlink.pro etc.) automatically resurrect as valid again.
+
+---
+Task ID: 14
+Agent: main (Super Z)
+Task: "THERE ERROR WITH DEPLOYMENT HERE IS VERCEL TOKEN TO FIX THAT ERRORS" — diagnose and fix the failing Vercel production deployments
+
+Work Log:
+- Authenticated Vercel CLI with the user-provided token (account mahmoudmohamedxx1-6271, team mahmoud-mohameds-projects-4930b481). Found project `netstream` with TWO consecutive failed production deployments (dpl_Ai5vFCgKbAXZbXEC6CAcC1X5raH5 and the one 38m earlier), both building from main.
+- Pulled failed build logs. Root cause: `bun run build` ran `next build --webpack && cp -r .next/static ... && cp -r db .next/standalone/ && ...` — a script written for LOCAL standalone assembly. On Vercel's git clone the `db/` directory does not exist (gitignored: contains SQLite custom.db) → `cp: cannot stat 'db': No such file or directory` → exit 1. The Next.js compile itself succeeded (10.5s, 24 static pages); only the post-build cp chain killed the deploy.
+- Audited serverless-readiness before fixing: prisma/schema.prisma uses SQLite via env DATABASE_URL (local absolute path, not committed). All 3 DB-backed routes (history, watchlist, provider-stats) wrap queries in try/catch and return graceful JSON ({items:[]} on GET failure). Watch history is client-side IndexedDB (useClientWatchHistory / client-history.ts — "source of truth"); watchlist updates UI state even when the POST fails. No code changes needed for runtime — the app was already engineered to degrade gracefully without a DB (per db.ts comments).
+- FIX: split package.json build script — `"build": "NODE_OPTIONS=... next build --webpack"` (what Vercel runs; no filesystem assumptions) and `"build:standalone": "... && cp -r .next/static ... db ... prisma ... && rm .env"` (full local/VPS assembly for the `start` script). No other config changes needed (output:"standalone" is supported on Vercel; postinstall prisma generate already worked).
+- Verified locally: `bun run build` (plain, Vercel-equivalent) passes; `bun run build:standalone` still assembles .next/standalone with db/, prisma/, public/, static.
+- Committed a7a31a5, pushed, verified rev-list HEAD...origin/main == 0/0. Vercel git integration auto-deployed netstream-m9g5r7rt7 → status ● Ready (build 43s, no errors).
+- LIVE smoke tests on production:
+  ✓ https://netstream-navy.vercel.app/ → HTTP 200, title "NetStream — Watch Movies & Series Free in HD" (also live at https://v0-netstreamz.vercel.app)
+  ✓ /api/watchlist → 200 {items:[]} (graceful, no crash from absent DB)
+  ✓ /api/history → 200 {items:[]}
+  ✓ /api/tmdb/home → 200; /api/tmdb/search?q=inception → 200 with real TMDB results (content pipeline live)
+  ✓ /api/arabic-stream → 200
+  ✓ Deployed page bundle contains the full restored 372464f-era provider catalog (vidfast, vidcore, superembed, moviesapi, 2embed, anyembed, mycima) + vidspark + arabseed — task 13's restore is live in production.
+
+Stage Summary:
+- Deployment failure was a one-line root cause: local-standalone cp commands inside the universal build script, choking on the gitignored db/ folder. Split into build (serverless-safe) + build:standalone (local/VPS).
+- Production is live and healthy at netstream-navy.vercel.app / v0-netstreamz.vercel.app with all latest fixes (tasks 8-13).
+- Known limitation (by design): server-side watchlist persistence is a local-only feature (SQLite). On Vercel it degrades gracefully — history uses IndexedDB (persists per browser), watchlist works in-session but won't survive server restarts. A durable fix would need a hosted DB (Turso/Vercel Postgres) if the user wants it.
