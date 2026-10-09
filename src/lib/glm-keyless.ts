@@ -5,8 +5,14 @@
 // ~/.z-ai-config, or /etc/.z-ai-config. None of those exist on Vercel
 // (and the cwd is read-only there). This client keeps identical behavior
 // (same endpoint, same headers, same body shape) but resolves config from:
-//   1. ZAI_KEYLESS_CONFIG env var (JSON string) — serverless/production
-//   2. /etc/.z-ai-config → ~/.z-ai-config → ./.z-ai-config — sandbox/dev
+//   1. ZAI_API_KEY env var — REAL Z.ai API key (https://api.z.ai/api/paas/v4,
+//      public endpoint, works from ANY network incl. Vercel). Set this to
+//      get GLM working on serverless deployments.
+//   2. ZAI_KEYLESS_CONFIG env var (JSON string) — keyless internal endpoint
+//      (internal-api.z.ai). NOTE: that hostname resolves to PRIVATE IPs
+//      (172.25.x.x) that are only routable inside Z.ai's infrastructure —
+//      from Vercel or any external network the connection times out.
+//   3. /etc/.z-ai-config → ~/.z-ai-config → ./.z-ai-config — sandbox/dev
 //
 // Also includes a circuit breaker so a dead/unreachable GLM endpoint never
 // adds timeout latency to more than one request per cooldown window.
@@ -35,7 +41,18 @@ let cachedConfig: GLMConfig | null | undefined
 export function resolveGLMConfig(): GLMConfig | null {
   if (cachedConfig !== undefined) return cachedConfig
 
-  // 1. Env var (serverless-friendly)
+  // 0. REAL API key (public endpoint — works from any network, incl. Vercel)
+  const realKey = process.env.ZAI_API_KEY
+  if (realKey) {
+    cachedConfig = {
+      baseUrl: process.env.ZAI_API_BASE_URL || "https://api.z.ai/api/paas/v4",
+      apiKey: realKey,
+    }
+    return cachedConfig
+  }
+
+  // 1. Keyless config via env var (serverless; internal endpoint — reachable
+  //    only from inside Z.ai's infrastructure)
   const envRaw = process.env.ZAI_KEYLESS_CONFIG
   if (envRaw) {
     try {
@@ -105,7 +122,9 @@ export interface GLMChatMessage {
   content: string
 }
 
-const GLM_TIMEOUT_MS = 12000
+const GLM_TIMEOUT_MS = 8000 // covers working GLM (measured 2.5-5s with context);
+// stays under undici's 10s TCP connect timeout so a doomed attempt on
+// external networks fails in 8s max, then the circuit breaker opens.
 
 /**
  * Keyless GLM chat completion. Mirrors z-ai-web-dev-sdk's
