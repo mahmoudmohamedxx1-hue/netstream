@@ -29,9 +29,10 @@ interface ChatMessage {
 }
 
 const MODELS = [
-  { id: "glm", name: "GLM 5.3 Flash", desc: "High Quality · Default", icon: Brain, color: "text-violet-400" },
+  { id: "glm", name: "GLM 5.3 Flash", desc: "Keyless · Default", icon: Brain, color: "text-violet-400" },
+  { id: "kilo", name: "Nemotron 120B", desc: "Keyless · Big Brain", icon: Sparkles, color: "text-emerald-400" },
   { id: "pollinations", name: "GPT-OSS 20B", desc: "Keyless · Fast", icon: Zap, color: "text-amber-400" },
-  { id: "llm7", name: "Codestral", desc: "Keyless · Balanced", icon: Globe, color: "text-sky-400" },
+  { id: "llm7", name: "LLM7 Auto", desc: "Keyless · Balanced", icon: Globe, color: "text-sky-400" },
 ] as const
 
 const SUGGESTION_CHIPS = [

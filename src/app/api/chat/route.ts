@@ -2,12 +2,16 @@ import { NextRequest, NextResponse } from "next/server"
 
 // AI Chat API — Movie & Series Recommendation Assistant
 // Supports multiple keyless models:
-//   - "glm" (DEFAULT) — GLM 5.3 Flash keyless via Z.ai (glm-keyless client;
-//      works in sandbox via /etc/.z-ai-config and on serverless via the
-//      ZAI_KEYLESS_CONFIG env var). Circuit-breaker protected: if the
-//      endpoint is unreachable, later requests skip it instantly.
-//   - "pollinations" — gpt-oss-20b via Pollinations, keyless (1st fallback)
-//   - "llm7" — codestral via LLM7, keyless (2nd fallback)
+//   - "glm" (DEFAULT) — GLM 5.3 Flash KEYLESS via LLM7 (same proven
+//      integration as the user's egxdesk project — works from ANY network
+//      incl. Vercel). Second hop: Z.ai internal keyless endpoint (sandbox/
+//      Z.ai infra only; circuit-breaker protected).
+//   - "kilo" — Nemotron 3 Super 120B keyless via Kilo Gateway (egxdesk's
+//      T74 main model — a real 120B brain, 200 req/hr per IP).
+//   - "pollinations" — gpt-oss-20b via Pollinations, keyless
+//   - "llm7" — LLM7 auto-router ("default"), keyless
+// Optional env: LLM7_API_KEY (free key from llm7.io) raises llm7 rate
+// limits; ZAI_API_KEY switches the GLM hop-2 client to the public Z.ai API.
 // The user can switch models in the chat UI; GLM is the default everywhere.
 
 const TMDB_API_KEY = process.env.TMDB_API_KEY || "1c5d8fc6971ccb06fcc873d748bcba92"
@@ -198,7 +202,7 @@ async function extractTitleSuggestions(text: string): Promise<TitleSuggestion[]>
 
 // ── Model providers ──────────────────────────────────────────────────────
 
-// Pollinations AI (keyless) — primary
+// Pollinations AI (keyless)
 async function callPollinations(messages: { role: string; content: string }[]): Promise<string> {
   const res = await fetch("https://text.pollinations.ai/openai", {
     method: "POST",
@@ -211,24 +215,90 @@ async function callPollinations(messages: { role: string; content: string }[]): 
   return data.choices?.[0]?.message?.content ?? ""
 }
 
-// LLM7 (keyless) — fallback
-async function callLLM7(messages: { role: string; content: string }[]): Promise<string> {
-  const res = await fetch("https://api.llm7.io/v1/chat/completions", {
+// ── LLM7 (keyless; optional LLM7_API_KEY raises limits) ─────────────────
+const LLM7_URL = "https://api.llm7.io/v1/chat/completions"
+const LLM7_GLM_MODEL = "GLM-5.3-Flash" // exact casing — lowercase 400s
+
+async function llm7Round(model: string, messages: { role: string; content: string }[], timeoutMs = 20000): Promise<Response> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" }
+  if (process.env.LLM7_API_KEY) headers["Authorization"] = `Bearer ${process.env.LLM7_API_KEY}`
+  return fetch(LLM7_URL, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    signal: AbortSignal.timeout(30000),
-    body: JSON.stringify({ model: "default", messages }),
+    headers,
+    body: JSON.stringify({ model, messages }),
+    signal: AbortSignal.timeout(timeoutMs),
   })
-  if (!res.ok) throw new Error(`LLM7 HTTP ${res.status}`)
-  const data = await res.json()
-  return data.choices?.[0]?.message?.content ?? ""
 }
 
-// GLM 5.3 Flash keyless — the DEFAULT model. Direct-fetch client (see
-// src/lib/glm-keyless.ts): no SDK file dependency, config from env var on
-// serverless or /etc/.z-ai-config in sandbox. Circuit breaker: if GLM is
-// unreachable, it is skipped instantly (0ms) for 10 minutes instead of
-// hanging every request. Fallback to Pollinations/LLM7 stays automatic.
+async function callLLM7Model(model: string, messages: { role: string; content: string }[]): Promise<string> {
+  let res = await llm7Round(model, messages)
+  // Shared free tier: on 429 "Retry after N seconds" wait ONCE (capped at
+  // 5s) and retry — transient per-minute quota clears fast; persistent
+  // quota exhaustion falls through to the next provider.
+  if (res.status === 429) {
+    const body = await res.text().catch(() => "")
+    const waitS = Number(/retry after (\d+)/i.exec(body)?.[1] ?? 3)
+    await new Promise((r) => setTimeout(r, Math.min(Math.max(waitS, 2), 5) * 1000))
+    res = await llm7Round(model, messages)
+  }
+  if (!res.ok) throw new Error(`LLM7(${model}) HTTP ${res.status}`)
+  const data = await res.json()
+  const content = data.choices?.[0]?.message?.content ?? ""
+  if (!content) throw new Error(`LLM7(${model}) empty content`)
+  return content
+}
+
+// LLM7 auto-router (keyless) — the "llm7" model option
+async function callLLM7(messages: { role: string; content: string }[]): Promise<string> {
+  return callLLM7Model("default", messages)
+}
+
+// ── Kilo Gateway (keyless) — Nemotron 3 Super 120B, egxdesk's T74 main ────
+const KILO_URL = "https://api.kilo.ai/api/gateway/v1/chat/completions"
+const KILO_ROUTES = ["nvidia/nemotron-3-super-120b-a12b:free", "openrouter/free"]
+
+async function callKilo(messages: { role: string; content: string }[]): Promise<string> {
+  const errs: string[] = []
+  for (const model of KILO_ROUTES) {
+    try {
+      const res = await fetch(KILO_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model, messages, max_tokens: 2048 }),
+        signal: AbortSignal.timeout(20000),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        const content = data.choices?.[0]?.message?.content ?? ""
+        if (content.trim()) return content
+        errs.push(`${model}: empty content`)
+        continue
+      }
+      errs.push(`${model}: HTTP ${res.status}`)
+    } catch (e) {
+      errs.push(`${model}: ${(e as Error).message}`)
+    }
+  }
+  throw new Error(`Kilo failed — ${errs.join(" ; ")}`)
+}
+
+// ── GLM 5.3 Flash keyless — THE DEFAULT MODEL (composite chain) ─────────
+//   hop 1: LLM7 "GLM-5.3-Flash" — the REAL keyless GLM 5.3 Flash tier,
+//          reachable from ANY network (incl. Vercel) — the integration the
+//          user shipped in egxdesk. 429-aware with one bounded retry.
+//   hop 2: Z.ai internal keyless endpoint (src/lib/glm-keyless.ts) — only
+//          routable inside Z.ai's infrastructure (sandbox/dev); the circuit
+//          breaker caps its cost elsewhere at one 8s attempt per 10-minute
+//          window per server instance.
+async function callGLM(messages: { role: string; content: string }[]): Promise<string> {
+  try {
+    return await callLLM7Model(LLM7_GLM_MODEL, messages)
+  } catch (e) {
+    console.error("[api/chat] GLM hop-1 (LLM7 GLM-5.3-Flash) failed:", e)
+  }
+  const { glmChatCompletion } = await import("@/lib/glm-keyless")
+  return glmChatCompletion(messages as any) // throws → outer loop falls through
+}
 
 // GET /api/chat — health check / model list
 export async function GET() {
@@ -236,10 +306,12 @@ export async function GET() {
   return NextResponse.json({
     status: "ok",
     models: [
-      { id: "glm", name: "GLM 5.3 Flash (Keyless)", available: isGLMConfigured(), circuitOpen: isGLMCircuitOpen() },
+      { id: "glm", name: "GLM 5.3 Flash (Keyless)", available: true },
+      { id: "kilo", name: "Nemotron 3 Super 120B (Keyless)", available: true },
       { id: "pollinations", name: "GPT-OSS 20B (Keyless)", available: true },
-      { id: "llm7", name: "Codestral (Keyless)", available: true },
+      { id: "llm7", name: "LLM7 Auto (Keyless)", available: true },
     ],
+    glmInternalHop: { configured: isGLMConfigured(), circuitOpen: isGLMCircuitOpen() },
     timestamp: Date.now(),
   })
 }
@@ -267,30 +339,27 @@ export async function POST(req: NextRequest) {
       { role: "user", content: message },
     ]
 
-    // Determine which model to use — GLM 5.3 Flash keyless is the DEFAULT
-    // everywhere (sandbox AND Vercel). The glm-keyless circuit breaker means
-    // an unreachable GLM costs at most one timeout per 10-minute window per
-    // server instance; after that it is skipped instantly.
+    // Determine which model to use — GLM 5.3 Flash keyless (via LLM7, with
+    // the Z.ai-internal second hop) is the DEFAULT everywhere.
     const requestedModel = model || "glm"
     let aiText = ""
     let usedModel = ""
 
     // Build model order — requested model first, then fallbacks
     const modelOrder: string[] = requestedModel === "glm"
-      ? ["glm", "pollinations", "llm7"]
-      : requestedModel === "llm7"
-        ? ["llm7", "pollinations", "glm"]
-        : ["pollinations", "llm7", "glm"]
+      ? ["glm", "kilo", "pollinations", "llm7"]
+      : requestedModel === "kilo"
+        ? ["kilo", "glm", "pollinations", "llm7"]
+        : requestedModel === "llm7"
+          ? ["llm7", "glm", "kilo", "pollinations"]
+          : ["pollinations", "glm", "kilo", "llm7"]
 
     for (const m of modelOrder) {
       try {
         if (m === "pollinations") { aiText = await callPollinations(messages); usedModel = "pollinations" }
         else if (m === "llm7") { aiText = await callLLM7(messages); usedModel = "llm7" }
-        else if (m === "glm") {
-          const { glmChatCompletion } = await import("@/lib/glm-keyless")
-          aiText = await glmChatCompletion(messages as any)
-          usedModel = "glm"
-        }
+        else if (m === "kilo") { aiText = await callKilo(messages); usedModel = "kilo" }
+        else if (m === "glm") { aiText = await callGLM(messages); usedModel = "glm" }
         if (aiText) break
       } catch (e) {
         console.error(`[api/chat] ${m} failed:`, e)
