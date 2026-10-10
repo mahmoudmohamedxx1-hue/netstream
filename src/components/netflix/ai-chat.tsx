@@ -29,7 +29,7 @@ interface ChatMessage {
 }
 
 const MODELS = [
-  { id: "glm", name: "GLM 5.3 Flash", desc: "Keyless · Default", icon: Brain, color: "text-violet-400" },
+  { id: "glm", name: "GLM 5.3 Flash", desc: "Keyless · Default", icon: Brain, color: "text-primary" },
   { id: "kilo", name: "Nemotron 120B", desc: "Keyless · Big Brain", icon: Sparkles, color: "text-emerald-400" },
   { id: "pollinations", name: "GPT-OSS 20B", desc: "Keyless · Fast", icon: Zap, color: "text-amber-400" },
   { id: "llm7", name: "LLM7 Auto", desc: "Keyless · Balanced", icon: Globe, color: "text-sky-400" },
@@ -296,7 +296,7 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
             onClick={() => setOpen(false)}
           />
 
-          <aside className="fixed right-0 top-0 z-[101] flex h-full w-full flex-col border-l border-white/10 bg-[#131316] shadow-2xl sm:w-[33.333vw] sm:min-w-[380px] sm:max-w-[480px]">
+          <aside className="fixed right-0 top-0 z-[101] flex h-full w-full flex-col border-l border-white/10 bg-[#141414] shadow-2xl sm:w-[33.333vw] sm:min-w-[380px] sm:max-w-[480px]">
             {/* Header */}
             <div className="flex shrink-0 items-center justify-between border-b border-white/5 px-4 py-3 sm:px-5">
               <div className="flex items-center gap-2.5">
@@ -355,7 +355,7 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
                     <ChevronDown className="size-3 text-white/40" />
                   </button>
                   {modelMenuOpen && (
-                    <div className="absolute right-0 top-full z-10 mt-1 w-56 overflow-hidden rounded-xl border border-white/10 bg-[#1c1c20] py-1 shadow-2xl">
+                    <div className="absolute right-0 top-full z-10 mt-1 w-56 overflow-hidden rounded-xl border border-white/10 bg-[#1f1f1f] py-1 shadow-2xl">
                       <p className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-white/30">
                         Select Model
                       </p>
@@ -401,7 +401,7 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
                       <p className="mt-1 text-xs text-white/20">Start a new chat to see it here</p>
                       <button
                         onClick={handleNewChat}
-                        className="mt-4 inline-flex items-center gap-2 rounded-lg bg-violet-600 px-4 py-2 text-xs font-semibold text-white transition hover:bg-violet-700"
+                        className="mt-4 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-white transition hover:bg-primary/90"
                       >
                         <Plus className="size-3.5" /> New Chat
                       </button>
@@ -415,7 +415,7 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
                           className={cn(
                             "group flex w-full items-center gap-3 rounded-xl border p-3 text-left transition",
                             activeConvId === conv.id
-                              ? "border-violet-500/30 bg-violet-600/10"
+                              ? "border-primary/30 bg-primary/10"
                               : "border-white/5 bg-white/[0.02] hover:bg-white/[0.05]"
                           )}
                         >
@@ -467,7 +467,7 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
                           <div className={cn(
                             "flex size-7 shrink-0 items-center justify-center rounded-full",
                             msg.role === "assistant"
-                              ? "bg-gradient-to-br from-violet-600 to-indigo-700"
+                              ? "bg-gradient-to-br from-red-600 via-red-800 to-red-950"
                               : "bg-white/10"
                           )}>
                             {msg.role === "assistant" ? (
@@ -482,7 +482,7 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
                               "max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed sm:px-4 sm:py-3",
                               msg.role === "assistant"
                                 ? "rounded-tl-md bg-white/[0.06] text-white/90"
-                                : "rounded-tr-md bg-violet-600 text-white"
+                                : "rounded-tr-md bg-primary text-white"
                             )}>
                               {msg.content.split("\n").map((line, j) => (
                                 <p key={j} className={line.trim() === "" ? "h-2" : ""}>{line}</p>
@@ -498,7 +498,7 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
                                   <button
                                     key={j}
                                     onClick={() => onPlayTitle(s)}
-                                    className="group flex w-full items-center gap-3 rounded-xl border border-white/5 bg-white/[0.03] p-2 text-left transition hover:border-violet-500/30 hover:bg-white/[0.06]"
+                                    className="group flex w-full items-center gap-3 rounded-xl border border-white/5 bg-white/[0.03] p-2 text-left transition hover:border-primary/30 hover:bg-white/[0.06]"
                                   >
                                     <div className="size-12 shrink-0 overflow-hidden rounded-lg bg-neutral-800 sm:size-14">
                                       {s.poster ? (
@@ -518,7 +518,7 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
                                       </div>
                                       {s.overview && <p className="mt-1 line-clamp-1 text-[10px] leading-snug text-white/30 sm:line-clamp-2">{s.overview}</p>}
                                     </div>
-                                    <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-violet-600/20 text-violet-400 transition group-hover:bg-violet-600 group-hover:text-white sm:size-8">
+                                    <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/20 text-primary transition group-hover:bg-primary group-hover:text-white sm:size-8">
                                       <Send className="size-3 -rotate-45" />
                                     </div>
                                   </button>
@@ -535,7 +535,7 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
 
                       {loading && (
                         <div className="flex gap-3">
-                          <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-violet-600 to-indigo-700">
+                          <div className="flex size-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-red-600 via-red-800 to-red-950">
                             <Sparkles className="size-3.5 text-white" />
                           </div>
                           <div className="flex items-center gap-1.5 rounded-2xl rounded-tl-md bg-white/[0.06] px-4 py-4">
@@ -556,7 +556,7 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
                       <button
                         key={chip}
                         onClick={() => sendMessage(chip)}
-                        className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[11px] text-white/60 transition hover:border-violet-500/40 hover:bg-violet-600/10 hover:text-white"
+                        className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[11px] text-white/60 transition hover:border-primary/40 hover:bg-primary/10 hover:text-white"
                       >
                         {chip}
                       </button>
@@ -566,7 +566,7 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
 
                 {/* Input */}
                 <form onSubmit={handleSubmit} className="shrink-0 border-t border-white/5 p-3 sm:p-4">
-                  <div className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 transition focus-within:border-violet-500/40 sm:px-4">
+                  <div className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 transition focus-within:border-primary/40 sm:px-4">
                     <input
                       ref={inputRef}
                       value={input}
@@ -579,7 +579,7 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
                     <button
                       type="submit"
                       disabled={loading || !input.trim()}
-                      className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-violet-600 text-white transition hover:bg-violet-700 disabled:opacity-20"
+                      className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary text-white transition hover:bg-primary/90 disabled:opacity-20"
                       aria-label="Send message"
                     >
                       <Send className="size-4" />
