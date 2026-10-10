@@ -4075,3 +4075,29 @@ Stage Summary:
 - The user was right: keyless GLM 5.3 Flash on Vercel = LLM7's "GLM-5.3-Flash" tier (the egxdesk integration), not the Z.ai SDK. That exact integration is now NetStream's default model, first in the chain and the menu.
 - llm7's shared free pool is quota-limited (exhausted at probe time; resets daily/periodically) — NetStream now fails through it instantly (no wasted retries) to egxdesk's own current main (Kilo Nemotron 120B), so users always get a quality answer in seconds with an honest model badge.
 - Always-on GLM 5.3 Flash on Vercel: set LLM7_API_KEY (free from llm7.io) or ZAI_API_KEY (real Z.ai key) as Vercel env vars — both paths are wired, tested, and documented in code.
+
+---
+Task ID: 18
+Agent: main (Super Z)
+Task: User provided Vercel token + llm7 API key — "make everything keyless so if 1000 users use it nothing happens and the quota isn't affected"
+
+Work Log:
+- Validated the user-provided llm7 key live (scripts/test-llm7-key.mjs, key passed via env, never committed — scripts/ is gitignored): VALID. KEY+default → 200 in 782ms (own quota pool, separate from the keyless shared pool). KEY+GLM-5.3-Flash → 200 but SLOW (9-55s, shared GLM tier congestion). Keyless pool at probe time: 429 "Daily token quota exceeded. Retry after 925s" (rolling window). lowercase glm-5.3-flash → 400 (casing reconfirmed). KEYLESS GLM-5.3-Flash from Vercel egress DOES work when the pool has quota (live prod answer, model=glm, 719ms).
+- CORE CHANGE (src/app/api/chat/route.ts): llm7Round NO LONGER auto-attaches LLM7_API_KEY. Normal traffic is 100% keyless — with the key configured on Vercel, it is never sent. The key is now an EMERGENCY-ONLY hop: fires exclusively when every keyless provider failed, hard-capped 5 calls/10-min window + 25/day per server instance (LLM7_EMERGENCY_BUDGET env overrides the daily figure). Badge shows "llm7-key".
+- Scale & quota protection added (route.ts "Scale & quota protection" section):
+  * Per-IP rate limiting: 12 req/min sliding window per instance → 429 + friendly reply + Retry-After (badge "rate-limit").
+  * Response cache: 5-min TTL, 300 entries, keyed by model+message+last-2-history — identical asks = 1 upstream call.
+  * Per-provider circuit breakers: llm7-glm (retry-after-aware, 10-min cap; 3-min otherwise), kilo (2-min), pollinations (2-min), llm7-default (retry-after-aware). 429-dead pools are skipped instantly instead of every user paying the probe.
+  * Token economy: max_tokens 800 on all llm7 calls (token-quota pool; param verified live), kilo 1024.
+- Frontend (ai-chat.tsx): MODEL_BADGE_OVERRIDES map — "llm7-key" → "LLM7 · Emergency Key", "rate-limit" → "Rate Limit" on the honest model badge.
+- GET /api/chat now reports: keyless flag, quotaProtection (rate limit, cache, emergency hop status incl. usedToday), circuits state, glmInternalHop.
+- Set LLM7_API_KEY as encrypted Vercel env var (production+preview) via API (scripts/set-llm7-env.py) — inert in normal traffic by design.
+- Deployed dc4ad3f + d2db859 (hop-1 timeout 12s→8s: working keyless GLM measured 0.7-2s, tarpits now capped at 8s). Both READY.
+- VERIFIED locally (dev): keyless chain answers; identical ask → 10ms cache hit (vs 9.4s fresh); burst 15 → 10×200 + 5×429 (limiter exact on single instance); emergency usedToday stays 0; llm7-glm circuit trips open correctly.
+- VERIFIED on production (netstream-navy, d2db859): health shows emergencyKeyHop.configured=true; 17-request burst ALL answered 200 keyless (kilo absorbed the crowd; llm7-GLM 429/tarpit failures tripped circuits; hop-2 correctly skipped on Vercel; runtime logs confirm); emergency key usedToday=0 throughout — THE core guarantee. netstream-best frozen alias untouched (200).
+- Honest limitation documented: cache + rate limiter are per-Lambda-instance (in-memory). On serverless they are exact per warm instance (and exact on the standalone/VPS build) but approximate across instances — burst test on prod spread across instances so no 429s (Vercel horizontal scaling absorbing load is the desired "nothing happens" behavior anyway). Cross-instance shared limiting would need external infra (Redis/KV) — deliberately not added to keep the app 100% keyless + zero-dependency.
+
+Stage Summary:
+- "Everything keyless, 1000-user proof" is live: normal traffic NEVER sends any personal key (verified: emergency usedToday=0 through all testing); llm7 key is a hard-capped emergency lifeboat (≤5/10min, ≤25/day per instance) that only fires when every keyless provider is down; per-IP rate limiting + response caching + circuit breakers + max_tokens caps protect the keyless shared pools under crowd load.
+- Chain (default "glm"): llm7 GLM-5.3-Flash keyless (circuit-protected) → Z.ai internal (sandbox only) → kilo Nemotron 120B → pollinations → llm7 auto → emergency key hop (capped). Badge always shows the truth.
+- To make the key 100% inert: delete the LLM7_API_KEY env var on Vercel — nothing else changes. To raise/lower the emergency cap: set LLM7_EMERGENCY_BUDGET.
