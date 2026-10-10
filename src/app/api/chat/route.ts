@@ -230,16 +230,20 @@ async function llm7Round(model: string, messages: { role: string; content: strin
   })
 }
 
-async function callLLM7Model(model: string, messages: { role: string; content: string }[]): Promise<string> {
-  let res = await llm7Round(model, messages)
-  // Shared free tier: on 429 "Retry after N seconds" wait ONCE (capped at
-  // 5s) and retry — transient per-minute quota clears fast; persistent
-  // quota exhaustion falls through to the next provider.
+async function callLLM7Model(model: string, messages: { role: string; content: string }[], timeoutMs = 20000): Promise<string> {
+  let res = await llm7Round(model, messages, timeoutMs)
+  // Shared free tier: on a SHORT 429 ("Retry after N seconds", per-minute
+  // rolling quota) wait ONCE (capped at 5s) and retry. On a LONG 429 (daily
+  // quota exhaustion — retry-after in minutes/hours) fall through to the
+  // next provider immediately instead of burning a pointless retry.
   if (res.status === 429) {
     const body = await res.text().catch(() => "")
     const waitS = Number(/retry after (\d+)/i.exec(body)?.[1] ?? 3)
+    if (waitS > 60) {
+      throw new Error(`LLM7(${model}) daily quota exhausted (retry after ${Math.round(waitS / 60)}min)`)
+    }
     await new Promise((r) => setTimeout(r, Math.min(Math.max(waitS, 2), 5) * 1000))
-    res = await llm7Round(model, messages)
+    res = await llm7Round(model, messages, timeoutMs)
   }
   if (!res.ok) throw new Error(`LLM7(${model}) HTTP ${res.status}`)
   const data = await res.json()
@@ -291,10 +295,23 @@ async function callKilo(messages: { role: string; content: string }[]): Promise<
 //          breaker caps its cost elsewhere at one 8s attempt per 10-minute
 //          window per server instance.
 async function callGLM(messages: { role: string; content: string }[]): Promise<string> {
+  // hop 1: LLM7 "GLM-5.3-Flash" — 12s cap (from Vercel's shared egress IPs
+  // llm7 sometimes tarpits instead of answering cleanly; don't let it eat
+  // the whole request budget).
   try {
-    return await callLLM7Model(LLM7_GLM_MODEL, messages)
+    return await callLLM7Model(LLM7_GLM_MODEL, messages, 12000)
   } catch (e) {
-    console.error("[api/chat] GLM hop-1 (LLM7 GLM-5.3-Flash) failed:", e)
+    console.error("[api/chat] GLM hop-1 (LLM7 GLM-5.3-Flash) failed:", (e as Error).message)
+  }
+  // hop 2: Z.ai internal keyless endpoint — only meaningful where it is
+  // reachable: inside Z.ai's infrastructure (sandbox/dev) or with a real
+  // ZAI_API_KEY (which switches glm-keyless to the PUBLIC api.z.ai). On
+  // Vercel without a key it is provably unreachable (internal-api.z.ai
+  // resolves to private RFC1918 IPs → ConnectTimeoutError, runtime-log
+  // verified), so skip it instead of paying the timeout on every cold
+  // start — the circuit breaker already covers warm instances.
+  if (process.env.VERCEL === "1" && !process.env.ZAI_API_KEY) {
+    throw new Error("GLM hop-2 skipped on Vercel (internal endpoint unreachable; set ZAI_API_KEY to use the public endpoint)")
   }
   const { glmChatCompletion } = await import("@/lib/glm-keyless")
   return glmChatCompletion(messages as any) // throws → outer loop falls through
