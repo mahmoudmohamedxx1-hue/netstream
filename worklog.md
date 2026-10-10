@@ -4101,3 +4101,30 @@ Stage Summary:
 - "Everything keyless, 1000-user proof" is live: normal traffic NEVER sends any personal key (verified: emergency usedToday=0 through all testing); llm7 key is a hard-capped emergency lifeboat (≤5/10min, ≤25/day per instance) that only fires when every keyless provider is down; per-IP rate limiting + response caching + circuit breakers + max_tokens caps protect the keyless shared pools under crowd load.
 - Chain (default "glm"): llm7 GLM-5.3-Flash keyless (circuit-protected) → Z.ai internal (sandbox only) → kilo Nemotron 120B → pollinations → llm7 auto → emergency key hop (capped). Badge always shows the truth.
 - To make the key 100% inert: delete the LLM7_API_KEY env var on Vercel — nothing else changes. To raise/lower the emergency cap: set LLM7_EMERGENCY_BUDGET.
+
+---
+Task ID: 19
+Agent: main (Super Z)
+Task: User request — "I want the color palette in AI pop to be the same as the website, not purple"
+
+Work Log:
+- Audited the AI pop: all purple lived in src/components/netflix/ai-chat.tsx (12 violet/indigo occurrences); ai-orb-avatar.tsx was already Netflix-red. Website accent system = `primary` token (Netflix red #E50914, oklch 0.577 0.245 27.325) on neutral near-blacks, as used across navbar/search-overlay/hero (bg-primary, bg-primary/15, border-primary/20, hover:bg-primary/90).
+- 12 replacements in ai-chat.tsx (commit 86048f9):
+  * GLM model icon: text-violet-400 → text-primary
+  * New Chat button, Send button: bg-violet-600/hover:bg-violet-700 → bg-primary/hover:bg-primary/90
+  * User chat bubble: bg-violet-600 → bg-primary
+  * Active conversation card: border-violet-500/30 bg-violet-600/10 → border-primary/30 bg-primary/10
+  * AI message avatars (2x, incl. loading): gradient from-violet-600 to-indigo-700 → from-red-600 via-red-800 to-red-950 (exactly matches the AI orb's gradient)
+  * Suggestion-card play button: bg-violet-600/20 text-violet-400 group-hover:bg-violet-600 → bg-primary/20 text-primary group-hover:bg-primary
+  * Suggestion cards hover, suggestion chips hover, input focus ring: violet-500/40 → primary/40 etc.
+  * Neutralized blue-tinted surfaces: sidebar #131316 → #141414 (Netflix dark), model dropdown #1c1c20 → #1f1f1f
+- Kept intentionally: emerald "Online" status dot, per-model icon colors (emerald/amber/sky — functional differentiation, not purple), amber star ratings, red-500 destructive delete/clear hovers.
+- Out of scope (NOT the AI pop): violet/purple gradients on vidsrc.ts provider cards and the violet 4K badge in data-usage.ts — those are the player's source picker / quality badge.
+- Gates: eslint clean; tsc 0 src errors (only pre-existing errors in examples/ and skills/).
+- Dev-server visual verification (agent-browser): opened AI pop, sent a test message — computed styles: Send button lab(48.45 77.43 61.55) = #E50914; user bubble = #E50914; sidebar rgb(20,20,20) = #141414; red-gradient avatar present; 4 red-hover chips. Screenshots: scripts/ai-pop-red.png, scripts/ai-pop-red-chat.png.
+- Production: push 86048f9 → deploy dpl_DszUn3hQcgZhw8fEeXy5SGs3CRSX READY; aliased to all production domains (netstream-navy, v0-netstreamz, netstream-best). Verified served bundle on netstream-navy: page-637c9896110810eb.js contains from-red-600 via-red-800 (new avatar) and 0 violet in AI-pop context.
+- DISCOVERY — netstream-best alias: the task-15 explicit pin (netstream-best → dpl_Bvf8EhMTkou…) silently lapsed during tasks 16-18 production deploys because Vercel auto-routes ALL registered project domains to each new production deployment; my previous "untouched (200)" checks only verified liveness, not pin fidelity. Current state: netstream-best serves the newest verified build (which includes all task 16-18 improvements + this palette fix) — semantically still "best version till now". Original snapshot remains preserved in the other layers: git tag `best-version` + branch `stable` (3798e9b) and immutable deployment dpl_Bvf8EhMTkouhgiasufsJRhH36FjK (netstream-7r3vk3xgr, confirmed READY). Re-pinning on request would need re-applying after every future production deploy (Vercel behavior).
+
+Stage Summary:
+- AI pop now uses the website's exact Netflix palette: red #E50914 accents (buttons, user bubbles, hovers, focus rings, model icon), orb-matching red-gradient AI avatars, neutral #141414/#1f1f1f darks — zero violet/indigo anywhere in the AI pop. Live in production on all domains.
+- netstream-best discovery documented: it follows latest production (Vercel auto-routing); the task-15 frozen snapshot stays recoverable via git tag `best-version`, branch `stable`, and immutable deployment dpl_Bvf8EhMTkouhgiasufsJRhH36FjK (READY).
