@@ -1,17 +1,24 @@
 import { NextRequest, NextResponse } from "next/server"
 
 // AI Chat API — Movie & Series Recommendation Assistant
-// Supports multiple keyless models:
-//   - "glm" (DEFAULT) — GLM 5.3 Flash KEYLESS via LLM7 (same proven
-//      integration as the user's egxdesk project — works from ANY network
-//      incl. Vercel). Second hop: Z.ai internal keyless endpoint (sandbox/
-//      Z.ai infra only; circuit-breaker protected).
+// 100% KEYLESS under normal load — engineered so 1000+ concurrent users
+// cost ZERO personal quota:
+//   - "glm" (DEFAULT) — GLM 5.3 Flash keyless chain: hop-1 LLM7's shared
+//     "GLM-5.3-Flash" tier (works from ANY network incl. Vercel — the
+//     integration proven in the user's egxdesk project), hop-2 Z.ai's
+//     internal keyless endpoint where reachable (sandbox/Z.ai infra).
 //   - "kilo" — Nemotron 3 Super 120B keyless via Kilo Gateway (egxdesk's
-//      T74 main model — a real 120B brain, 200 req/hr per IP).
+//     T74 main model — a real 120B brain, 200 req/hr per IP).
 //   - "pollinations" — gpt-oss-20b via Pollinations, keyless
 //   - "llm7" — LLM7 auto-router ("default"), keyless
-// Optional env: LLM7_API_KEY (free key from llm7.io) raises llm7 rate
-// limits; ZAI_API_KEY switches the GLM hop-2 client to the public Z.ai API.
+// Scale & quota protection (see the section below):
+//   • per-IP rate limiting · response caching · per-provider circuit
+//     breakers — the keyless shared pools survive crowd load
+//   • LLM7_API_KEY is used ONLY as an emergency last-resort hop when every
+//     keyless provider has failed, hard-capped (5/10-min + 25/day per
+//     instance) so a crowd can never drain the key's quota. Normal traffic
+//     never sends the key at all. ZAI_API_KEY (if ever set) switches the
+//     GLM hop-2 client to the public Z.ai API.
 // The user can switch models in the chat UI; GLM is the default everywhere.
 
 const TMDB_API_KEY = process.env.TMDB_API_KEY || "1c5d8fc6971ccb06fcc873d748bcba92"
@@ -200,6 +207,84 @@ async function extractTitleSuggestions(text: string): Promise<TitleSuggestion[]>
   return results.filter((r): r is TitleSuggestion => r !== null)
 }
 
+// ── Scale & quota protection — "1000 users, zero quota impact" ───────────
+// Normal traffic is 100% KEYLESS (shared free pools, no personal quota).
+// These guards keep it healthy at crowd scale:
+//   • per-IP rate limiting  — one abusive client can't melt the shared pools
+//   • response cache        — N users asking the same thing = 1 upstream call
+//   • per-provider circuits — a 429/dead provider is skipped instantly
+//   • emergency key hop     — LLM7_API_KEY fires ONLY when every keyless
+//     provider failed, hard-capped (5 per 10-min window, 25 per day, per
+//     server instance) so a crowd can never drain the key's quota.
+
+// Per-provider circuit breakers (module scope = per warm server instance)
+const circuits = new Map<string, number>() // provider → circuit-open-until (ms)
+function circuitOpen(name: string): boolean {
+  const until = circuits.get(name) ?? 0
+  if (until && until <= Date.now()) {
+    circuits.delete(name)
+    return false
+  }
+  return until > 0
+}
+function tripCircuit(name: string, ms: number) {
+  circuits.set(name, Date.now() + ms)
+}
+function resetCircuit(name: string) {
+  circuits.delete(name)
+}
+
+// Per-IP rate limiting — sliding 60s window, in-memory per instance
+// (approximate on serverless; exact enough to stop abuse)
+const RATE_LIMIT_PER_MIN = 12
+const ipHits = new Map<string, number[]>()
+function checkRateLimit(ip: string): { ok: boolean; retryAfterSec: number } {
+  const now = Date.now()
+  const windowMs = 60_000
+  const hits = (ipHits.get(ip) ?? []).filter((t) => now - t < windowMs)
+  if (hits.length >= RATE_LIMIT_PER_MIN) {
+    ipHits.set(ip, hits)
+    return { ok: false, retryAfterSec: Math.max(1, Math.ceil((windowMs - (now - hits[0])) / 1000)) }
+  }
+  hits.push(now)
+  ipHits.set(ip, hits)
+  if (ipHits.size > 5000) {
+    for (const [k, v] of ipHits) {
+      if (v.every((t) => now - t >= windowMs)) ipHits.delete(k)
+    }
+  }
+  return { ok: true, retryAfterSec: 0 }
+}
+
+// Response cache — identical ask within the TTL = instant reply, zero
+// upstream calls (protects the keyless pools at 1000-user scale)
+const CACHE_TTL_MS = 5 * 60 * 1000
+const CACHE_MAX = 300
+const replyCache = new Map<string, { at: number; val: { reply: string; model: string; suggestions: TitleSuggestion[] } }>()
+function cacheKeyFor(modelId: string, message: string, history?: ChatMessage[]): string {
+  const tail = (history ?? [])
+    .slice(-2)
+    .map((m) => `${m.role[0]}:${m.content.slice(-160)}`)
+    .join("|")
+  return `${modelId}::${message}::${tail}`
+}
+function cacheGet(key: string): { reply: string; model: string; suggestions: TitleSuggestion[] } | null {
+  const hit = replyCache.get(key)
+  if (!hit) return null
+  if (Date.now() - hit.at > CACHE_TTL_MS) {
+    replyCache.delete(key)
+    return null
+  }
+  return hit.val
+}
+function cacheSet(key: string, val: { reply: string; model: string; suggestions: TitleSuggestion[] }) {
+  if (replyCache.size >= CACHE_MAX) {
+    const oldest = replyCache.keys().next().value
+    if (oldest !== undefined) replyCache.delete(oldest)
+  }
+  replyCache.set(key, { at: Date.now(), val })
+}
+
 // ── Model providers ──────────────────────────────────────────────────────
 
 // Pollinations AI (keyless)
@@ -215,17 +300,38 @@ async function callPollinations(messages: { role: string; content: string }[]): 
   return data.choices?.[0]?.message?.content ?? ""
 }
 
+// Circuit-guarded pollinations (2-min cooldown on failure)
+async function callPollinationsGuarded(messages: { role: string; content: string }[]): Promise<string> {
+  if (circuitOpen("pollinations")) throw new Error("pollinations circuit open")
+  try {
+    const out = await callPollinations(messages)
+    resetCircuit("pollinations")
+    return out
+  } catch (e) {
+    tripCircuit("pollinations", 2 * 60 * 1000)
+    throw e
+  }
+}
+
 // ── LLM7 (keyless; optional LLM7_API_KEY raises limits) ─────────────────
 const LLM7_URL = "https://api.llm7.io/v1/chat/completions"
 const LLM7_GLM_MODEL = "GLM-5.3-Flash" // exact casing — lowercase 400s
 
-async function llm7Round(model: string, messages: { role: string; content: string }[], timeoutMs = 20000): Promise<Response> {
+async function llm7Round(
+  model: string,
+  messages: { role: string; content: string }[],
+  timeoutMs = 20000,
+  apiKey?: string
+): Promise<Response> {
+  // KEYLESS by design: no Authorization header unless a key is passed
+  // explicitly — and only the emergency hop ever passes one. max_tokens is
+  // capped because llm7's free tier is TOKEN-quota based (param verified).
   const headers: Record<string, string> = { "Content-Type": "application/json" }
-  if (process.env.LLM7_API_KEY) headers["Authorization"] = `Bearer ${process.env.LLM7_API_KEY}`
+  if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`
   return fetch(LLM7_URL, {
     method: "POST",
     headers,
-    body: JSON.stringify({ model, messages }),
+    body: JSON.stringify({ model, messages, max_tokens: 800 }),
     signal: AbortSignal.timeout(timeoutMs),
   })
 }
@@ -240,7 +346,9 @@ async function callLLM7Model(model: string, messages: { role: string; content: s
     const body = await res.text().catch(() => "")
     const waitS = Number(/retry after (\d+)/i.exec(body)?.[1] ?? 3)
     if (waitS > 60) {
-      throw new Error(`LLM7(${model}) daily quota exhausted (retry after ${Math.round(waitS / 60)}min)`)
+      const err = new Error(`LLM7(${model}) daily quota exhausted (retry after ${Math.round(waitS / 60)}min)`) as Error & { retryAfterSec?: number }
+      err.retryAfterSec = waitS
+      throw err
     }
     await new Promise((r) => setTimeout(r, Math.min(Math.max(waitS, 2), 5) * 1000))
     res = await llm7Round(model, messages, timeoutMs)
@@ -257,6 +365,20 @@ async function callLLM7(messages: { role: string; content: string }[]): Promise<
   return callLLM7Model("default", messages)
 }
 
+// Circuit-guarded LLM7 auto-router (retry-after aware on 429, else 3 min)
+async function callLLM7Guarded(messages: { role: string; content: string }[]): Promise<string> {
+  if (circuitOpen("llm7")) throw new Error("llm7 circuit open")
+  try {
+    const out = await callLLM7(messages)
+    resetCircuit("llm7")
+    return out
+  } catch (e) {
+    const retryAfterSec = (e as Error & { retryAfterSec?: number }).retryAfterSec
+    tripCircuit("llm7", retryAfterSec ? Math.min(retryAfterSec * 1000, 10 * 60 * 1000) : 3 * 60 * 1000)
+    throw e
+  }
+}
+
 // ── Kilo Gateway (keyless) — Nemotron 3 Super 120B, egxdesk's T74 main ────
 const KILO_URL = "https://api.kilo.ai/api/gateway/v1/chat/completions"
 const KILO_ROUTES = ["nvidia/nemotron-3-super-120b-a12b:free", "openrouter/free"]
@@ -268,7 +390,7 @@ async function callKilo(messages: { role: string; content: string }[]): Promise<
       const res = await fetch(KILO_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model, messages, max_tokens: 2048 }),
+        body: JSON.stringify({ model, messages, max_tokens: 1024 }),
         signal: AbortSignal.timeout(20000),
       })
       if (res.ok) {
@@ -286,6 +408,19 @@ async function callKilo(messages: { role: string; content: string }[]): Promise<
   throw new Error(`Kilo failed — ${errs.join(" ; ")}`)
 }
 
+// Circuit-guarded Kilo (2-min cooldown on failure)
+async function callKiloGuarded(messages: { role: string; content: string }[]): Promise<string> {
+  if (circuitOpen("kilo")) throw new Error("kilo circuit open")
+  try {
+    const out = await callKilo(messages)
+    resetCircuit("kilo")
+    return out
+  } catch (e) {
+    tripCircuit("kilo", 2 * 60 * 1000)
+    throw e
+  }
+}
+
 // ── GLM 5.3 Flash keyless — THE DEFAULT MODEL (composite chain) ─────────
 //   hop 1: LLM7 "GLM-5.3-Flash" — the REAL keyless GLM 5.3 Flash tier,
 //          reachable from ANY network (incl. Vercel) — the integration the
@@ -295,13 +430,22 @@ async function callKilo(messages: { role: string; content: string }[]): Promise<
 //          breaker caps its cost elsewhere at one 8s attempt per 10-minute
 //          window per server instance.
 async function callGLM(messages: { role: string; content: string }[]): Promise<string> {
-  // hop 1: LLM7 "GLM-5.3-Flash" — 12s cap (from Vercel's shared egress IPs
-  // llm7 sometimes tarpits instead of answering cleanly; don't let it eat
-  // the whole request budget).
-  try {
-    return await callLLM7Model(LLM7_GLM_MODEL, messages, 12000)
-  } catch (e) {
-    console.error("[api/chat] GLM hop-1 (LLM7 GLM-5.3-Flash) failed:", (e as Error).message)
+  // hop 1: LLM7 "GLM-5.3-Flash" — KEYLESS shared tier. 12s cap (from
+  // Vercel's shared egress IPs llm7 sometimes tarpits instead of answering
+  // cleanly; don't let it eat the whole request budget). Circuit-breaker:
+  // when the shared pool 429s, skip instantly (retry-after aware, capped
+  // at 10 min) instead of making every user pay the probe cost.
+  if (!circuitOpen("llm7-glm")) {
+    try {
+      const out = await callLLM7Model(LLM7_GLM_MODEL, messages, 12000)
+      resetCircuit("llm7-glm")
+      return out
+    } catch (e) {
+      const err = e as Error & { retryAfterSec?: number }
+      const cooldown = err.retryAfterSec ? Math.min(err.retryAfterSec * 1000, 10 * 60 * 1000) : 3 * 60 * 1000
+      tripCircuit("llm7-glm", cooldown)
+      console.error(`[api/chat] GLM hop-1 (LLM7 GLM-5.3-Flash keyless) failed — circuit open ${Math.round(cooldown / 1000)}s:`, err.message)
+    }
   }
   // hop 2: Z.ai internal keyless endpoint — only meaningful where it is
   // reachable: inside Z.ai's infrastructure (sandbox/dev) or with a real
@@ -317,17 +461,83 @@ async function callGLM(messages: { role: string; content: string }[]): Promise<s
   return glmChatCompletion(messages as any) // throws → outer loop falls through
 }
 
-// GET /api/chat — health check / model list
+// ── Emergency key hop — the ONLY place LLM7_API_KEY is ever used ────────
+// Fires exclusively when EVERY keyless provider has failed, and is
+// hard-capped (default: 5 calls per 10-min window, 25 per day, per server
+// instance — override the daily figure with LLM7_EMERGENCY_BUDGET) so
+// 1000 users can never drain the key's quota. Normal traffic never sends
+// the key at all.
+const EMERGENCY_WINDOW_MS = 10 * 60 * 1000
+const EMERGENCY_WINDOW_MAX = 5
+const EMERGENCY_DAILY_MAX = Number(process.env.LLM7_EMERGENCY_BUDGET ?? 25)
+let emDay = new Date().toISOString().slice(0, 10)
+let emDayUsed = 0
+let emWindowStart = 0
+let emWindowUsed = 0
+
+async function callEmergencyKeyHop(messages: { role: string; content: string }[]): Promise<string> {
+  const key = process.env.LLM7_API_KEY
+  if (!key) throw new Error("no LLM7_API_KEY configured")
+  const now = Date.now()
+  const today = new Date().toISOString().slice(0, 10)
+  if (today !== emDay) {
+    emDay = today
+    emDayUsed = 0
+  }
+  if (now - emWindowStart >= EMERGENCY_WINDOW_MS) {
+    emWindowStart = now
+    emWindowUsed = 0
+  }
+  if (emDayUsed >= EMERGENCY_DAILY_MAX || emWindowUsed >= EMERGENCY_WINDOW_MAX) {
+    throw new Error(`emergency key budget exhausted (day ${emDayUsed}/${EMERGENCY_DAILY_MAX}, window ${emWindowUsed}/${EMERGENCY_WINDOW_MAX})`)
+  }
+  emDayUsed++
+  emWindowUsed++
+  console.warn(`[api/chat] EMERGENCY key hop ${emDayUsed}/${EMERGENCY_DAILY_MAX} today — all keyless providers failed`)
+  // Fast reliable route first (measured ~0.8s), then the GLM tier
+  for (const model of ["default", LLM7_GLM_MODEL]) {
+    try {
+      const res = await llm7Round(model, messages, 15000, key)
+      if (res.ok) {
+        const data = await res.json()
+        const content = data.choices?.[0]?.message?.content ?? ""
+        if (content.trim()) return content
+      }
+    } catch {
+      // try the next route
+    }
+  }
+  throw new Error("emergency key hop failed (default + GLM routes)")
+}
+
+// GET /api/chat — health check / model list / quota-protection status
 export async function GET() {
   const { isGLMConfigured, isGLMCircuitOpen } = await import("@/lib/glm-keyless")
   return NextResponse.json({
     status: "ok",
+    keyless: true, // normal traffic never uses any personal API key
     models: [
-      { id: "glm", name: "GLM 5.3 Flash (Keyless)", available: true },
-      { id: "kilo", name: "Nemotron 3 Super 120B (Keyless)", available: true },
-      { id: "pollinations", name: "GPT-OSS 20B (Keyless)", available: true },
-      { id: "llm7", name: "LLM7 Auto (Keyless)", available: true },
+      { id: "glm", name: "GLM 5.3 Flash (Keyless)", available: !circuitOpen("llm7-glm") },
+      { id: "kilo", name: "Nemotron 3 Super 120B (Keyless)", available: !circuitOpen("kilo") },
+      { id: "pollinations", name: "GPT-OSS 20B (Keyless)", available: !circuitOpen("pollinations") },
+      { id: "llm7", name: "LLM7 Auto (Keyless)", available: !circuitOpen("llm7") },
     ],
+    quotaProtection: {
+      perIpRateLimit: `${RATE_LIMIT_PER_MIN} req/min`,
+      responseCache: `${Math.round(CACHE_TTL_MS / 1000)}s TTL · ${CACHE_MAX} entries`,
+      emergencyKeyHop: {
+        configured: Boolean(process.env.LLM7_API_KEY),
+        dailyBudgetPerInstance: EMERGENCY_DAILY_MAX,
+        windowBudgetPerInstance: EMERGENCY_WINDOW_MAX,
+        usedToday: emDayUsed,
+      },
+    },
+    circuits: {
+      "llm7-glm": circuitOpen("llm7-glm"),
+      kilo: circuitOpen("kilo"),
+      pollinations: circuitOpen("pollinations"),
+      "llm7-default": circuitOpen("llm7"),
+    },
     glmInternalHop: { configured: isGLMConfigured(), circuitOpen: isGLMCircuitOpen() },
     timestamp: Date.now(),
   })
@@ -335,6 +545,25 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   try {
+    // Per-IP rate limiting — one client hammering the chat can't melt the
+    // keyless shared pools for everyone else (1000-user scale).
+    const ip =
+      (req.headers.get("x-forwarded-for") ?? "").split(",")[0]?.trim() ||
+      req.headers.get("x-real-ip") ||
+      "unknown"
+    const rl = checkRateLimit(ip)
+    if (!rl.ok) {
+      return NextResponse.json(
+        {
+          error: "rate_limited",
+          reply: "You're chatting fast! Give me a few seconds and send that again.",
+          suggestions: [],
+          model: "rate-limit",
+        },
+        { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } }
+      )
+    }
+
     const body = await req.json()
     const { message, history, model }: { message: string; history?: ChatMessage[]; model?: string } = body ?? {}
 
@@ -343,6 +572,18 @@ export async function POST(req: NextRequest) {
     }
     if (message.length > 1000) {
       return NextResponse.json({ error: "message too long (max 1000 chars)" }, { status: 400 })
+    }
+
+    // Determine which model to use — GLM 5.3 Flash keyless (via LLM7, with
+    // the Z.ai-internal second hop) is the DEFAULT everywhere.
+    const requestedModel = model || "glm"
+
+    // Response cache — identical ask within the TTL = instant reply with
+    // ZERO upstream calls (a popular question from 1000 users = 1 call).
+    const cacheKey = cacheKeyFor(requestedModel, message, history)
+    const cached = cacheGet(cacheKey)
+    if (cached) {
+      return NextResponse.json({ ...cached, cached: true })
     }
 
     const platformContext = await getPlatformContext()
@@ -356,13 +597,10 @@ export async function POST(req: NextRequest) {
       { role: "user", content: message },
     ]
 
-    // Determine which model to use — GLM 5.3 Flash keyless (via LLM7, with
-    // the Z.ai-internal second hop) is the DEFAULT everywhere.
-    const requestedModel = model || "glm"
     let aiText = ""
     let usedModel = ""
 
-    // Build model order — requested model first, then fallbacks
+    // Build model order — requested model first, then keyless fallbacks
     const modelOrder: string[] = requestedModel === "glm"
       ? ["glm", "kilo", "pollinations", "llm7"]
       : requestedModel === "kilo"
@@ -373,14 +611,26 @@ export async function POST(req: NextRequest) {
 
     for (const m of modelOrder) {
       try {
-        if (m === "pollinations") { aiText = await callPollinations(messages); usedModel = "pollinations" }
-        else if (m === "llm7") { aiText = await callLLM7(messages); usedModel = "llm7" }
-        else if (m === "kilo") { aiText = await callKilo(messages); usedModel = "kilo" }
+        if (m === "pollinations") { aiText = await callPollinationsGuarded(messages); usedModel = "pollinations" }
+        else if (m === "llm7") { aiText = await callLLM7Guarded(messages); usedModel = "llm7" }
+        else if (m === "kilo") { aiText = await callKiloGuarded(messages); usedModel = "kilo" }
         else if (m === "glm") { aiText = await callGLM(messages); usedModel = "glm" }
         if (aiText) break
       } catch (e) {
         console.error(`[api/chat] ${m} failed:`, e)
         continue
+      }
+    }
+
+    // EMERGENCY key hop — the ONLY place LLM7_API_KEY is ever used. Fires
+    // only when every keyless provider failed, hard-capped so a crowd can
+    // never drain the key's quota (default 5/10-min + 25/day per instance).
+    if (!aiText) {
+      try {
+        aiText = await callEmergencyKeyHop(messages)
+        usedModel = "llm7-key"
+      } catch (e) {
+        console.error("[api/chat] emergency key hop failed:", (e as Error).message)
       }
     }
 
@@ -390,11 +640,9 @@ export async function POST(req: NextRequest) {
 
     const suggestions = await extractTitleSuggestions(aiText)
 
-    return NextResponse.json({
-      reply: aiText,
-      suggestions,
-      model: usedModel,
-    })
+    const outVal = { reply: aiText, model: usedModel, suggestions }
+    cacheSet(cacheKey, outVal)
+    return NextResponse.json(outVal)
   } catch (e) {
     console.error("[api/chat] error:", e)
     return NextResponse.json(

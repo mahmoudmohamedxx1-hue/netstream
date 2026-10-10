@@ -35,6 +35,13 @@ const MODELS = [
   { id: "llm7", name: "LLM7 Auto", desc: "Keyless · Balanced", icon: Globe, color: "text-sky-400" },
 ] as const
 
+// Model ids that can appear on assistant messages but aren't selectable
+// (emergency key hop / rate limiter) — mapped to friendly badge labels
+const MODEL_BADGE_OVERRIDES: Record<string, string> = {
+  "llm7-key": "LLM7 · Emergency Key",
+  "rate-limit": "Rate Limit",
+}
+
 const SUGGESTION_CHIPS = [
   "Suggest an action movie",
   "Best Arabic series",
@@ -520,7 +527,7 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
                             )}
 
                             {msg.role === "assistant" && msg.model && msg.model !== "none" && (
-                              <p className="text-[9px] text-white/20">via {MODELS.find((m) => m.id === msg.model)?.name ?? msg.model}</p>
+                              <p className="text-[9px] text-white/20">via {MODEL_BADGE_OVERRIDES[msg.model] ?? MODELS.find((m) => m.id === msg.model)?.name ?? msg.model}</p>
                             )}
                           </div>
                         </div>
