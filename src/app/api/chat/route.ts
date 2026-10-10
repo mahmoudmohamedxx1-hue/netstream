@@ -430,14 +430,15 @@ async function callKiloGuarded(messages: { role: string; content: string }[]): P
 //          breaker caps its cost elsewhere at one 8s attempt per 10-minute
 //          window per server instance.
 async function callGLM(messages: { role: string; content: string }[]): Promise<string> {
-  // hop 1: LLM7 "GLM-5.3-Flash" — KEYLESS shared tier. 12s cap (from
-  // Vercel's shared egress IPs llm7 sometimes tarpits instead of answering
-  // cleanly; don't let it eat the whole request budget). Circuit-breaker:
-  // when the shared pool 429s, skip instantly (retry-after aware, capped
-  // at 10 min) instead of making every user pay the probe cost.
+  // hop 1: LLM7 "GLM-5.3-Flash" — KEYLESS shared tier. 8s cap (working
+  // keyless GLM measured 0.7-2s from Vercel; llm7 sometimes TARPITS instead
+  // of answering cleanly from its shared egress IPs — don't let that eat
+  // the whole request budget). Circuit-breaker: when the shared pool 429s,
+  // skip instantly (retry-after aware, capped at 10 min) instead of making
+  // every user pay the probe cost.
   if (!circuitOpen("llm7-glm")) {
     try {
-      const out = await callLLM7Model(LLM7_GLM_MODEL, messages, 12000)
+      const out = await callLLM7Model(LLM7_GLM_MODEL, messages, 8000)
       resetCircuit("llm7-glm")
       return out
     } catch (e) {
