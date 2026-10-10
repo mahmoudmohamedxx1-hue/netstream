@@ -300,6 +300,15 @@ export function TmdbHome({ onPlay, onPlayNow, continueWatching, myList, onPlayHi
     const intensity = Math.min(Math.abs(x) / 200, 1)
     return 0.25 + intensity * 0.35 // 0.25 → 0.6
   })
+  // Finger-follow (maxtv-style): the whole slide layer glides with the drag
+  // in real time — 45% of finger travel, clamped ±190px (same damping math as
+  // maxtv's hero dragShift). On release the useSpring settles it back with
+  // zero overshoot (damping 40 > critical ≈31 @ stiffness 400, mass 0.6), so
+  // the slide lands buttery-smooth instead of snapping.
+  const slideFollowX = useTransform(dragXSpring, (x) => {
+    const damped = x * 0.45
+    return Math.max(-190, Math.min(190, damped))
+  })
 
   // ── Logical navigation helpers ────────────────────────────────────────────
   // ALL hero navigation (swipe, arrows, dots, autoplay) goes through these so
@@ -381,8 +390,8 @@ export function TmdbHome({ onPlay, onPlayNow, continueWatching, myList, onPlayHi
     if (heroTitles.length <= 1) return
     const el = heroSectionRef.current
     if (!el) return
-    const THRESHOLD = 40   // accumulated |deltaX| to fire a switch
-    const COOLDOWN = 400   // ms — minimum time between switches (one gesture = one title)
+    const THRESHOLD = 32   // accumulated |deltaX| to fire a switch (maxtv parity)
+    const COOLDOWN = 450   // ms — minimum time between switches (one gesture = one title)
     const handler = (e: WheelEvent) => {
       const ax = Math.abs(e.deltaX)
       const ay = Math.abs(e.deltaY)
@@ -404,9 +413,11 @@ export function TmdbHome({ onPlay, onPlayNow, continueWatching, myList, onPlayHi
       if (Math.abs(acc) < THRESHOLD) return
       wheelLockedRef.current = now  // mark the time of this switch
       wheelAccumRef.current = 0
-      // Swipe right (positive deltaX) → previous; swipe left (negative) → next
-      if (acc > 0) goToPrevious()
-      else goToNext()
+      // maxtv trackpad mapping: fingers left → deltaX > 0 → NEXT (content
+      // follows the fingers, like pushing the carousel). Same physical
+      // direction as touch drags in handleDragEnd below.
+      if (acc > 0) goToNext()
+      else goToPrevious()
     }
     el.addEventListener("wheel", handler, { passive: false })
     return () => el.removeEventListener("wheel", handler)
@@ -436,7 +447,7 @@ export function TmdbHome({ onPlay, onPlayNow, continueWatching, myList, onPlayHi
     setIsDragging(false)
     // Reset the drag motion value so the gradient settles back to rest state.
     dragX.set(0)
-    const SWIPE_DISTANCE = 80   // px — minimum drag distance to commit
+    const SWIPE_DISTANCE = 60   // px — minimum drag distance to commit (maxtv: 48)
     const SWIPE_VELOCITY = 500  // px/s — minimum velocity to commit (quick flicks)
     const offset = info.offset.x
     const velocity = info.velocity.x
@@ -453,57 +464,48 @@ export function TmdbHome({ onPlay, onPlayNow, continueWatching, myList, onPlayHi
     }
   }, [goToNext, goToPrevious, dragX])
 
-  // ── Premium slide variants ────────────────────────────────────────────────
-  // Old slide scales DOWN to 0.95 and fades out while sliding opposite to the
-  // swipe direction; new slide scales UP from 1.05 to 1.0 and fades in. This
-  // creates a "push" depth effect (like Apple TV / Disney+) rather than a flat
-  // slide. Spring physics (stiffness 280, damping 30, mass 0.9) give a heavy,
-  // expensive feel — slightly slower settle than a tween, organic ease-out.
-  //
-  // IMPORTANT: the exit variant uses a FAST tween (0.25s) instead of a spring
-  // so the old slide unmounts quickly. Combined with AnimatePresence
-  // mode="wait", this fully unmounts the old slide before the new one mounts —
-  // which prevents the drag-state bug where the exiting slide's internal drag
-  // transform blocks the new slide's drag (swipe only working the first time).
-  const SPRING = { type: "spring" as const, stiffness: 280, damping: 30, mass: 0.9 }
+  // ── Smooth glide slide transition (maxtv-style) ───────────────────────────
+  // The old "depth push" (full-width travel + scale + heavy spring) felt
+  // sluggish: stiffness 280 / damping 30 springs settle slowly and overshoot,
+  // and translating 100% of a 78vh backdrop per frame is expensive. The maxtv
+  // hero feels smooth because every motion is SHORT and eased with one
+  // signature curve — cubic-bezier(0.2, 0.7, 0.3, 1). Here the incoming slide
+  // glides in from 32% with a fade while the outgoing drifts to 16% and fades:
+  // pure compositor transforms (x + opacity only), zero overshoot, 0.5s so it
+  // reads as one fluid sweep continuing the finger-follow release.
+  const GLIDE_EASE: [number, number, number, number] = [0.2, 0.7, 0.3, 1]
   const heroSlideVariants = {
-    enter: (dir: number) => ({ x: dir > 0 ? "100%" : "-100%", opacity: 0, scale: 1.05 }),
-    center: { x: 0, opacity: 1, scale: 1 },
-    exit: (dir: number) => ({ x: dir > 0 ? "-30%" : "30%", opacity: 0, scale: 0.95 }),
+    enter: (dir: number) => ({ x: dir > 0 ? "32%" : "-32%", opacity: 0 }),
+    center: { x: 0, opacity: 1 },
+    exit: (dir: number) => ({ x: dir > 0 ? "-16%" : "16%", opacity: 0 }),
   }
   const heroSlideTransition = {
-    x: SPRING,
-    opacity: { duration: 0.3, ease: "easeOut" as const },
-    scale: SPRING,
-  }
-  // Fast exit transition — the old slide must unmount quickly so its drag
-  // state doesn't block the new slide. mode="wait" ensures the old slide is
-  // fully gone before the new one mounts.
-  const heroExitTransition = {
-    x: { duration: 0.25, ease: "easeOut" as const },
-    opacity: { duration: 0.2, ease: "easeOut" as const },
-    scale: { duration: 0.25, ease: "easeOut" as const },
+    x: { duration: 0.5, ease: GLIDE_EASE },
+    opacity: { duration: 0.4, ease: "easeOut" as const },
   }
 
-  // ── Staggered text entrance ───────────────────────────────────────────────
-  // Title → Metadata → Overview → Buttons cascade in AFTER the image transition
-  // settles (200-300ms delay). Each child uses `staggerChildren` so they appear
-  // in sequence. The `exit` variant fades them out quickly before the slide
-  // leaves, preventing text/background clash during the transition.
+
+  // ── Staggered text entrance (maxtv rise-in) ────────────────────────────────
+  // Title → Metadata → Overview → Buttons cascade with maxtv's signature
+  // rise-in: each block lifts 14px into place with a 0.45s
+  // cubic-bezier(0.2, 0.7, 0.3, 1) tween (replacing the bouncier springs).
+  // Snappier timing (delayChildren 0.25→0.12, stagger 0.08→0.06) so the text
+  // lands while the backdrop glide is still settling — reads as one continuous
+  // motion instead of two sequential effects.
   const contentVariants = {
     hidden: { opacity: 0 },
     visible: {
       opacity: 1,
-      transition: { staggerChildren: 0.08, delayChildren: 0.25 },
+      transition: { staggerChildren: 0.06, delayChildren: 0.12 },
     },
-    exit: { opacity: 0, transition: { duration: 0.2 } },
+    exit: { opacity: 0, transition: { duration: 0.18 } },
   }
   const contentChildVariants = {
-    hidden: { opacity: 0, y: 20 },
+    hidden: { opacity: 0, y: 14 },
     visible: {
       opacity: 1,
       y: 0,
-      transition: { type: "spring" as const, stiffness: 320, damping: 28, mass: 0.8 },
+      transition: { duration: 0.45, ease: GLIDE_EASE },
     },
   }
 
@@ -830,12 +832,13 @@ export function TmdbHome({ onPlay, onPlayNow, continueWatching, myList, onPlayHi
       )}
 
       {/* ═══════════════════════════════════════════════════════════════════════
-          PREMIUM HERO CAROUSEL
-          • Spring-based slide variants (scale 0.95↔1.05 depth push)
+          PREMIUM HERO CAROUSEL (maxtv-smooth)
+          • Finger-follow: slide glides live with the drag, springs back on release
+          • Glide slide transition — cubic-bezier(0.2, 0.7, 0.3, 1), no overshoot
           • Ken Burns slow zoom on the active slide (pauses during drag)
           • Framer Motion drag="x" with elastic boundaries + flick velocity
           • Dynamic gradient overlay that intensifies during the transition
-          • Staggered text entrance (Title → Metadata → Overview → Buttons)
+          • Staggered maxtv rise-in text entrance (Title → Metadata → Overview → Buttons)
           • Hover-only arrows on desktop; always-subtle on mobile
           • Progress-bar dots showing time until auto-advance
           • will-change + hardware acceleration for 60fps
@@ -849,6 +852,15 @@ export function TmdbHome({ onPlay, onPlayNow, continueWatching, myList, onPlayHi
           onMouseEnter={() => setHeroPaused(true)}
           onMouseLeave={() => setHeroPaused(false)}
         >
+          {/* Finger-follow wrapper (maxtv-style): the entire slide layer glides
+              live with the drag (damped 45%, clamped ±190px) and springs back
+              buttery-smooth on release. Never unmounts, so the follow is always
+              ready — this is what makes the swipe feel physical instead of
+              "release-then-animate". */}
+          <motion.div
+            className="absolute inset-0"
+            style={{ x: slideFollowX, willChange: "transform" }}
+          >
           {/* Slide layer — backdrop + Ken Burns + trailer. NO drag here (the
               drag lives on a separate never-unmounting layer below so the drag
               state survives slide transitions). mode="sync" lets the old and
@@ -894,6 +906,7 @@ export function TmdbHome({ onPlay, onPlayNow, continueWatching, myList, onPlayHi
               />
             </motion.div>
           </AnimatePresence>
+          </motion.div>
 
           {/* ══ SEPARATE DRAG LAYER ══
               This transparent layer NEVER unmounts (it's outside AnimatePresence),

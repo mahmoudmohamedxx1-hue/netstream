@@ -3,7 +3,8 @@
 // ═══════════════════════════════════════════════════════════════════════════
 // HeroCarousel — a reusable premium hero carousel with ALL the same features
 // as the home hero:
-//   • Spring-based slide variants (scale 0.95↔1.05 depth push)
+//   • Finger-follow: slide glides live with the drag (maxtv-style)
+//   • Glide slide transition — cubic-bezier(0.2, 0.7, 0.3, 1), no overshoot
 //   • Ken Burns slow zoom on the active slide (pauses during drag)
 //   • Framer Motion drag="x" with elastic boundaries + flick velocity
 //   • Two-finger touchpad wheel swipe (gesture lock, one gesture = one title)
@@ -134,6 +135,15 @@ export function HeroCarousel({ titles, onPlay }: Props) {
     const intensity = Math.min(Math.abs(x) / 200, 1)
     return 0.25 + intensity * 0.35
   })
+  // Finger-follow (maxtv-style): the whole slide layer glides with the drag
+  // in real time — 45% of finger travel, clamped ±190px (same damping math as
+  // maxtv's hero dragShift). On release the useSpring settles it back with
+  // zero overshoot (damping 40 > critical ≈31 @ stiffness 400, mass 0.6), so
+  // the slide lands buttery-smooth instead of snapping.
+  const slideFollowX = useTransform(dragXSpring, (x) => {
+    const damped = x * 0.45
+    return Math.max(-190, Math.min(190, damped))
+  })
 
   // Fetch trailer/logo/maturity when the hero title changes
   useEffect(() => {
@@ -225,8 +235,8 @@ export function HeroCarousel({ titles, onPlay }: Props) {
     if (heroTitles.length <= 1) return
     const el = heroSectionRef.current
     if (!el) return
-    const THRESHOLD = 40
-    const COOLDOWN = 400
+    const THRESHOLD = 32   // accumulated |deltaX| to fire a switch (maxtv parity)
+    const COOLDOWN = 450   // ms — minimum time between switches (one gesture = one title)
     const handler = (e: WheelEvent) => {
       const ax = Math.abs(e.deltaX)
       const ay = Math.abs(e.deltaY)
@@ -243,8 +253,11 @@ export function HeroCarousel({ titles, onPlay }: Props) {
       if (Math.abs(acc) < THRESHOLD) return
       wheelLockedRef.current = now
       wheelAccumRef.current = 0
-      if (acc > 0) goToPrevious()
-      else goToNext()
+      // maxtv trackpad mapping: fingers left → deltaX > 0 → NEXT (content
+      // follows the fingers, like pushing the carousel). Same physical
+      // direction as touch drags in handleDragEnd below.
+      if (acc > 0) goToNext()
+      else goToPrevious()
     }
     el.addEventListener("wheel", handler, { passive: false })
     return () => el.removeEventListener("wheel", handler)
@@ -256,7 +269,7 @@ export function HeroCarousel({ titles, onPlay }: Props) {
   const handleDragEnd = useCallback((_e: any, info: PanInfo) => {
     setIsDragging(false)
     dragX.set(0)
-    const SWIPE_DISTANCE = 80
+    const SWIPE_DISTANCE = 60   // px — minimum drag to commit (maxtv: 48)
     const SWIPE_VELOCITY = 500
     const offset = info.offset.x
     const velocity = info.velocity.x
@@ -267,28 +280,33 @@ export function HeroCarousel({ titles, onPlay }: Props) {
     else goToPrevious()
   }, [goToNext, goToPrevious, dragX])
 
-  // Premium slide variants
-  const SPRING = { type: "spring" as const, stiffness: 280, damping: 30, mass: 0.9 }
+  // Smooth glide slide transition (maxtv-style): short travel (32% in, 16%
+  // out) + fade, eased with maxtv's signature cubic-bezier(0.2, 0.7, 0.3, 1).
+  // Pure compositor transforms (x + opacity only) — no scale, no springs, no
+  // overshoot. Reads as one fluid sweep continuing the finger-follow release.
+  const GLIDE_EASE: [number, number, number, number] = [0.2, 0.7, 0.3, 1]
   const heroSlideVariants = {
-    enter: (dir: number) => ({ x: dir > 0 ? "100%" : "-100%", opacity: 0, scale: 1.05 }),
-    center: { x: 0, opacity: 1, scale: 1 },
-    exit: (dir: number) => ({ x: dir > 0 ? "-30%" : "30%", opacity: 0, scale: 0.95 }),
+    enter: (dir: number) => ({ x: dir > 0 ? "32%" : "-32%", opacity: 0 }),
+    center: { x: 0, opacity: 1 },
+    exit: (dir: number) => ({ x: dir > 0 ? "-16%" : "16%", opacity: 0 }),
   }
   const heroSlideTransition = {
-    x: SPRING,
-    opacity: { duration: 0.3, ease: "easeOut" as const },
-    scale: SPRING,
+    x: { duration: 0.5, ease: GLIDE_EASE },
+    opacity: { duration: 0.4, ease: "easeOut" as const },
   }
 
-  // Staggered text entrance
+  // Staggered text entrance (maxtv rise-in): each block lifts 14px into
+  // place with a 0.45s cubic-bezier(0.2, 0.7, 0.3, 1) tween — snappier
+  // (delayChildren 0.12, stagger 0.06) so text lands while the backdrop
+  // glide is still settling. Reads as one continuous motion.
   const contentVariants = {
     hidden: { opacity: 0 },
-    visible: { opacity: 1, transition: { staggerChildren: 0.08, delayChildren: 0.25 } },
-    exit: { opacity: 0, transition: { duration: 0.2 } },
+    visible: { opacity: 1, transition: { staggerChildren: 0.06, delayChildren: 0.12 } },
+    exit: { opacity: 0, transition: { duration: 0.18 } },
   }
   const contentChildVariants = {
-    hidden: { opacity: 0, y: 20 },
-    visible: { opacity: 1, y: 0, transition: { type: "spring" as const, stiffness: 320, damping: 28, mass: 0.8 } },
+    hidden: { opacity: 0, y: 14 },
+    visible: { opacity: 1, y: 0, transition: { duration: 0.45, ease: GLIDE_EASE } },
   }
 
   if (!current) return null
@@ -307,6 +325,15 @@ export function HeroCarousel({ titles, onPlay }: Props) {
         onMouseEnter={() => setHeroPaused(true)}
         onMouseLeave={() => setHeroPaused(false)}
       >
+        {/* Finger-follow wrapper (maxtv-style): the entire slide layer glides
+            live with the drag (damped 45%, clamped ±190px) and springs back
+            buttery-smooth on release. Never unmounts, so the follow is always
+            ready — this is what makes the swipe feel physical instead of
+            "release-then-animate". */}
+        <motion.div
+          className="absolute inset-0"
+          style={{ x: slideFollowX, willChange: "transform" }}
+        >
         {/* Slide layer — backdrop + Ken Burns + trailer */}
         <AnimatePresence custom={swipeDir} mode="sync">
           <motion.div
@@ -342,6 +369,7 @@ export function HeroCarousel({ titles, onPlay }: Props) {
             />
           </motion.div>
         </AnimatePresence>
+        </motion.div>
 
         {/* Separate drag layer — never unmounts so drag state survives transitions */}
         {heroTitles.length > 1 && (
