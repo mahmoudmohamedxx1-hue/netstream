@@ -4128,3 +4128,28 @@ Work Log:
 Stage Summary:
 - AI pop now uses the website's exact Netflix palette: red #E50914 accents (buttons, user bubbles, hovers, focus rings, model icon), orb-matching red-gradient AI avatars, neutral #141414/#1f1f1f darks — zero violet/indigo anywhere in the AI pop. Live in production on all domains.
 - netstream-best discovery documented: it follows latest production (Vercel auto-routing); the task-15 frozen snapshot stays recoverable via git tag `best-version`, branch `stable`, and immutable deployment dpl_Bvf8EhMTkouhgiasufsJRhH36FjK (READY).
+
+---
+Task ID: 20
+Agent: main (Super Z)
+Task: User request — "make the Horizontal swipe navigation and the slide smooth like maxtv's hero section (github.com/mahmoudmohamedxx1-hue/maxtv)"
+
+Work Log:
+- Cloned and studied maxtv's HeroBanner.tsx. Extracted the exact smoothness recipe: (1) live finger-follow — content container follows the pointer during the swipe via transform translateX(dragPx*0.45, clamped ±170px) with transition:none while dragging; (2) fast settle-back — 200ms ease-out transition on release; (3) light rise-in entrance — 0.45s cubic-bezier(0.2, 0.7, 0.3, 1) translateY(12→0)+fade for new content; (4) unified pointer events (touch+mouse+pen) with once-only axis lock; (5) wheel swipe with deltaX accumulation, 32px step, 500ms lock, and direction mapping "fingers left (deltaX>0) → NEXT".
+- Diagnosed NetStream's hero (both tmdb-home.tsx inline home hero AND hero-carousel.tsx reusable browse hero): the backdrop did NOT follow the finger during drag (only the gradient overlay intensified — "release-then-animate" feel); on release it played a heavy "depth push" (full-width 100% travel + scale 1.05↔0.95 + spring stiffness 280/damping 30 → slow settle with overshoot); the trackpad wheel direction was INVERTED vs maxtv (deltaX>0 → previous instead of next); drag commit threshold 80px.
+- Ported the maxtv feel to BOTH heroes (commit f3bcb1a, script scripts/maxtv-smooth-hero.py):
+  * NEW slideFollowX = useTransform(dragXSpring, x => clamp(x*0.45, ±190px)) — the whole slide layer (backdrop+trailer) now glides live with the finger/cursor, damped 45% exactly like maxtv's dragShift math; on release the existing useSpring (stiffness 400, damping 40, mass 0.6 — overdamped, zero overshoot) settles it back buttery-smooth.
+  * Slide layer wrapped in a never-unmounting finger-follow <motion.div style={{x: slideFollowX}}>; the AnimatePresence slide enter/exit lives inside it (no transform conflicts — variants animate the inner slide, finger-follow the outer wrapper).
+  * Glide slide transition replaces the spring push: enter from 32% + fade, exit to 16% + fade, 0.5s with GLIDE_EASE = maxtv's exact cubic-bezier(0.2, 0.7, 0.3, 1); pure compositor transforms (x+opacity only — no scale, no springs, no overshoot).
+  * Content entrance = maxtv rise-in: children lift y:14→0 with 0.45s GLIDE_EASE tween (replacing springs), snappier stagger (delayChildren 0.25→0.12, stagger 0.08→0.06) so text lands while the glide settles.
+  * Wheel: direction flipped to maxtv mapping (deltaX>0 → NEXT), threshold 40→32px, cooldown 400→450ms. Touch drag direction was already identical to maxtv (drag left → next).
+  * Drag commit distance 80→60px (maxtv uses 48). Removed dead heroExitTransition const.
+- Gates: eslint clean; tsc 0 src errors.
+- Browser verification (agent-browser, real mouse gestures on dev):
+  * Home hero: mid-drag wrapper transform translateX(-39.64px) — live finger-follow; drag-left commit advanced Matchbox→Spider-Man; after release transform:none (sprung back).
+  * Wheel (dot-index ground truth): active dot 2 --wheel deltaX+60--> dot 3 (NEXT); dot 3 --wheel deltaX-60--> dot 2 (PREVIOUS) — maxtv mapping confirmed.
+  * Browse hero (Movies tab): mid-drag translateX(-50.7px); swipe commit dot 0→1; spring settling at -0.01px. No console/page errors.
+- Production: deploy dpl_CrBFX6qR86uutzKuWRUHagABbjw5 READY. Verified served bundle (page-f6bdf9cd1d9d1278.js) contains BOTH GLIDE_EASE arrays (ei=[.2,.7,.3,1] home + ey=[.2,.7,.3,1] browse) and zero old stiffness:280 springs. netstream-navy HTTP 200 (netstream-best follows latest production per task-19 documentation).
+
+Stage Summary:
+- Both NetStream heroes now swipe exactly like maxtv: the backdrop physically follows your finger/cursor (damped 45%, clamped ±190px), releases spring back with zero overshoot, committed slides glide in on maxtv's signature cubic-bezier(0.2, 0.7, 0.3, 1) with a 14px rise-in text cascade, and two-finger trackpad swipes use maxtv's direction (fingers left → next). Verified by real mouse-gesture tests on dev and byte-level checks on the production bundle.
