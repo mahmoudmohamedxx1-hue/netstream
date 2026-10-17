@@ -4153,3 +4153,34 @@ Work Log:
 
 Stage Summary:
 - Both NetStream heroes now swipe exactly like maxtv: the backdrop physically follows your finger/cursor (damped 45%, clamped ±190px), releases spring back with zero overshoot, committed slides glide in on maxtv's signature cubic-bezier(0.2, 0.7, 0.3, 1) with a 14px rise-in text cascade, and two-finger trackpad swipes use maxtv's direction (fingers left → next). Verified by real mouse-gesture tests on dev and byte-level checks on the production bundle.
+
+---
+Task ID: 21
+Agent: main (Super Z)
+Task: User request — "use that skills to improve the website ui/ux and especially for the mobile because the ui/ux user experience for mobile is so bad really" (with a list of UI/UX skill repos)
+
+Work Log:
+- Cloned + absorbed the referenced skill repos into .refs/ (git-excluded, eslint-ignored): ui-ux-pro-max-skill, apple-design-skill (HIG), impeccable (ios.md/layout/polish/animate), ui-craft (responsive.md). Extracted the actionable mobile rulebook: 44×44 minimum touch targets, safe-area insets (env(safe-area-inset-*)), svh/dvh viewport units, bottom navigation for 2–5 top-level sections, 16px input font (iOS zoom), hover gated to (hover:hover) pointers, modal scroll-lock, 150–300ms motion windows, sticky-hover avoidance.
+- AUDIT (headless iPhone-14-viewport measurements + code review) — 14 evidence-backed findings:
+  * CRITICAL: row scrollers had touch-action: pan-x only (tmdb-home ×2, tmdb-browse-grid ×1) → vertical page scrolling was DEAD for touches starting on any row (rows cover most of the mobile screen). Measured computed style confirmed pan-x.
+  * CRITICAL: TitleDetail title/actions overlay measured 302px inside a 219px backdrop at 390px → top 83px (badges/title/rating) clipped invisible on every mobile detail view.
+  * CRITICAL (iOS): globals.css `.fixed { position: -webkit-sticky }` unlayered rule beat Tailwind's .fixed on iOS → every fixed overlay (player, search, AI chat at end of DOM) could be pushed out of the viewport; also `.h-[78vh] { -webkit-fill-available }` made the hero full-viewport + URL-bar-fragile.
+  * Top nav: icon-only 28×28 GooeyNav buttons at the TOP of the screen (unreachable thumb-zone, unlabeled); action buttons 36×36; hero dots 6×32px; player controls 34×26px; AI chat header 32px; no bottom tab bar.
+  * AI chat didn't lock body scroll while open (page scrolled behind the full-screen panel).
+  * .specular-card-outline:hover scale(1.08)+glow stuck permanently on tapped cards on touch devices.
+  * No safe-area bottom padding on any modal/footer (home indicator overlap).
+- FIXES (commit 7f59f4c, 15 files, +306/−148):
+  * Rows: touch-pan-x → touch-pan-x touch-pan-y (browser axis-lock: horizontal swipes scroll the row, vertical swipes scroll the page).
+  * TitleDetail: overlay reflows BELOW the backdrop on mobile (-mt-14 gradient overlap), absolute overlay preserved on sm+; close/mute 44×44; selects min-h-11; CTAs min-h-11 + active:scale-95.
+  * globals.css: removed both iOS hacks (sticky-.fixed, fill-available hero); new .h-hero utility (78vh fallback → 78svh under @supports — small-viewport units: never clipped behind the URL bar, never resizes during scroll); hover zoom/glow gated to @media (hover:hover) and (pointer:fine).
+  * NEW src/components/netflix/mobile-tab-bar.tsx: Netflix-style bottom tab bar (Home/Series/Movies/My List — HIG "2–5 top-level sections"), 56px+ labeled targets, white-active/gray-inactive, safe-area-inset-bottom, active:scale-90, backdrop blur, z-40 (below all modals), lg:hidden. Wired in page.tsx with the same active/onNav as the navbar + page bottom clearance pb-[calc(64px+env(safe-area-inset-bottom))] lg:pb-0.
+  * Navbar: removed the 28×28 mobile GooeyNav row; language/downloads/search → h-11 w-11 (44px); safe-area-inset-top padding (PWA standalone/notch).
+  * Player modal: all 8 control-strip buttons 44×44 on mobile (compact sm:h-auto), Server/Quality/Season selects h-11 sm:h-9, "+More" h-11, close/fullscreen 44×44, card pb-[env(safe-area-inset-bottom)].
+  * AI chat: body scroll lock while open (same pattern as player/search/detail); header buttons 32→40px; model button + menu rows 44px; send 36→44px; input 16px text on mobile (iOS zoom prevention); composer pb safe-area; AI orb repositioned above the tab bar (bottom-[calc(76px+env(safe-area-inset-bottom))] lg:bottom-6).
+  * Search overlay + downloads panel close 44px; footer + search + title-detail safe-area bottoms.
+- GATES: eslint clean (added .refs/** to eslint ignores — all 40 "new" errors were the cloned reference repos, not src); tsc 0 src errors; production build passes; dev.log clean.
+- BROWSER VERIFICATION (agent-browser, real measurements at 390×844): tab bar 4 tabs @ 98×56px ✓; navbar actions 44×44 ✓; row touchAction "pan-x pan-y" ✓; TitleDetail overlayClipped:false + title visible + close 44×44 ✓; hero dots 44×44 (5 dots) ✓; player controls all 44×44 ✓; AI chat bodyLocked:true + send 44×44 ✓; orb above tab bar ✓; no horizontal overflow ✓. Desktop 1440×900: tab bar hidden ✓, GooeyNav visible ✓, bottom padding 0 ✓, no overflow ✓. Screenshots: scripts/audit/01–13.
+- Production: push 7f59f4c → deploy dpl_EXD5bqGZwdwrrvVwGUyttsTKf5n3 (see stage summary).
+
+Stage Summary:
+- The mobile experience is rebuilt around the skills' rules: the page now scrolls properly from anywhere (the pan-x bug was the single biggest "so bad" factor), navigation lives in a Netflix-style bottom tab bar in the thumb zone, every interactive control is ≥44px, title detail pages are no longer clipped, modals lock background scroll, safe areas are respected on notched phones, and tapped cards no longer stick in hover-zoom. Desktop is pixel-identical in behavior (tab bar hidden ≥ lg, compact controls restored at sm+).
