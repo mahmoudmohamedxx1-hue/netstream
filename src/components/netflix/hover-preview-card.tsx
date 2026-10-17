@@ -10,11 +10,20 @@
 // FIX 2: The popup autoplays a muted YouTube trailer (via youtube-nocookie)
 // after ~800ms, cross-fading from the backdrop image. If the trailer errors
 // or doesn't exist, the backdrop image stays — never a black box.
+//
+// FIX 3 (mobile): On touch devices the popup opens via a 500ms long-press
+// (instantly — no extra hover delay) and behaves like a proper mobile
+// popover: a dim scrim behind it, an X button, 44px touch targets — and it
+// dismisses on ANY scroll or finger movement, or by tapping the scrim.
+// Synthetic mouse events from taps (iOS sticky hover) are ignored so a
+// plain tap never opens the preview, and the click that follows a
+// long-press is suppressed so lifting the finger doesn't also start
+// playback.
 
 import { useEffect, useRef, useState, useCallback } from "react"
 import { createPortal } from "react-dom"
 import { motion } from "framer-motion"
-import { Play, Plus, Check, Star, ThumbsUp, ChevronDown, Film, Tv, Loader2, Volume2, VolumeX, Download } from "lucide-react"
+import { Play, Plus, Check, Star, ThumbsUp, ChevronDown, Film, Tv, Loader2, Volume2, VolumeX, Download, X } from "lucide-react"
 import { Poster } from "./poster"
 import { TrailerIframe } from "./trailer-iframe"
 import { DownloadHelper } from "./download-helper"
@@ -120,7 +129,14 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
   const [muted, setMuted] = useState(true)
   const [resolvedImdbId, setResolvedImdbId] = useState<string | null>(title.imdbId)
   const [downloadOpen, setDownloadOpen] = useState(false)
-  const [popupPos, setPopupPos] = useState<{ left: number; top: number } | null>(null)
+  const [popupPos, setPopupPos] = useState<{ left: number; top: number; width: number } | null>(null)
+  // Touch device? (no hover / coarse pointer). Computed once — drives the
+  // mobile popover behavior (long-press open, scrim, dismiss-on-scroll).
+  const [coarsePointer] = useState(() =>
+    typeof window !== "undefined" && typeof window.matchMedia === "function"
+      ? window.matchMedia("(hover: none), (pointer: coarse)").matches
+      : false
+  )
 
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const trailerTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -129,6 +145,11 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
   const touchMoved = useRef(false)
   const cardRefInternal = useRef<HTMLButtonElement | null>(null)
   const isHovering = useRef(false) // shared hover state for card + popup
+  const expandedRef = useRef(false)    // mirrors `expanded` for touch handlers
+  const longPressFired = useRef(false) // long-press opened the preview?
+  const touchActiveRef = useRef(false) // a touch session is in progress
+  const touchOpenedRef = useRef(false) // preview opened from touch (hybrid devices)
+  const touchStartPos = useRef<{ x: number; y: number } | null>(null)
 
   const effectiveImdbId = resolvedImdbId ?? title.imdbId
   const inList = effectiveImdbId ? isInWatchlist(effectiveImdbId) : false
@@ -138,17 +159,26 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
   const backdropSrc = preview?.backdrop ?? title.backdrop
   const trailerKey = preview?.trailerSite === "YouTube" ? preview.trailerKey : null
 
-  // Compute popup position from card's bounding rect, clamped to viewport
+  // Compute popup position from card's bounding rect, clamped to viewport.
+  // Width is responsive (never wider than viewport − gutters) and the whole
+  // popup is kept inside the viewport vertically (video + action row).
   const computePosition = useCallback(() => {
     const el = cardRefInternal.current
     if (!el) return
     const rect = el.getBoundingClientRect()
-    let left = rect.left + rect.width / 2 - POPUP_WIDTH / 2
+    // 320px fixed overflows small phones (320px iPhone SE) — cap to viewport
+    const width = Math.min(POPUP_WIDTH, window.innerWidth - 2 * POPUP_GAP)
+    let left = rect.left + rect.width / 2 - width / 2
     let top = rect.top
-    // Clamp to viewport
-    left = Math.max(POPUP_GAP, Math.min(left, window.innerWidth - POPUP_WIDTH - POPUP_GAP))
-    top = Math.max(POPUP_GAP, top)
-    setPopupPos({ left, top })
+    // Clamp horizontally
+    left = Math.max(POPUP_GAP, Math.min(left, window.innerWidth - width - POPUP_GAP))
+    // If the popup would run past the bottom of the viewport, slide it up so
+    // the whole card (16:9 video + ~150px metadata) stays visible.
+    const estHeight = (width * 9) / 16 + 150
+    top = top + estHeight > window.innerHeight - POPUP_GAP
+      ? Math.max(POPUP_GAP, window.innerHeight - estHeight - POPUP_GAP)
+      : Math.max(POPUP_GAP, top)
+    setPopupPos({ left, top, width })
   }, [])
 
   const clearAllTimers = () => {
@@ -161,12 +191,14 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
   const handleClose = () => {
     clearAllTimers()
     setExpanded(false)
+    expandedRef.current = false
     setShowTrailer(false)
     setTrailerFailed(false)
     setPreview(null)
     setPreviewLoading(false)
     setPopupPos(null)
     setResolvedImdbId(title.imdbId)
+    touchOpenedRef.current = false
   }
 
   // Reposition on scroll — use a ref to avoid accessing handleClose before declaration
@@ -176,34 +208,19 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
   useEffect(() => {
     if (!expanded) return
     computePosition()
-    const onScroll = () => { computePosition(); if (!isHovering.current) handleCloseRef.current() }
+    const onScroll = () => {
+      // Touch: ANY scroll dismisses the preview — it must never follow the
+      // page or linger while scrolling (user-reported mobile bug).
+      if (coarsePointer) { handleCloseRef.current(); return }
+      // Mouse: reposition while hovering; close once the pointer left.
+      // Hybrid devices (touchscreen + mouse): a touch-opened preview also
+      // dismisses on scroll; only a real hover keeps repositioning.
+      computePosition()
+      if (!isHovering.current || touchOpenedRef.current) handleCloseRef.current()
+    }
     window.addEventListener("scroll", onScroll, true)
     return () => window.removeEventListener("scroll", onScroll, true)
-  }, [expanded, computePosition])
-
-  const handleEnter = () => {
-    isHovering.current = true
-    if (closeTimer.current) { clearTimeout(closeTimer.current); closeTimer.current = null }
-    if (hoverTimer.current) clearTimeout(hoverTimer.current)
-    hoverTimer.current = setTimeout(() => {
-      setExpanded(true)
-      computePosition()
-      const cached = previewCache.get(title.tmdbId)
-      if (cached !== undefined) {
-        setPreview(cached)
-        setResolvedImdbId(cached?.imdbId ?? title.imdbId)
-        startTrailerTimer(cached?.trailerKey)
-      } else {
-        setPreviewLoading(true)
-        fetchPreview(title).then(d => {
-          setPreview(d)
-          setPreviewLoading(false)
-          setResolvedImdbId(d?.imdbId ?? title.imdbId)
-          startTrailerTimer(d?.trailerKey)
-        }).catch(() => setPreviewLoading(false))
-      }
-    }, hoverDelay)
-  }
+  }, [expanded, computePosition, coarsePointer])
 
   const startTrailerTimer = (key: string | null | undefined) => {
     if (!key) return
@@ -211,47 +228,129 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
     trailerTimer.current = setTimeout(() => setShowTrailer(true), 800)
   }
 
+  // Open the preview NOW (state + position + preview/trailer fetch kick-off).
+  const expandNow = () => {
+    setExpanded(true)
+    expandedRef.current = true
+    computePosition()
+    const cached = previewCache.get(title.tmdbId)
+    if (cached !== undefined) {
+      setPreview(cached)
+      setResolvedImdbId(cached?.imdbId ?? title.imdbId)
+      startTrailerTimer(cached?.trailerKey)
+    } else {
+      setPreviewLoading(true)
+      fetchPreview(title).then(d => {
+        setPreview(d)
+        setPreviewLoading(false)
+        setResolvedImdbId(d?.imdbId ?? title.imdbId)
+        startTrailerTimer(d?.trailerKey)
+      }).catch(() => setPreviewLoading(false))
+    }
+  }
+
+  // Open the preview. Desktop hover waits `hoverDelay` (intent); touch
+  // long-press opens immediately.
+  const openPreview = (fromTouch = false) => {
+    isHovering.current = true
+    touchOpenedRef.current = fromTouch
+    if (closeTimer.current) { clearTimeout(closeTimer.current); closeTimer.current = null }
+    if (fromTouch) { expandNow(); return }
+    if (hoverTimer.current) clearTimeout(hoverTimer.current)
+    hoverTimer.current = setTimeout(expandNow, hoverDelay)
+  }
+
+  const handleEnter = () => {
+    // On touch devices taps emit synthetic mouseenter (iOS sticky hover) —
+    // ignore them; the preview opens ONLY via the 500ms long-press.
+    if (coarsePointer) return
+    openPreview()
+  }
+
   const handleLeave = () => {
+    // Touch: synthetic mouseleave (e.g. sticky-hover release) must not close
+    // a preview the user just long-pressed open — touch dismissal is handled
+    // by scroll / finger movement / the scrim only.
+    if (coarsePointer) return
     isHovering.current = false
     // Small delay so moving from card to popup doesn't close it
     closeTimer.current = setTimeout(() => handleClose(), 200)
   }
 
   // ── Touch handlers for mobile long-press ──────────────────────────────────
-  // On mobile, hover doesn't work. Long-press (500ms) opens the hover card.
-  // If the user moves their finger before 500ms, it's treated as a scroll
-  // attempt — the timer is cancelled and the card doesn't open.
-  const handleTouchStart = () => {
+  // On touch devices there is no hover: a 500ms long-press opens the preview
+  // instantly (no extra hover delay). The preview then behaves like a mobile
+  // popover: it closes on any scroll or finger movement, and taps on the scrim
+  // dismiss it. The synthetic click after a long-press is suppressed so
+  // releasing the finger doesn't ALSO start playback.
+  const TOUCH_SLOP = 10 // px of finger jitter tolerated during a long-press
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    touchActiveRef.current = true
     touchMoved.current = false
+    longPressFired.current = false
+    const t = e.touches[0]
+    touchStartPos.current = t ? { x: t.clientX, y: t.clientY } : null
     if (touchTimer.current) clearTimeout(touchTimer.current)
     touchTimer.current = setTimeout(() => {
       if (!touchMoved.current) {
-        handleEnter()
+        longPressFired.current = true
+        openPreview(true) // from touch → open immediately
       }
     }, 500)
   }
 
-  const handleTouchMove = () => {
-    touchMoved.current = true
-    if (touchTimer.current) {
-      clearTimeout(touchTimer.current)
-      touchTimer.current = null
+  const handleTouchMove = (e: React.TouchEvent) => {
+    // 10px slop: long-press jitter doesn't count as a scroll gesture
+    if (!touchMoved.current) {
+      const t = e.touches[0]
+      if (!touchStartPos.current || !t) {
+        touchMoved.current = true
+      } else {
+        const dx = t.clientX - touchStartPos.current.x
+        const dy = t.clientY - touchStartPos.current.y
+        if (Math.hypot(dx, dy) > TOUCH_SLOP) touchMoved.current = true
+      }
+    }
+    if (!touchMoved.current) return
+    // Finger moved → this is a scroll gesture. Cancel any pending open…
+    if (touchTimer.current) { clearTimeout(touchTimer.current); touchTimer.current = null }
+    if (hoverTimer.current) { clearTimeout(hoverTimer.current); hoverTimer.current = null }
+    // …and if the preview already opened, close it — it must never linger
+    // while the page scrolls underneath (user-reported mobile bug).
+    if (expandedRef.current) handleClose()
+  }
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    touchActiveRef.current = false
+    if (touchTimer.current) { clearTimeout(touchTimer.current); touchTimer.current = null }
+    if (longPressFired.current) {
+      // The preview opened from this long-press — suppress the synthetic
+      // click so lifting the finger doesn't ALSO start playback.
+      e.preventDefault()
+    } else if (hoverTimer.current) {
+      // Quick tap: cancel any pending open (synthetic mouseenter path on
+      // devices where matchMedia failed to detect the touch screen).
+      clearTimeout(hoverTimer.current)
+      hoverTimer.current = null
     }
   }
 
-  const handleTouchEnd = () => {
-    if (touchTimer.current) {
-      clearTimeout(touchTimer.current)
-      touchTimer.current = null
-    }
+  const handleTouchCancel = () => {
+    touchActiveRef.current = false
+    touchMoved.current = true // treat as a gesture → cancel everything
+    if (touchTimer.current) { clearTimeout(touchTimer.current); touchTimer.current = null }
+    if (hoverTimer.current) { clearTimeout(hoverTimer.current); hoverTimer.current = null }
   }
 
   const handlePopupEnter = () => {
+    if (coarsePointer) return
     isHovering.current = true
     if (closeTimer.current) { clearTimeout(closeTimer.current); closeTimer.current = null }
   }
 
   const handlePopupLeave = () => {
+    if (coarsePointer) return
     isHovering.current = false
     closeTimer.current = setTimeout(() => handleClose(), 200)
   }
@@ -276,16 +375,19 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
   return (
     <div
       className={cn(
-        "group/card relative",
+        "group/card relative select-none",
         rank
           ? "w-[100vw] shrink-0 sm:w-[400px] md:w-[500px]"
           : (inGrid ? "w-full aspect-video" : "w-[68vw] shrink-0 aspect-video sm:w-[280px] md:w-[320px]")
       )}
+      style={{ WebkitTouchCallout: "none" } as React.CSSProperties}
       onMouseEnter={handleEnter}
       onMouseLeave={handleLeave}
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}
+      onTouchCancel={handleTouchCancel}
+      onContextMenu={(e) => { if (touchActiveRef.current) e.preventDefault() }}
     >
         {rank && (
           /* Large outlined number BEHIND the poster (Netflix style).
@@ -312,7 +414,7 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
         <div className={cn("relative h-full", rank ? "aspect-video z-10 ml-auto w-[85%]" : "h-full")}>
           <button
             ref={(el) => { cardRefInternal.current = el; cardRef?.(el) }}
-            onClick={() => onPlay(title)}
+            onClick={() => { handleClose(); onPlay(title) }}
             className={cn("specular-card-outline block h-full w-full overflow-hidden rounded-md bg-neutral-900 text-left transition-transform duration-200 ", focused ? "z-20 scale-105 ring-2 ring-white ring-offset-2 ring-offset-black focus:outline-none" : "focus:outline-none")}
           >
             <div className="relative h-full bg-neutral-900">
@@ -342,12 +444,21 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
 
       {/* Portal popup — rendered to document.body with position:fixed */}
       {expanded && popupPos && typeof document !== "undefined" && createPortal(
+        <>
+        {/* Touch: dim scrim behind the popup — tap anywhere to dismiss */}
+        {coarsePointer && (
+          <div
+            className="fixed inset-0 z-[199] bg-black/50"
+            onClick={() => handleClose()}
+            aria-hidden
+          />
+        )}
         <motion.div
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.2, ease: "easeOut" }}
           className="fixed z-[200] overflow-hidden rounded-lg bg-[#181818] shadow-2xl ring-1 ring-white/10"
-          style={{ left: popupPos.left, top: popupPos.top, width: POPUP_WIDTH, transformOrigin: "center top" }}
+          style={{ left: popupPos.left, top: popupPos.top, width: popupPos.width, transformOrigin: "center top" }}
           onMouseEnter={handlePopupEnter}
           onMouseLeave={handlePopupLeave}
         >
@@ -377,14 +488,24 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
               {title.type === "series" ? <Tv className="h-3 w-3" /> : <Film className="h-3 w-3" />}
               {title.type === "series" ? t("seriesShort") : t("movieShort")}
             </span>
-            {/* Mute toggle */}
+            {/* Touch: explicit close button (44px) — discoverable dismissal */}
+            {coarsePointer && (
+              <button
+                onClick={handleClose}
+                className="absolute left-2 top-2 grid h-11 w-11 place-items-center rounded-full bg-black/60 text-white transition active:scale-90"
+                aria-label="Close preview"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            )}
+            {/* Mute toggle — 44px on touch, 28px on desktop */}
             {showTrailer && !trailerFailed && (
               <button
                 onClick={() => setMuted(m => !m)}
-                className="absolute bottom-2 right-2 grid h-7 w-7 place-items-center rounded-full border border-white/40 bg-black/60 text-white transition hover:bg-black/80"
+                className="absolute bottom-2 right-2 grid h-11 w-11 place-items-center rounded-full border border-white/40 bg-black/60 text-white transition hover:bg-black/80 active:scale-90 sm:h-7 sm:w-7 sm:active:scale-100"
                 aria-label={muted ? "Unmute" : "Mute"}
               >
-                {muted ? <VolumeX className="h-3.5 w-3.5" /> : <Volume2 className="h-3.5 w-3.5" />}
+                {muted ? <VolumeX className="h-4 w-4 sm:h-3.5 sm:w-3.5" /> : <Volume2 className="h-4 w-4 sm:h-3.5 sm:w-3.5" />}
               </button>
             )}
             {previewLoading && (
@@ -392,20 +513,21 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
             )}
           </div>
 
-          {/* Action buttons + metadata — all in the same card, no scrolling needed */}
+          {/* Action buttons + metadata — all in the same card, no scrolling needed.
+              44px targets on touch (HIG), compact 36px circles on desktop. */}
           <div className="p-3">
             <div className="flex items-center gap-2">
-              <button onClick={() => onPlay(title)} className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-white text-black transition hover:bg-white/85" aria-label={t("play")}><Play className="h-4 w-4 fill-black" /></button>
-              <button onClick={handleAdd} disabled={!effectiveImdbId} className={cn("inline-flex h-9 w-9 items-center justify-center rounded-full border-2 transition", inList ? "border-white/60 text-white" : "border-white/40 text-white hover:border-white")} aria-label={inList ? "Remove" : "Add"}>{inList ? <Check className="h-4 w-4" /> : <Plus className="h-4 w-4" />}</button>
+              <button onClick={() => { handleClose(); onPlay(title) }} className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-white text-black transition hover:bg-white/85 active:scale-90 sm:h-9 sm:w-9 sm:active:scale-100" aria-label={t("play")}><Play className="h-4 w-4 fill-black" /></button>
+              <button onClick={handleAdd} disabled={!effectiveImdbId} className={cn("inline-flex h-11 w-11 items-center justify-center rounded-full border-2 transition active:scale-90 sm:h-9 sm:w-9 sm:active:scale-100", inList ? "border-white/60 text-white" : "border-white/40 text-white hover:border-white")} aria-label={inList ? "Remove" : "Add"}>{inList ? <Check className="h-4 w-4" /> : <Plus className="h-4 w-4" />}</button>
               <button
                 onClick={() => setDownloadOpen(true)}
                 disabled={!effectiveImdbId}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-full border-2 border-white/40 text-white transition hover:border-white disabled:opacity-40"
+                className="inline-flex h-11 w-11 items-center justify-center rounded-full border-2 border-white/40 text-white transition hover:border-white disabled:opacity-40 active:scale-90 sm:h-9 sm:w-9 sm:active:scale-100"
                 aria-label={t("downloadVideo")}
                 title={t("downloadVideo")}
               ><Download className="h-4 w-4" /></button>
-              <button className="inline-flex h-9 w-9 items-center justify-center rounded-full border-2 border-white/40 text-white transition hover:border-white" aria-label="Like"><ThumbsUp className="h-4 w-4" /></button>
-              <button onClick={() => onPlay(title)} className="ml-auto inline-flex h-9 w-9 items-center justify-center rounded-full border-2 border-white/40 text-white transition hover:border-white" aria-label="More info"><ChevronDown className="h-4 w-4" /></button>
+              <button className="inline-flex h-11 w-11 items-center justify-center rounded-full border-2 border-white/40 text-white transition hover:border-white active:scale-90 sm:h-9 sm:w-9 sm:active:scale-100" aria-label="Like"><ThumbsUp className="h-4 w-4" /></button>
+              <button onClick={() => { handleClose(); onPlay(title) }} className="ml-auto inline-flex h-11 w-11 items-center justify-center rounded-full border-2 border-white/40 text-white transition hover:border-white active:scale-90 sm:h-9 sm:w-9 sm:active:scale-100" aria-label="More info"><ChevronDown className="h-4 w-4" /></button>
             </div>
             <div className="mt-2.5 flex flex-wrap items-center gap-2 text-[11px] text-white/80">
               {mp && <span className="font-semibold text-green-400">{mp}% Match</span>}
@@ -427,7 +549,9 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
             title={title.title}
             poster={title.poster}
           />
-        </motion.div>,
+        </motion.div>
+        </>
+        ,
         document.body
       )}
     </div>

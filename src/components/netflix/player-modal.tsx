@@ -64,12 +64,11 @@ function toggleFavorite(id: string): string[] {
   return next
 }
 
-// ── Preferred providers (372464f-era user-tuned order, restored 2026-10-10) ──
-// These are the session default and the first providers tried by the
-// auto-switch logic, in this order. Restored per user instruction: the
-// 2026-10-08 cut (moviesapi.to + anyembed only) was correct from the dev
-// datacenter but residential users reach the full catalog fine.
-const PREFERRED_PROVIDERS = ["vidfast.pro", "vidcore.net", "superembed", "moviesapi.to", "2embed.cc"]
+// ── Preferred providers ──
+// MoviesHub (vidsrc.me) leads per user instruction (2026-10-17): first in
+// the dropdown, session default, and first tried by the auto-switch logic.
+// (Kept in sync with PREFERRED_IDS in lib/vidsrc.ts.)
+const PREFERRED_PROVIDERS = ["vidsrc.me", "vidfast.pro", "vidcore.net", "superembed", "moviesapi.to", "2embed.cc"]
 // TMDB-supporting providers — used when a title has no IMDB ID (tmdb- prefix).
 // AnyEmbed, VidFast, VidLink and Videasy accept tmdb-keyed routes.
 const TMDB_PROVIDERS = ["anyembed", "vidfast.pro", "vidlink.pro", "videasy.net"]
@@ -129,9 +128,8 @@ const QUALITY_OPTIONS = [
 ] as const
 
 // Map quality to providers that work in browser iframes.
-// 372464f-era mapping (restored): the user-tuned top providers lead on both
-// mobile and desktop — vidfast (auto/1080p/720p-m), vidcore (720p), moviesapi
-// (480p).
+// MoviesHub is the default (auto) per user instruction (2026-10-17);
+// explicit quality picks keep the fast providers that expose that quality.
 function sourceForQuality(quality: string, isMobile: boolean): string {
   if (isMobile) {
     switch (quality) {
@@ -142,7 +140,7 @@ function sourceForQuality(quality: string, isMobile: boolean): string {
       case "480p":
         return "moviesapi.to"
       default:
-        return "vidfast.pro" // auto → VidFast on mobile
+        return "vidsrc.me" // auto → MoviesHub on mobile
     }
   }
   switch (quality) {
@@ -153,7 +151,7 @@ function sourceForQuality(quality: string, isMobile: boolean): string {
     case "480p":
       return "moviesapi.to"
     default:
-      return "vidfast.pro" // auto → VidFast on desktop
+      return "vidsrc.me" // auto → MoviesHub on desktop
   }
 }
 
@@ -222,9 +220,9 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   const [quality, setQuality] = useState<string>("auto")
   const savedSourceId = title.sourceId ?? undefined
   const isTmdbOnly = title.imdbId?.startsWith("tmdb-")
-  // Default provider: VidFast — the 372464f-era session default (restored
-  // 2026-10-10 per user instruction). A saved/last provider wins, BUT only if
-  // it still exists in the catalog — with the full catalog restored, choices
+  // Default provider: MoviesHub (vidsrc.me) — the session default per user
+  // instruction (2026-10-17). A saved/last provider wins, BUT only if it
+  // still exists in the catalog — with the full catalog restored, choices
   // saved back in the era (vidlink.pro etc.) automatically resurrect.
   const savedLastProvider = lastProvider.get(title.imdbId)
   const defaultSource =
@@ -233,7 +231,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     // TMDB-only titles (no IMDb id) can ONLY play on TMDB-keyed providers —
     // anything else would get a garbage /movie/ URL (user-reported "HTTP 403"/
     // black screen). AnyEmbed accepts tmdb-{id} directly.
-    (isTmdbOnly ? "anyembed" : "vidfast.pro")
+    (isTmdbOnly ? "anyembed" : "vidsrc.me")
   const [sourceId, setSourceId] = useState<string>(defaultSource)
   // Mirror of the mount-time default — the Arabic override may only replace
   // the SESSION default, never a user/saved pick.
@@ -457,13 +455,14 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     setChainExhausted(false)
   }, [title.imdbId, title.type, season, episode])
 
-  // Chain order (2026-10-10):
-  //   ARABIC titles keep the LATEST version verbatim — ArabSeed first (it
-  //   indexes Arabic titles the global CDNs don't carry), then VidSpark, then
-  //   AnyEmbed. Unchanged per user instruction.
-  //   NON-ARABIC titles use the 372464f-era order: VidFast → VidCore →
-  //   SuperEmbed → VidSpark → 2Embed, with AnyEmbed as the multi-server tail.
-  //   TMDB-only titles (no IMDb id) chain through TMDB-keyed providers only.
+  // Chain order (2026-10-17):
+  //   ARABIC titles keep the LATEST version verbatim — MyCima first (it
+  //   indexes Arabic titles the global CDNs don't carry), then MoviesApi,
+  //   then AnyEmbed. Unchanged per user instruction.
+  //   NON-ARABIC titles: MoviesHub (new default) → VidFast → VidCore →
+  //   SuperEmbed → MoviesApi → 2Embed, with AnyEmbed as the multi-server tail.
+  //   TMDB-only titles (no IMDb id) chain through TMDB-keyed providers only
+  //   (MoviesHub is IMDb-keyed, so it can't lead there).
   const isArabicTitle = meta?.originalLanguage === "ar"
   const providerChain = useMemo(() => {
     const chain: string[] = []
@@ -474,11 +473,11 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
       chain.push("anyembed")
       return chain
     }
-    // ── 372464f-era global chain ──
+    // ── Global chain: MoviesHub first (default provider) ──
     if (isTmdbOnly) {
       chain.push("vidfast.pro", "vidlink.pro", "videasy.net")
     } else {
-      chain.push("vidfast.pro", "vidcore.net", "superembed", "moviesapi.to", "2embed.cc")
+      chain.push("vidsrc.me", "vidfast.pro", "vidcore.net", "superembed", "moviesapi.to", "2embed.cc")
     }
     chain.push("anyembed")
     return chain

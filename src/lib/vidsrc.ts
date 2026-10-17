@@ -8,9 +8,10 @@
 // audience) reach providers that datacenter egress cannot (Cloudflare walls,
 // anti-embed probes and IP-bound stream tokens all resolve fine from home
 // IPs). The catalog is therefore back at full width, in the era's exact
-// tiers/URLs/preferred order:
-//   PREFERRED_IDS = vidfast.pro, vidcore.net, superembed, moviesapi.to,
-//                   2embed.cc   (user-tuned order from the 372464f era)
+// tiers/URLs — with MoviesHub promoted to the front (user instruction
+// 2026-10-17):
+//   PREFERRED_IDS = vidsrc.me (MoviesHub — NEW default), vidfast.pro,
+//                   vidcore.net, superembed, moviesapi.to, 2embed.cc
 //
 // ARABIC stays exactly as the latest version (per user instruction):
 //   ArabSeed (mycina) — the ONLY Arabic provider, search-based, resolved at
@@ -588,11 +589,13 @@ const TIER_5: VideoSource[] = [
   },
 ]
 
-// ── Preferred providers (372464f-era user-tuned order) ──────────────────────
-// These are moved to the front of VIDEO_SOURCES so they appear first in the
-// server dropdown, are the session default, and are tried first by the
-// auto-switch logic.
-const PREFERRED_IDS = ["vidfast.pro", "vidcore.net", "superembed", "moviesapi.to", "2embed.cc"]
+// ── Preferred providers ─────────────────────────────────────────────────
+// MoviesHub (vidsrc.me) leads per user instruction (2026-10-17): it is the
+// FIRST entry in the server dropdown, the session default (VIDEO_SOURCES[0]
+// → used when a title has no saved/last provider), and the first provider
+// tried by the auto-switch / next-server logic. Then the previous
+// user-tuned order.
+const PREFERRED_IDS = ["vidsrc.me", "vidfast.pro", "vidcore.net", "superembed", "moviesapi.to", "2embed.cc"]
 
 const ALL_SOURCES = [
   ...TIER_1,
