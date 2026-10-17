@@ -4184,3 +4184,37 @@ Work Log:
 
 Stage Summary:
 - The mobile experience is rebuilt around the skills' rules: the page now scrolls properly from anywhere (the pan-x bug was the single biggest "so bad" factor), navigation lives in a Netflix-style bottom tab bar in the thumb zone, every interactive control is ≥44px, title detail pages are no longer clipped, modals lock background scroll, safe areas are respected on notched phones, and tapped cards no longer stick in hover-zoom. Desktop is pixel-identical in behavior (tab bar hidden ≥ lg, compact controls restored at sm+).
+
+---
+Task ID: 22
+Agent: main (Super Z)
+Task: User request — (1) fix mobile bug "when I hold on a title to show its trailer it keeps opened even I scrolled down", (2) make MoviesHub the first + default provider, (3) use the provided design skills to improve the main version.
+
+Work Log:
+- DIAGNOSED the trailer bug in hover-preview-card.tsx: on touch, long-press → handleEnter() set isHovering=true, and the scroll listener only closed when !isHovering — which never happens on touch (no mouseleave), so the popup just repositioned (computePosition) forever while scrolling. ALSO: synthetic mouseenter from iOS sticky-hover taps could arm the 1000ms hover timer from a plain tap, and releasing a long-press fired a synthetic click → player opened over the preview. Total open latency was 500ms+1000ms.
+- REBUILT the touch flow (commit 349b381, hover-preview-card.tsx +105/−37):
+  * coarsePointer detection once per mount via matchMedia("(hover: none), (pointer: coarse)") — drives a true mobile-popover mode.
+  * Long-press opens the preview INSTANTLY at 500ms (no extra hoverDelay — was 1.5s total).
+  * ANY scroll (window capture listener) closes the preview in touch mode; finger movement >10px slop (touchmove) closes it too and cancels pending opens; touchcancel handled; Android contextmenu suppressed during touch sessions.
+  * handleEnter/handleLeave/popup-enter/popup-leave no-op on coarse pointers — iOS sticky-hover synthetic events can neither open nor prematurely close the preview.
+  * touchend after a long-press calls e.preventDefault() — the synthetic click is suppressed so lifting the finger doesn't ALSO start playback (React attaches touchend non-passively; click still fires for quick taps → play flow intact).
+  * Hybrid-device path: touchOpenedRef — a touch-opened preview dismisses on scroll even when matchMedia says "fine pointer".
+  * Mobile popover affordances: dim tap-to-dismiss scrim (z-199, touch only), 44px X close button (touch only), all 5 action buttons + mute 44px on mobile (36px/28px preserved ≥sm) with active:scale-90 press feedback.
+  * Popup width now min(320, vw−16) — was fixed 320px which overflowed 320px phones; popup slides up when it would clip the viewport bottom (estHeight = 16:9 + 150px); Play/More-info close the preview.
+  * select-none + WebkitTouchCallout:none on the card container (no iOS text-selection/image-callout during long-press).
+- MOVIESHUB FIRST + DEFAULT (verified alive first: vidsrc.me → 301 → vidsrc.sh player, HTTP 200):
+  * vidsrc.ts: PREFERRED_IDS = ["vidsrc.me", "vidfast.pro", "vidcore.net", "superembed", "moviesapi.to", "2embed.cc"] → MoviesHub is VIDEO_SOURCES[0] (dropdown first, handleNextServer chain first, MOBILE_FALLBACK_CHAIN first).
+  * player-modal.tsx: session defaultSource fallback vidfast.pro → vidsrc.me; sourceForQuality "auto" → vidsrc.me (mobile+desktop; explicit 1080p/720p/480p picks keep vidfast/vidcore/moviesapi); providerChain global branch leads with vidsrc.me; PREFERRED_PROVIDERS const synced; TMDB-only chain (vidfast/vidlink/videasy — vidsrc.me is IMDb-keyed) and Arabic chain (mycima/moviesapi/anyembed) untouched per standing instructions.
+- SKILLS AUDIT (round 2): row-scroll-buttons already 48px mobile targets; reduced-motion + tap-highlight already in globals.css (task 21); content-card.tsx has 32px buttons but is dead code (not imported by any page — left alone). The trailer popup was the last major skills violation → fixed this task.
+- GATES: eslint clean on all 3 files; tsc 0 src errors; production build passes.
+- BROWSER VERIFICATION (agent-browser, iPhone 14 emulation 390×844 on dev):
+  * Long-press 500ms → popup opens with scrim + X + 5×44px action buttons, 320px wide at left:8 (fits 390 viewport); YouTube trailer autoplaying muted.
+  * Finger lift (touchend on popup) → NO player modal (click suppressed).
+  * window.scrollBy(300) → popup GONE + scrim GONE (the reported bug — fixed).
+  * Finger drag +60px (beyond 10px slop) → popup closed.
+  * Quick tap → TitleDetail opens → Play S1 E1 → player iframe = https://vidsrc.me/embed/tv?imdb=tt14976292&season=1&episode=1 (MoviesHub default); Server select reads "Server: MoviesHub"; dropdown order: MoviesHub, VidFast, VidCore, SuperEmbed, VidSpark (23 total).
+  * Desktop 1440×900 (media patched, fresh mounts): hover 1s → popup opens, NO scrim, NO X, 320px; scroll while hovering → popup repositions (stays open); mouse leave → closes.
+- PRODUCTION: push 349b381 → deploy dpl_5a6QZ2aKV5jFsxT8QVoH8t7wJSg8 READY (netstream-navy 200). Verified served chunk app/page-7e991be0a5111ac0.js contains "Close preview", the coarse-pointer media query, z-[199] scrim, and vidsrc.me-first ordering ×2. netstream-best follows latest production per task-19 documentation.
+
+Stage Summary:
+- The long-press trailer preview now behaves like a proper mobile popover: opens instantly on 500ms hold, dismisses on any scroll/drag/scrim-tap/X, never auto-plays on finger release, and can no longer be opened by iOS sticky-hover taps. MoviesHub (vidsrc.me) is the first and default provider everywhere (dropdown, session default, auto quality, fallback chains) while TMDB-only and Arabic chains stay untouched. All verified end-to-end on dev (mobile + desktop) and byte-checked on the production bundle.
