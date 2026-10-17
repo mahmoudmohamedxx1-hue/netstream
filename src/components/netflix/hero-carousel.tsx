@@ -320,7 +320,7 @@ export function HeroCarousel({ titles, onPlay }: Props) {
 
       <section
         ref={heroSectionRef}
-        className="group/hero relative h-[78vh] min-h-[520px] w-full select-none overflow-hidden"
+        className="group/hero h-hero relative min-h-[480px] w-full select-none overflow-hidden"
         style={{ touchAction: "pan-y" }}
         onMouseEnter={() => setHeroPaused(true)}
         onMouseLeave={() => setHeroPaused(false)}
@@ -495,23 +495,27 @@ export function HeroCarousel({ titles, onPlay }: Props) {
           </>
         )}
 
-        {/* Progress-bar dots */}
+        {/* Progress-bar dots — 44px hit areas wrapping the 6px visual bars
+            (Apple HIG minimum touch target) so tapping a specific slide on
+            mobile actually lands. */}
         {heroTitles.length > 1 && (
-          <div className="absolute bottom-8 right-4 z-20 flex items-center gap-2 sm:right-8">
+          <div className="absolute bottom-8 right-4 z-20 flex items-center gap-1 sm:right-8 sm:gap-2">
             {heroTitles.map((tt, i) => (
               <button
                 key={tt.tmdbId}
                 onClick={() => goToIndex(i)}
-                className="relative h-1.5 w-8 overflow-hidden rounded-full bg-white/30 transition-all hover:bg-white/50"
+                className="flex h-11 min-w-11 items-center justify-center px-1.5 transition-transform active:scale-90"
                 aria-label={`Go to slide ${i + 1}`}
               >
-                {i === heroIdx && (
-                  <motion.div
-                    className="absolute inset-y-0 left-0 rounded-full bg-primary"
-                    animate={{ width: `${autoplayProgress * 100}%` }}
-                    transition={{ duration: 0.05, ease: "linear" }}
-                  />
-                )}
+                <span className="relative block h-1.5 w-8 overflow-hidden rounded-full bg-white/30 transition-colors hover:bg-white/50">
+                  {i === heroIdx && (
+                    <motion.div
+                      className="absolute inset-y-0 left-0 rounded-full bg-primary"
+                      animate={{ width: `${autoplayProgress * 100}%` }}
+                      transition={{ duration: 0.05, ease: "linear" }}
+                    />
+                  )}
+                </span>
               </button>
             ))}
           </div>

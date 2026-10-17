@@ -1296,7 +1296,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
     >
       <motion.div
         ref={playerContainerRef}
-        className="relative my-0 w-full max-w-5xl bg-[#0a0a0a] shadow-2xl sm:my-6 sm:rounded-xl"
+        className="relative my-0 w-full max-w-5xl bg-[#0a0a0a] pb-[env(safe-area-inset-bottom)] shadow-2xl sm:my-6 sm:rounded-xl"
         initial={{ y: 24, opacity: 0 }}
         animate={{ y: dragY, opacity: 1 }}
         exit={{ y: 24, opacity: 0 }}
@@ -1311,7 +1311,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
         <button
           onClick={handleClose}
           aria-label="Close player" data-testid="close-player"
-          className="absolute right-3 top-3 z-20 rounded-full bg-black/60 p-2 text-white transition hover:bg-black/80"
+          className="absolute right-3 top-3 z-20 grid h-11 w-11 place-items-center rounded-full bg-black/60 text-white transition hover:bg-black/80 active:scale-90"
         >
           <X className="h-5 w-5" />
         </button>
@@ -1319,7 +1319,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
         {/* Fullscreen button overlay (left of close button) */}
         <button
           onClick={toggleFullscreen}
-          className="absolute right-14 top-3 z-20 rounded-full bg-black/60 p-2 text-white transition hover:bg-black/80"
+          className="absolute right-16 top-3 z-20 grid h-11 w-11 place-items-center rounded-full bg-black/60 text-white transition hover:bg-black/80 active:scale-90"
           title={isFullscreen ? "Exit fullscreen (F)" : "Fullscreen (F)"}
           aria-label="Fullscreen" data-testid="fullscreen-toggle"
         >
@@ -1640,7 +1640,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
               because our items use complex JSX — SelectValue would mirror that JSX
               into the trigger and double the logo. */}
           <Select value={sourceId} onValueChange={handleSourceChange}>
-            <SelectTrigger className="h-9 w-[200px] border-white/20 bg-white/5 text-xs text-white">
+            <SelectTrigger className="h-11 w-[200px] border-white/20 bg-white/5 text-xs text-white sm:h-9">
               <ProviderLogo source={source} size="sm" />
               <span className="truncate text-white/80">
                 <span className="text-white/50">Server:</span>{" "}
@@ -1794,7 +1794,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
           <button
             onClick={() => setShowAdvanced((v) => !v)}
             className={cn(
-              "h-9 rounded-md px-2.5 text-[10px] font-semibold transition",
+              "h-11 rounded-md px-2.5 text-[10px] font-semibold transition sm:h-9",
               showAdvanced
                 ? "bg-primary text-primary-foreground"
                 : "bg-white/10 text-white/70 hover:bg-white/20"
@@ -1806,7 +1806,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
 
           {/* Quality */}
           <Select value={quality} onValueChange={handleQualityChange}>
-            <SelectTrigger className="h-9 w-[110px] border-white/20 bg-white/5 text-xs text-white">
+            <SelectTrigger className="h-11 w-[110px] border-white/20 bg-white/5 text-xs text-white sm:h-9">
               <span className="text-white/50">Quality:</span>
               <SelectValue />
             </SelectTrigger>
@@ -1828,7 +1828,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
                 setLoaded(false)
               }}
             >
-              <SelectTrigger className="h-9 w-[130px] border-white/20 bg-white/5 text-xs text-white">
+              <SelectTrigger className="h-11 w-[130px] border-white/20 bg-white/5 text-xs text-white sm:h-9">
                 <span className="text-white/50">Season:</span>
                 <SelectValue />
               </SelectTrigger>
@@ -1849,7 +1849,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
             </span>
             <button
               onClick={reload}
-              className="inline-flex items-center gap-1.5 rounded-md bg-white/10 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-white/20"
+              className="inline-flex h-11 w-11 items-center justify-center gap-1.5 rounded-md bg-white/10 text-xs font-semibold text-white transition hover:bg-white/20 active:scale-90 sm:h-auto sm:w-auto sm:justify-start sm:px-2.5 sm:py-1.5"
               aria-label={t("reload")} data-testid="reload-button"
               title={`${t("reload")} (R)`}
             >
@@ -1857,7 +1857,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
             </button>
             <button
               onClick={handleNextServer}
-              className="inline-flex items-center gap-1.5 rounded-md bg-white/10 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-white/20"
+              className="inline-flex h-11 w-11 items-center justify-center gap-1.5 rounded-md bg-white/10 text-xs font-semibold text-white transition hover:bg-white/20 active:scale-90 sm:h-auto sm:w-auto sm:justify-start sm:px-2.5 sm:py-1.5"
               aria-label="Next server" data-testid="next-server"
               title="Next working server (N)"
             >
@@ -1866,7 +1866,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
             </button>
             <button
               onClick={() => setServerCheckOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded-md bg-white/10 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-white/20"
+              className="inline-flex h-11 w-11 items-center justify-center gap-1.5 rounded-md bg-white/10 text-xs font-semibold text-white transition hover:bg-white/20 active:scale-90 sm:h-auto sm:w-auto sm:justify-start sm:px-2.5 sm:py-1.5"
               title={`${t("serverStatus")} (T)`}
             >
               <Activity className="h-3.5 w-3.5" />
@@ -1874,7 +1874,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
             </button>
             <button
               onClick={openPiP}
-              className="inline-flex items-center gap-1.5 rounded-md bg-white/10 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-white/20"
+              className="inline-flex h-11 w-11 items-center justify-center gap-1.5 rounded-md bg-white/10 text-xs font-semibold text-white transition hover:bg-white/20 active:scale-90 sm:h-auto sm:w-auto sm:justify-start sm:px-2.5 sm:py-1.5"
               title="Picture in Picture (stays on top across tabs)"
             >
               <PictureInPicture2 className="h-3.5 w-3.5" />
@@ -1882,7 +1882,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
             </button>
             <button
               onClick={toggleFullscreen}
-              className="inline-flex items-center gap-1.5 rounded-md bg-white/10 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-white/20"
+              className="inline-flex h-11 w-11 items-center justify-center gap-1.5 rounded-md bg-white/10 text-xs font-semibold text-white transition hover:bg-white/20 active:scale-90 sm:h-auto sm:w-auto sm:justify-start sm:px-2.5 sm:py-1.5"
               title={isFullscreen ? "Exit fullscreen (F)" : "Fullscreen (F)"}
             >
               {isFullscreen ? <Minimize className="h-3.5 w-3.5" /> : <Maximize className="h-3.5 w-3.5" />}
@@ -1890,14 +1890,14 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
             </button>
             <button
               onClick={openInNewTab}
-              className="inline-flex items-center gap-1.5 rounded-md bg-white/10 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-white/20"
+              className="inline-flex h-11 w-11 items-center justify-center gap-1.5 rounded-md bg-white/10 text-xs font-semibold text-white transition hover:bg-white/20 active:scale-90 sm:h-auto sm:w-auto sm:justify-start sm:px-2.5 sm:py-1.5"
               title="Open in new tab"
             >
               <ExternalLink className="h-3.5 w-3.5" />
             </button>
             <button
               onClick={() => setDownloadOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded-md bg-white/10 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-white/20"
+              className="inline-flex h-11 w-11 items-center justify-center gap-1.5 rounded-md bg-white/10 text-xs font-semibold text-white transition hover:bg-white/20 active:scale-90 sm:h-auto sm:w-auto sm:justify-start sm:px-2.5 sm:py-1.5"
               title={t("downloadVideo")}
             >
               <Download className="h-3.5 w-3.5" />
@@ -1905,7 +1905,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
             </button>
             <button
               onClick={() => setSubtitleOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded-md bg-white/10 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-white/20"
+              className="inline-flex h-11 w-11 items-center justify-center gap-1.5 rounded-md bg-white/10 text-xs font-semibold text-white transition hover:bg-white/20 active:scale-90 sm:h-auto sm:w-auto sm:justify-start sm:px-2.5 sm:py-1.5"
               title={t("subtitles")}
             >
               <Captions className="h-3.5 w-3.5" />
@@ -1914,7 +1914,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
             <button
               onClick={handleToggleList}
               className={cn(
-                "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition",
+                "inline-flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition active:scale-90 sm:min-h-0 sm:min-w-0",
                 inList
                   ? "bg-white/10 text-white hover:bg-white/20"
                   : "bg-white text-black hover:bg-white/80"

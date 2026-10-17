@@ -4,6 +4,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { motion, AnimatePresence, MotionConfig } from "framer-motion"
 import { Navbar } from "@/components/netflix/navbar"
+import { MobileTabBar } from "@/components/netflix/mobile-tab-bar"
 import { type CardTitle } from "@/components/netflix/content-card"
 import { PlayerModal, type PlayerTitle } from "@/components/netflix/player-modal"
 import { SearchOverlay } from "@/components/netflix/search-overlay"
@@ -461,7 +462,9 @@ function HomeContent() {
     nav === "home" && !player && !detail && !searchOpen && !imdbOpen
 
   return (
-    <div className="flex min-h-screen flex-col bg-[#0a0a0a]">
+    /* Bottom clearance for the mobile tab bar (56px bar + 8px gap +
+       home-indicator inset); desktop (lg+) has no tab bar → no padding. */
+    <div className="flex min-h-screen flex-col bg-[#0a0a0a] pb-[calc(64px+env(safe-area-inset-bottom))] lg:pb-0">
       <PullToRefresh />
       <Navbar
         onSearch={openSearch}
@@ -517,6 +520,14 @@ function HomeContent() {
       </main>
 
       {(!player && !detail) && <Footer />}
+
+      {/* Mobile bottom tab bar — thumb-zone primary navigation (< lg).
+          Renders below every overlay (z-40 < modal z-90+), so dialogs
+          cover it; hidden while nothing else is needed. */}
+      <MobileTabBar
+        active={nav}
+        onNav={(k) => handleSetNav(k as NavKey)}
+      />
 
       {/* Title detail page (TMDB metadata, cast, trailer, similar) */}
       <TitleDetail

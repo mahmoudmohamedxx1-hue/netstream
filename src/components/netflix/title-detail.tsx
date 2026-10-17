@@ -139,44 +139,54 @@ function TitleDetailInner({ title, open, onClose, onPlay }: Props) {
             {/* Backdrop hero — trailer auto-plays on top via <TrailerIframe>.
                 The backdrop image stays underneath at all times so there's
                 never a black flash, even before the trailer mounts or if no
-                trailer exists. */}
-            <div className="relative aspect-video w-full overflow-hidden bg-neutral-900">
-              {displayBackdrop ? (
-                <img src={displayBackdrop} alt={displayTitle} className="absolute inset-0 h-full w-full object-cover" />
-              ) : (
-                <Poster title={displayTitle} src={displayPoster} className="absolute inset-0 h-full w-full" />
-              )}
-              {/* YouTube trailer — one reusable <TrailerIframe>. Only pass the
-                  key when the modal is open and TMDB returned a YouTube trailer.
-                  The component handles the 1.2s delay before mounting. */}
-              <TrailerIframe
-                trailerKey={open && tmdb?.trailerSite === "YouTube" ? tmdb.trailerKey : null}
-                title={displayTitle}
-                delay={1200}
-                muted={detailMuted}
-                background
-              />
-              <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0a] via-[#0a0a0a]/40 to-transparent" />
-              <div className="absolute inset-0 bg-gradient-to-r from-[#0a0a0a]/80 via-transparent to-transparent" />
+                trailer exists.
+                MOBILE REFLOW (UX overhaul): the title/actions block used to be
+                absolutely positioned INSIDE this backdrop — on a 390px phone
+                the backdrop is only ~219px tall while the content is ~300px,
+                so the top 80+px (badges, title, rating) was clipped invisible.
+                It now flows BELOW the backdrop with a -mt overlap (reading on
+                the gradient), and only becomes an overlay again on sm+. */}
+            <div className="relative">
+              <div className="relative aspect-video w-full overflow-hidden bg-neutral-900">
+                {displayBackdrop ? (
+                  <img src={displayBackdrop} alt={displayTitle} className="absolute inset-0 h-full w-full object-cover" />
+                ) : (
+                  <Poster title={displayTitle} src={displayPoster} className="absolute inset-0 h-full w-full" />
+                )}
+                {/* YouTube trailer — one reusable <TrailerIframe>. Only pass the
+                    key when the modal is open and TMDB returned a YouTube trailer.
+                    The component handles the 1.2s delay before mounting. */}
+                <TrailerIframe
+                  trailerKey={open && tmdb?.trailerSite === "YouTube" ? tmdb.trailerKey : null}
+                  title={displayTitle}
+                  delay={1200}
+                  muted={detailMuted}
+                  background
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0a] via-[#0a0a0a]/40 to-transparent" />
+                <div className="absolute inset-0 bg-gradient-to-r from-[#0a0a0a]/80 via-transparent to-transparent" />
 
-              {/* Close */}
-              <button onClick={close} aria-label="Close" className="absolute right-4 top-4 z-20 rounded-full bg-black/60 p-2 text-white transition hover:bg-black/80">
-                <X className="h-5 w-5" />
-              </button>
-
-              {/* Mute toggle — visible whenever a valid YouTube trailer exists */}
-              {open && tmdb?.trailerSite === "YouTube" && tmdb.trailerKey && (
-                <button
-                  onClick={() => setDetailMuted((m) => !m)}
-                  aria-label={detailMuted ? "Unmute" : "Mute"}
-                  className="absolute right-16 top-4 z-20 grid h-9 w-9 place-items-center rounded-full border border-white/40 bg-black/60 text-white transition hover:bg-black/80"
-                >
-                  {detailMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+                {/* Close — 44×44 touch target */}
+                <button onClick={close} aria-label="Close" className="absolute right-3 top-3 z-20 grid h-11 w-11 place-items-center rounded-full bg-black/60 text-white transition hover:bg-black/80 active:scale-90">
+                  <X className="h-5 w-5" />
                 </button>
-              )}
 
-              {/* Title + actions overlay */}
-              <div className="absolute bottom-0 left-0 right-0 p-6 sm:p-8">
+                {/* Mute toggle — 44×44 touch target, visible whenever a valid
+                    YouTube trailer exists */}
+                {open && tmdb?.trailerSite === "YouTube" && tmdb.trailerKey && (
+                  <button
+                    onClick={() => setDetailMuted((m) => !m)}
+                    aria-label={detailMuted ? "Unmute" : "Mute"}
+                    className="absolute right-16 top-3 z-20 grid h-11 w-11 place-items-center rounded-full border border-white/40 bg-black/60 text-white transition hover:bg-black/80 active:scale-90"
+                  >
+                    {detailMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+                  </button>
+                )}
+              </div>
+
+              {/* Title + actions — normal flow below the backdrop on mobile
+                  (readable, never clipped), absolute bottom overlay on sm+. */}
+              <div className="relative z-10 -mt-14 px-4 pb-4 sm:absolute sm:inset-x-0 sm:bottom-0 sm:mt-0 sm:p-8">
                 <div className="flex items-center gap-2 text-xs text-white/60 mb-2">
                   <span className="inline-flex items-center gap-1 rounded bg-primary px-2 py-0.5 font-bold uppercase text-primary-foreground">
                     {title.type === "series" ? <Tv className="h-3 w-3" /> : <Film className="h-3 w-3" />}
@@ -195,14 +205,14 @@ function TitleDetailInner({ title, open, onClose, onPlay }: Props) {
                   </div>
                 )}
 
-                {/* Season selector for series */}
+                {/* Season selector for series — 44px tall on touch */}
                 {isSeries && seasonCount > 0 && (
-                  <div className="mt-3 flex items-center gap-3">
+                  <div className="mt-3 flex flex-wrap items-center gap-3">
                     <label className="text-xs font-semibold text-white/60">{t("season")}:</label>
                     <select
                       value={selectedSeason}
                       onChange={(e) => { setSelectedSeason(Number(e.target.value)); setSelectedEpisode(1) }}
-                      className="rounded-md border border-white/20 bg-black/70 px-3 py-1.5 text-sm font-semibold text-white"
+                      className="min-h-11 rounded-md border border-white/20 bg-black/70 px-3 py-1.5 text-sm font-semibold text-white"
                     >
                       {Array.from({ length: seasonCount }, (_, i) => i + 1).map((s) => {
                         const eps = seasons?.find((sd) => sd.season === s)?.episodes ?? 0
@@ -213,7 +223,7 @@ function TitleDetailInner({ title, open, onClose, onPlay }: Props) {
                       <select
                         value={selectedEpisode}
                         onChange={(e) => setSelectedEpisode(Number(e.target.value))}
-                        className="rounded-md border border-white/20 bg-black/70 px-3 py-1.5 text-sm font-semibold text-white"
+                        className="min-h-11 rounded-md border border-white/20 bg-black/70 px-3 py-1.5 text-sm font-semibold text-white"
                       >
                         {Array.from({ length: currentSeasonEpisodes }, (_, i) => i + 1).map((e) => (
                           <option key={e} value={e}>{t("episodes")} {e}</option>
@@ -228,12 +238,12 @@ function TitleDetailInner({ title, open, onClose, onPlay }: Props) {
                       action (white). My List is tertiary. Download is branded
                       but secondary — outlined red that fills on hover — so it
                       no longer out-competes Play. */}
-                  <button onClick={handlePlay} className="inline-flex items-center gap-2 rounded-md bg-white px-8 py-3 text-sm font-bold text-black transition hover:bg-white/80">
+                  <button onClick={handlePlay} className="inline-flex min-h-11 items-center gap-2 rounded-md bg-white px-8 py-3 text-sm font-bold text-black transition hover:bg-white/80 active:scale-95">
                     <Play className="h-5 w-5 fill-black" />
                     {isSeries ? `${t("play")} S${selectedSeason} E${selectedEpisode}` : t("play")}
                   </button>
                   <button onClick={handleAddToList} className={cn(
-                    "inline-flex items-center gap-2 rounded-md px-6 py-3 text-sm font-bold transition",
+                    "inline-flex min-h-11 items-center gap-2 rounded-md px-6 py-3 text-sm font-bold transition active:scale-95",
                     inList ? "bg-white/20 text-white hover:bg-white/30" : "bg-white/10 text-white hover:bg-white/20"
                   )}>
                     {inList ? <Check className="h-5 w-5" /> : <Plus className="h-5 w-5" />}
@@ -241,7 +251,7 @@ function TitleDetailInner({ title, open, onClose, onPlay }: Props) {
                   </button>
                   <button
                     onClick={() => setDownloadOpen(true)}
-                    className="inline-flex items-center gap-2 rounded-md border border-primary/70 bg-primary/10 px-6 py-3 text-sm font-bold text-white transition hover:border-primary hover:bg-primary"
+                    className="inline-flex min-h-11 items-center gap-2 rounded-md border border-primary/70 bg-primary/10 px-6 py-3 text-sm font-bold text-white transition hover:border-primary hover:bg-primary active:scale-95"
                     title={t("downloadVideo")}
                   >
                     <Download className="h-5 w-5" />
@@ -259,8 +269,9 @@ function TitleDetailInner({ title, open, onClose, onPlay }: Props) {
               </div>
             </div>
 
-            {/* Body */}
-            <div className="bg-[#0a0a0a] p-6 sm:p-8">
+            {/* Body — extra bottom padding on notched phones so the last
+                content clears the home indicator (env inset is 0 elsewhere). */}
+            <div className="bg-[#0a0a0a] p-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:p-8">
               {loading ? (
                 /* Skeleton that mirrors the loaded body (overview lines →
                    genre pills → cast row) so there's no layout shift when the

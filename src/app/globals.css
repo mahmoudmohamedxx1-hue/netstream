@@ -169,6 +169,20 @@
   display: none;
 }
 
+/* ── Hero height — modern mobile-safe viewport units ────────────────────────
+   svh = SMALL viewport height: the height with the mobile URL bar VISIBLE.
+   A 78svh hero is guaranteed fully on-screen on load (no clipped buttons
+   behind Safari's URL bar) and never resizes during scroll (unlike dvh).
+   Fallback to plain vh for browsers without svh support (iOS <15.4). */
+.h-hero {
+  height: 78vh;
+}
+@supports (height: 78svh) {
+  .h-hero {
+    height: 78svh;
+  }
+}
+
 /* Netflix-style thin scrollbar elsewhere */
 .nf-scroll::-webkit-scrollbar {
   width: 8px;
@@ -200,7 +214,11 @@
   animation: nfFadeIn 0.5s ease-out both;
 }
 
-/* Poster hover effect — applied to ALL poster cards across the website */
+/* Poster hover effect — applied to ALL poster cards across the website.
+   GATED to real pointers (hover: hover): on touch devices a tap would set a
+   sticky :hover state (the card stays zoomed + glowing until you tap
+   elsewhere) — the classic "web-on-mobile" tell. Touch devices instead get
+   the :active press feedback via Tailwind active: classes on the cards. */
 .specular-card-outline {
   position: relative;
   transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), 
@@ -218,27 +236,31 @@
   z-index: 1;
   pointer-events: none;
 }
-.specular-card-outline:hover {
-  transform: scale(1.08);
-  box-shadow: 0 10px 40px rgba(229,9,20,0.3), 0 0 0 2px rgba(229,9,20,0.5);
-  filter: brightness(1.1);
-  z-index: 10;
-}
-.specular-card-outline:hover::before {
-  opacity: 1;
+@media (hover: hover) and (pointer: fine) {
+  .specular-card-outline:hover {
+    transform: scale(1.08);
+    box-shadow: 0 10px 40px rgba(229,9,20,0.3), 0 0 0 2px rgba(229,9,20,0.5);
+    filter: brightness(1.1);
+    z-index: 10;
+  }
+  .specular-card-outline:hover::before {
+    opacity: 1;
+  }
 }
 
-/* Generic poster card hover — for browse grid cards */
+/* Generic poster card hover — for browse grid cards (same touch gating) */
 .poster-card-hover {
   transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
               box-shadow 0.3s ease,
               filter 0.3s ease;
 }
-.poster-card-hover:hover {
-  transform: scale(1.08);
-  box-shadow: 0 10px 40px rgba(229,9,20,0.3), 0 0 0 2px rgba(229,9,20,0.5);
-  filter: brightness(1.1);
-  z-index: 10;
+@media (hover: hover) and (pointer: fine) {
+  .poster-card-hover:hover {
+    transform: scale(1.08);
+    box-shadow: 0 10px 40px rgba(229,9,20,0.3), 0 0 0 2px rgba(229,9,20,0.5);
+    filter: brightness(1.1);
+    z-index: 10;
+  }
 }
 
 /* Hero gradient overlay helpers */
@@ -471,8 +493,16 @@
 }
 
 /* ── iOS Safari specific fixes ──────────────────────────────────────────────
-   Covers iPhone (all models including 17 Pro), iPad, and iPod Touch.
-   Targets via @supports with Apple-specific properties. */
+   Covers iPhone (all models), iPad, and iPod Touch.
+   NOTE (mobile UX overhaul): two legacy hacks were REMOVED here —
+   (1) `.fixed { position: -webkit-sticky }` — this re-positioned EVERY
+       fixed element (navbar, modals, drawers, toasts) as sticky on iOS,
+       which can push end-of-DOM overlays (player, search, AI chat) out of
+       the viewport instead of overlaying it. Modern iOS (16+) handles
+       position:fixed correctly, including with the keyboard open.
+   (2) `.h-screen, .h-[78vh] { height: -webkit-fill-available }` —
+       inconsistent with other platforms and superseded by the .h-hero
+       svh utility above. */
 @supports (font: -apple-system-body) and (-webkit-touch-callout: none) {
   html {
     -webkit-text-size-adjust: 100%;
@@ -482,17 +512,9 @@
     -webkit-backface-visibility: hidden;
     backface-visibility: hidden;
   }
-  /* Fix 100vh issue on iOS (Safari includes URL bar in viewport height) */
-  .h-screen, .h-\[78vh\] {
-    height: -webkit-fill-available;
-  }
   /* Fix input zoom on iOS — font-size >= 16px prevents auto-zoom */
   input, select, textarea {
     font-size: 16px !important;
-  }
-  /* Fix position: fixed on iOS Safari when keyboard opens */
-  .fixed {
-    position: -webkit-sticky;
   }
 }
 

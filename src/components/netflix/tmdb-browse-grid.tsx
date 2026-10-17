@@ -687,9 +687,11 @@ function BrowseRow({
         <span className="text-[10px] font-normal text-white/30">{items.length}</span>
       </h3>
       <div className="relative">
+        {/* touch-pan-y restored: pan-x alone blocked vertical page scrolling
+            from touches that started on the row (see tmdb-home.tsx note). */}
         <div
           ref={scrollerRef}
-          className="netflix-row-scroller flex touch-pan-x gap-3 overflow-x-auto overscroll-x-contain px-4 pb-6 pt-1 sm:px-6"
+          className="netflix-row-scroller flex touch-pan-x touch-pan-y gap-3 overflow-x-auto overscroll-x-contain px-4 pb-6 pt-1 sm:px-6"
         >
           {items.map((t, i) => (
             <div key={`${t.imdbId ?? t.tmdbId}-${i}`} data-row-card className="shrink-0 snap-start">

@@ -55,7 +55,13 @@ export function Navbar({ onSearch, active = "home", onNav, onDownloads }: Props)
           : "bg-gradient-to-b from-black/80 via-black/40 to-transparent"
       )}
     >
-      <nav className="flex h-16 items-center gap-2 px-2 sm:gap-4 sm:px-8">
+      {/* Safe-area top padding: in PWA standalone mode (viewportFit: cover)
+          the fixed header would sit under the notch / Dynamic Island without
+          it. In regular browser mode the inset is 0 — no visual change. */}
+      <nav
+        className="flex h-16 items-center gap-2 px-3 sm:gap-4 sm:px-8"
+        style={{ paddingTop: "env(safe-area-inset-top)" }}
+      >
         {/* Logo with DecryptedText effect — hover to decrypt (slower, red).
             Fixed width + overflow hidden so the character-shuffling animation
             doesn't cause the navbar to shift horizontally. */}
@@ -78,7 +84,10 @@ export function Navbar({ onSearch, active = "home", onNav, onDownloads }: Props)
           />
         </button>
 
-        {/* GooeyNav — desktop */}
+        {/* Desktop navigation — on mobile this is replaced by the bottom
+            MobileTabBar (thumb-zone, labeled, 56px targets). The old
+            icon-only top row was 28×28 per button — far below the 44px
+            touch-target minimum and unreachable one-handed. */}
         <div className="ml-2 hidden lg:block">
           <GooeyNav
             items={navItems}
@@ -87,34 +96,24 @@ export function Navbar({ onSearch, active = "home", onNav, onDownloads }: Props)
           />
         </div>
 
-        {/* GooeyNav — mobile/tablet (compact) */}
-        <div className="ml-1 lg:hidden">
-          <GooeyNav
-            items={navItems.map((item) => ({ ...item, label: "", ariaLabel: item.label }))}
-            active={active}
-            onChange={(key) => onNav?.(key)}
-            className="!gap-0.5 !p-0.5"
-          />
-        </div>
-
-        <div className="ml-auto flex items-center gap-1 sm:gap-3">
-          {/* Language toggle (EN ↔ AR with RTL flip) */}
+        <div className="ml-auto flex items-center gap-1 sm:gap-2">
+          {/* Language toggle (EN ↔ AR with RTL flip) — 44×44 touch target */}
           <button
             onClick={toggle}
             aria-label="Toggle language" data-testid="language-toggle"
             title={isArabic ? "Switch to English" : "التبديل إلى العربية"}
-            className="flex h-9 min-w-9 items-center justify-center gap-1 rounded-full px-2 py-1.5 text-xs font-semibold text-white/80 transition hover:bg-white/10 hover:text-white"
+            className="flex h-11 w-11 items-center justify-center gap-1 rounded-full text-xs font-semibold text-white/80 transition hover:bg-white/10 hover:text-white active:scale-90"
           >
-            <Languages className="h-4 w-4" />
+            <Languages className="h-5 w-5" />
             <span className="hidden sm:inline">{isArabic ? "EN" : "ع"}</span>
           </button>
-          {/* Downloads history panel */}
+          {/* Downloads history panel — 44×44 touch target */}
           {onDownloads && (
             <button
               onClick={onDownloads}
               aria-label="Downloads" data-testid="downloads-button"
               title={t("dlHistoryTitle")}
-              className="rounded-full p-2 text-white transition hover:bg-white/10"
+              className="flex h-11 w-11 items-center justify-center rounded-full text-white transition hover:bg-white/10 active:scale-90"
             >
               <Download className="h-5 w-5" />
             </button>
@@ -122,7 +121,7 @@ export function Navbar({ onSearch, active = "home", onNav, onDownloads }: Props)
           <button
             onClick={onSearch}
             aria-label={t("search")} data-testid="search-button"
-            className="rounded-full p-2 text-white transition hover:bg-white/10"
+            className="flex h-11 w-11 items-center justify-center rounded-full text-white transition hover:bg-white/10 active:scale-90"
           >
             <Search className="h-5 w-5" />
           </button>

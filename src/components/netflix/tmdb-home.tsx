@@ -750,7 +750,7 @@ export function TmdbHome({ onPlay, onPlayNow, continueWatching, myList, onPlayHi
         {/* Skeleton hero — gives the layout a stable height so the page
             doesn't jump when the real hero renders. The shimmer class
             animates a subtle gradient sweep across the dark background. */}
-        <section className="relative h-[78vh] min-h-[520px] w-full overflow-hidden bg-neutral-950">
+        <section className="h-hero relative min-h-[480px] w-full overflow-hidden bg-neutral-950">
           <div className="skeleton-shimmer h-full w-full" />
           <div className="absolute inset-0 hero-fade-left" />
           <div className="absolute inset-0 hero-fade-bottom" />
@@ -847,7 +847,7 @@ export function TmdbHome({ onPlay, onPlayNow, continueWatching, myList, onPlayHi
       {current && (
         <section
           ref={heroSectionRef}
-          className="group/hero relative h-[78vh] min-h-[520px] w-full select-none overflow-hidden"
+          className="group/hero h-hero relative min-h-[480px] w-full select-none overflow-hidden"
           style={{ touchAction: "pan-y" }}
           onMouseEnter={() => setHeroPaused(true)}
           onMouseLeave={() => setHeroPaused(false)}
@@ -1093,22 +1093,24 @@ export function TmdbHome({ onPlay, onPlayNow, continueWatching, myList, onPlayHi
               showing time until auto-advance. Inactive dots are dim pills.
               On mobile the dots are always visible (subtle); desktop same. */}
           {heroTitles.length > 1 && (
-            <div className="absolute bottom-8 right-4 z-20 flex items-center gap-2 sm:right-8">
+            <div className="absolute bottom-8 right-4 z-20 flex items-center gap-1 sm:right-8 sm:gap-2">
               {heroTitles.map((tt, i) => (
                 <button
                   key={tt.tmdbId}
                   onClick={() => goToIndex(i)}
-                  className="relative h-1.5 w-8 overflow-hidden rounded-full bg-white/30 transition-all hover:bg-white/50"
+                  className="flex h-11 min-w-11 items-center justify-center px-1.5 active:scale-90 transition-transform"
                   aria-label={`Go to slide ${i + 1}`}
                 >
-                  {i === heroIdx && (
-                    <motion.div
-                      className="absolute inset-y-0 left-0 rounded-full bg-primary"
-                      animate={{ width: `${autoplayProgress * 100}%` }}
-                      transition={{ duration: 0.05, ease: "linear" }}
-                      style={{ originX: isArabic ? 1 : 0 }}
-                    />
-                  )}
+                  <span className="relative block h-1.5 w-8 overflow-hidden rounded-full bg-white/30 transition-colors hover:bg-white/50">
+                    {i === heroIdx && (
+                      <motion.div
+                        className="absolute inset-y-0 left-0 rounded-full bg-primary"
+                        animate={{ width: `${autoplayProgress * 100}%` }}
+                        transition={{ duration: 0.05, ease: "linear" }}
+                        style={{ originX: isArabic ? 1 : 0 }}
+                      />
+                    )}
+                  </span>
                 </button>
               ))}
             </div>
@@ -1198,7 +1200,12 @@ function TmdbRow({ row, onPlay, numbered, landscape, rowIndex, focusedCard, setC
         {rowTitle}
         <span className="text-[10px] font-normal text-white/30">{row.titles.length} {t("titles")}</span>
       </h3>
-      <div ref={scrollerRef} className="netflix-row-scroller flex touch-pan-x gap-2 overflow-x-auto overflow-y-visible overscroll-x-contain px-4 pb-6 pt-1 sm:gap-3 sm:px-8">
+      {/* touch-pan-x AND touch-pan-y: pan-x alone made vertical page swipes
+          DEAD when the gesture started on a row — and rows cover most of the
+          mobile screen, so the page felt unscrollable. pan-x pan-y lets the
+          browser axis-lock: horizontal swipes scroll the row, vertical swipes
+          scroll the page (native app behavior). */}
+      <div ref={scrollerRef} className="netflix-row-scroller flex touch-pan-x touch-pan-y gap-2 overflow-x-auto overflow-y-visible overscroll-x-contain px-4 pb-6 pt-1 sm:gap-3 sm:px-8">
         {row.titles.map((tt, i) => (
           <div key={`${tt.tmdbId}-${i}`} data-row-card className="shrink-0">
             <HoverPreviewCard
@@ -1274,7 +1281,7 @@ function LocalRow({ title, titles, onPlay, showProgress, rowIndex, focusedCard, 
   return (
     <section className="group/row relative py-3">
       <h3 className="mb-2 px-4 text-base font-semibold text-white/90 sm:px-8 md:text-lg">{rowTitle}</h3>
-      <div ref={scrollerRef} className="netflix-row-scroller flex touch-pan-x gap-2 overflow-x-auto overflow-y-visible overscroll-x-contain px-4 pb-6 pt-1 sm:gap-3 sm:px-8">
+      <div ref={scrollerRef} className="netflix-row-scroller flex touch-pan-x touch-pan-y gap-2 overflow-x-auto overflow-y-visible overscroll-x-contain px-4 pb-6 pt-1 sm:gap-3 sm:px-8">
         {titles.map((tt, i) => {
           const rating = roundRating(tt.rating)
           const isFocused = focusedCard === i

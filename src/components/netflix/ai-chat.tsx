@@ -113,6 +113,19 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
     if (open && view === "chat") setTimeout(() => inputRef.current?.focus(), 300)
   }, [open, view])
 
+  // Lock background page scroll while the chat panel is open (mobile UX:
+  // without this, swipes on the panel's non-scrollable areas chain through
+  // and scroll the page BEHIND the full-screen chat). Same pattern as the
+  // player/search/detail modals.
+  React.useEffect(() => {
+    if (!open) return
+    const prev = document.body.style.overflow
+    document.body.style.overflow = "hidden"
+    return () => {
+      document.body.style.overflow = prev
+    }
+  }, [open])
+
   // Close model menu on outside click
   React.useEffect(() => {
     if (!modelMenuOpen) return
@@ -273,11 +286,13 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
 
   return (
     <>
-      {/* Floating button — animated AI orb avatar */}
+      {/* Floating button — animated AI orb avatar. On mobile it floats ABOVE
+          the bottom tab bar (tab bar height + safe-area inset) instead of
+          overlapping it; desktop keeps the original 24px offset. */}
       {!open && (
         <button
           onClick={() => setOpen(true)}
-          className="fixed bottom-6 right-6 z-[100] flex size-14 items-center justify-center rounded-full transition-all hover:scale-110 active:scale-95"
+          className="fixed right-6 bottom-[calc(76px+env(safe-area-inset-bottom))] z-[100] flex size-14 items-center justify-center rounded-full transition-all hover:scale-110 active:scale-95 lg:bottom-6"
           aria-label="Open AI Assistant"
         >
           <AIOrbAvatar size="lg" />
@@ -303,7 +318,7 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
                 {view === "history" && (
                   <button
                     onClick={() => setView("chat")}
-                    className="flex size-8 items-center justify-center rounded-lg text-white/40 transition hover:bg-white/10 hover:text-white"
+                    className="flex size-10 items-center justify-center rounded-lg text-white/40 transition hover:bg-white/10 hover:text-white active:scale-90"
                     aria-label="Back to chat"
                   >
                     <ArrowLeft className="size-4" />
@@ -325,7 +340,7 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
                 {/* New chat */}
                 <button
                   onClick={handleNewChat}
-                  className="flex size-8 items-center justify-center rounded-lg text-white/40 transition hover:bg-white/10 hover:text-white"
+                  className="flex size-10 items-center justify-center rounded-lg text-white/40 transition hover:bg-white/10 hover:text-white active:scale-90"
                   title="New chat"
                   aria-label="New chat"
                 >
@@ -336,7 +351,7 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
                 {view === "chat" && (
                   <button
                     onClick={() => setView("history")}
-                    className="flex size-8 items-center justify-center rounded-lg text-white/40 transition hover:bg-white/10 hover:text-white"
+                    className="flex size-10 items-center justify-center rounded-lg text-white/40 transition hover:bg-white/10 hover:text-white active:scale-90"
                     title="Chat history"
                     aria-label="Chat history"
                   >
@@ -348,7 +363,7 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
                 <div className="relative" data-model-menu>
                   <button
                     onClick={() => setModelMenuOpen((v) => !v)}
-                    className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-[11px] font-medium text-white/80 transition hover:bg-white/10"
+                    className="flex h-11 items-center justify-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-2 text-[11px] font-medium text-white/80 transition hover:bg-white/10 active:scale-90 sm:h-auto sm:py-1.5"
                   >
                     <currentModel.icon className={cn("size-3.5", currentModel.color)} />
                     <span className="hidden sm:inline">{currentModel.name}</span>
@@ -364,7 +379,7 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
                           key={m.id}
                           onClick={() => handleModelChange(m.id)}
                           className={cn(
-                            "flex w-full items-center gap-3 px-3 py-2 text-left transition hover:bg-white/5",
+                            "flex w-full items-center gap-3 px-3 py-3 text-left transition hover:bg-white/5 sm:py-2.5",
                             model === m.id && "bg-white/5"
                           )}
                         >
@@ -382,7 +397,7 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
 
                 <button
                   onClick={() => setOpen(false)}
-                  className="flex size-8 items-center justify-center rounded-lg text-white/40 transition hover:bg-white/10 hover:text-white"
+                  className="flex size-10 items-center justify-center rounded-lg text-white/40 transition hover:bg-white/10 hover:text-white active:scale-90"
                   aria-label="Close sidebar"
                 >
                   <X className="size-4" />
@@ -564,8 +579,10 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
                   </div>
                 )}
 
-                {/* Input */}
-                <form onSubmit={handleSubmit} className="shrink-0 border-t border-white/5 p-3 sm:p-4">
+                {/* Input — extra bottom padding on notched phones so the
+                    composer clears the iOS home indicator. Input uses 16px
+                    text on mobile (prevents iOS focus auto-zoom). */}
+                <form onSubmit={handleSubmit} className="shrink-0 border-t border-white/5 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:p-4 sm:pb-4">
                   <div className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 transition focus-within:border-primary/40 sm:px-4">
                     <input
                       ref={inputRef}
@@ -574,12 +591,12 @@ export function AIChat({ onPlayTitle }: { onPlayTitle: (t: TitleSuggestion) => v
                       placeholder="Ask for a recommendation…"
                       disabled={loading}
                       maxLength={1000}
-                      className="min-w-0 flex-1 bg-transparent py-1.5 text-sm text-white placeholder:text-white/30 focus:outline-none disabled:opacity-50"
+                      className="min-w-0 flex-1 bg-transparent py-1.5 text-base text-white placeholder:text-white/30 focus:outline-none disabled:opacity-50 sm:text-sm"
                     />
                     <button
                       type="submit"
                       disabled={loading || !input.trim()}
-                      className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary text-white transition hover:bg-primary/90 disabled:opacity-20"
+                      className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary text-white transition hover:bg-primary/90 active:scale-90 disabled:opacity-20"
                       aria-label="Send message"
                     >
                       <Send className="size-4" />

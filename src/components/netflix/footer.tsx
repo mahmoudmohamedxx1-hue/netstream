@@ -8,7 +8,7 @@ import DecryptedText from "@/components/react-bits/DecryptedText"
 export function Footer() {
   const { t } = useLang()
   return (
-    <footer className="mt-auto border-t border-white/5 bg-[#0a0a0a] px-4 py-10 text-white/60 sm:px-8">
+    <footer className="mt-auto border-t border-white/5 bg-[#0a0a0a] px-4 py-10 pb-[max(2.5rem,env(safe-area-inset-bottom))] text-white/60 sm:px-8">
       <div className="mx-auto max-w-5xl">
         {/* CurvedLoop — "Made✦by✦Glabs✦" infinite scrolling text */}
         <div className="mb-8">

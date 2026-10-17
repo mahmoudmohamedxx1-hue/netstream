@@ -490,7 +490,7 @@ export function SearchOverlay({ open, onClose, onPlay, onPlayDirect }: Props) {
           }}
         >
           <motion.div
-            className="mx-auto w-full max-w-4xl px-4 py-6 sm:py-10"
+            className="mx-auto w-full max-w-4xl px-4 py-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:py-10"
             initial={{ y: -16, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: -16, opacity: 0 }}

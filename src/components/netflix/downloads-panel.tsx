@@ -129,7 +129,7 @@ export function DownloadsPanel({ open, onClose, onRedownload }: Props) {
               <button
                 onClick={onClose}
                 aria-label="Close downloads panel"
-                className="ms-auto rounded-full p-2 text-white/70 transition hover:bg-white/10 hover:text-white"
+                className="ms-auto grid h-11 w-11 place-items-center rounded-full text-white/70 transition hover:bg-white/10 hover:text-white active:scale-90"
               >
                 <X className="h-5 w-5" />
               </button>
