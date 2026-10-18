@@ -4218,3 +4218,32 @@ Work Log:
 
 Stage Summary:
 - The long-press trailer preview now behaves like a proper mobile popover: opens instantly on 500ms hold, dismisses on any scroll/drag/scrim-tap/X, never auto-plays on finger release, and can no longer be opened by iOS sticky-hover taps. MoviesHub (vidsrc.me) is the first and default provider everywhere (dropdown, session default, auto quality, fallback chains) while TMDB-only and Arabic chains stay untouched. All verified end-to-end on dev (mobile + desktop) and byte-checked on the production bundle.
+
+---
+Task ID: 23
+Agent: main (Super Z)
+Task: User request — "NOW ENHANCE THE UI/UX TO BE LIKE THE MOBILE EDITION ON THE BROWSER EDITION"
+
+Work Log:
+- GOAL: port the mobile edition's app-like UX (Tasks 21–22) to the browser/desktop edition.
+- NAVIGATION (the mobile edition's defining pattern), commit 2fa212e, 5 files +91/−71:
+  * mobile-tab-bar.tsx reimagined as unified bottom navigation on EVERY screen size: < lg keeps the exact full-width thumb-zone bar (56px icon-over-label tabs, safe-area inset); lg+ renders the SAME tabs as a centered floating pill dock — rounded-full glassy #141414/90, 8px shadow, 44px tabs with icon+label inline, hover states, focus-visible rings (keyboard), active = white pill with black text, and a framer-motion layoutId pill ("tab-dock-active-pill") that slides/morphs between tabs (carrying GooeyNav's signature morph into the dock).
+  * navbar.tsx: desktop GooeyNav block REMOVED — top bar is now logo + language/downloads/search only, identical to the mobile edition's navbar. `active` prop dropped (page.tsx updated).
+  * page.tsx: lg:pb-0 → lg:pb-28 so the footer/content clear the floating dock.
+- CONTROL COMFORT (mobile-edition sizing on desktop):
+  * DISCOVERED + FIXED a silent shadcn bug: SelectTrigger base class `data-[size=default]:h-9` (attribute selector, specificity 0,2,0) was ALWAYS beating `h-11`/`sm:h-*` utilities (0,1,0) — the player's Server/Season/Quality selects have been 36px even when "h-11 sm:h-9" was set in Task 21. Fixed with Tailwind v4 important suffix: `h-11! sm:h-10!` → real 44px mobile / 40px desktop (computed-height verified).
+  * player-modal.tsx: control-strip buttons sm:px-2.5 sm:py-1.5 → sm:px-3.5 sm:py-2.5 (~36px tall, was ~28); My List button +sm:py-2.5; select items sm:h-9 → sm:h-10.
+  * hover-preview-card.tsx: desktop action circles 36px → 40px (sm:h-10 sm:w-10) and mute 28px → 36px; re-enabled tactile press feedback on desktop (sm:active:scale-100 → sm:active:scale-95). Desktop hover idiom (no scrim/X, close on mouse-leave, reposition on scroll) intentionally preserved.
+- GATES: eslint clean; tsc 0 src errors; production build passes.
+- DEV VERIFICATION (agent-browser, 1440×900):
+  * Dock: fixed, 494×62px, perfectly centered (offset 0px), bottom 24px, z-40, full-pill radius; 4 labeled tabs each 44px tall; active tab = black text on white pill.
+  * Click Movies → view switches (heading "Movies"), white pill inside the new active tab (morph target confirmed); Series likewise.
+  * Footer at page bottom clears dock top by 26px.
+  * Desktop hover preview (headless env reports coarse pointer — patched matchMedia to hover:hover/pointer:fine + client-side remount, same technique as Task 22): popup opens after hover with Play/Add/Like/More info all 40×40, NO scrim/X on desktop (correct idiom).
+  * Player (Spider-Man: Brand New Day): iframe = vidsrc.me MoviesHub default; selects now 40px computed; close 44×44; strip buttons 34–36px.
+  * Mobile regression (390×844): bar full-width at bottom edge, 0 radius, 4× 98×56 tabs, dock pill display:none — mobile edition untouched.
+  * Zero console/page errors on both viewports.
+- PRODUCTION: push 2fa212e → deploy dpl_HwU3ZX6oz4Nb4i8BaaoJMjixroHC READY, aliased to all domains (netstream-navy 200; netstream-best follows latest production per task-19 documentation). Served page-00d5216bd412dca9.js byte-check: tab-dock-active-pill ✓, sm:h-10! ✓, lg:pb-28 ✓, GooeyNav 0 occurrences ✓. Live smoke test at 1440×900: dock 494×62 centered @24px, no old top-nav links, tabs Home/Series/Movies/My List, no errors. Screenshots: scripts/audit/23-*.png.
+
+Stage Summary:
+- The browser edition now navigates like the mobile edition: a centered floating pill dock (Home/Series/Movies/My List) with a morphing white active pill replaces the top GooeyNav, the top bar is logo+actions only, and desktop controls got mobile-edition comfort — 40px player selects (after fixing a shadcn specificity bug that had silently clamped them to 36px), roomier player buttons, 40px preview-card circles with press feedback. Mobile is byte-identical in behavior. Live in production on all domains.
