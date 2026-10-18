@@ -1214,10 +1214,12 @@ function TmdbRow({ row, onPlay, numbered, landscape, rowIndex, focusedCard, setC
               rank={numbered ? i + 1 : undefined}
               landscape={landscape}
               focused={focusedCard === i}
-              // Top IMDB rows use a longer hover delay (3s) so users can read
-              // the giant rank numerals before the popup opens. Other rows use
-              // the default 1s delay.
-              hoverDelay={numbered ? 3000 : 1000}
+              // Numbered (IMDB Top) rows open the preview at MOBILE-EDITION
+              // speed (500ms — same as the mobile long-press). The previous
+              // 3s delay (added "to let users read the rank numerals") made
+              // the rows feel dead on desktop: nothing visibly reacts to the
+              // hover, so users reported the trailers "don't play".
+              hoverDelay={numbered ? 500 : 1000}
               cardRef={
                 setCardRef && rowIndex !== undefined
                   ? (el) => setCardRef(rowIndex, i, el)

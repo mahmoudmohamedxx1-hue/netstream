@@ -19,6 +19,15 @@
 // plain tap never opens the preview, and the click that follows a
 // long-press is suppressed so lifting the finger doesn't also start
 // playback.
+//
+// FIX 4 (hybrid devices): A touch-screen laptop or ≥lg tablet with a mouse
+// attached reports (hover: none)/(pointer: coarse) even though a real mouse
+// exists — which used to disable hover previews entirely on those machines
+// ("posters don't play on the browser edition"). A real mouse is now
+// detected from its mousemove stream (3 distinct cursor positions) and
+// earns normal hover behavior; touch-opened popovers keep the mobile
+// affordances (scrim/X/scroll-dismiss) and mouse-opened ones keep the
+// desktop idiom (close on leave, reposition on scroll).
 
 import { useEffect, useRef, useState, useCallback } from "react"
 import { createPortal } from "react-dom"
@@ -151,6 +160,41 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
   const touchOpenedRef = useRef(false) // preview opened from touch (hybrid devices)
   const touchStartPos = useRef<{ x: number; y: number } | null>(null)
 
+  // ── Hybrid-device support (touch-screen laptop / tablet + mouse) ──────────
+  // `coarsePointer` is BLUNT: a touch-screen laptop or a ≥lg tablet with a
+  // mouse attached still reports (hover: none)/(pointer: coarse) for its
+  // PRIMARY pointer, which used to kill ALL hover previews on those machines
+  // — the desktop-layout user hovers with the trackpad/mouse and nothing
+  // plays ("the posters don't play"). A REAL mouse produces a continuous
+  // mousemove stream with changing coordinates; a tap synthesizes at most
+  // one or two moves at the tap point. Require 3 distinct cursor positions
+  // (>2px apart) before trusting hover events on a coarse-pointer device.
+  const mousePresentRef = useRef(false)
+  // Reactive mirror of touchOpenedRef — drives the scrim/X affordances
+  // (touch-opened popovers get them; mouse-opened popovers don't, even on
+  // hybrid devices running the desktop layout).
+  const [touchOpenedUi, setTouchOpenedUi] = useState(false)
+
+  useEffect(() => {
+    if (!coarsePointer) return // fine-pointer devices always get hover
+    let lastX: number | null = null
+    let lastY: number | null = null
+    let distinct = 0
+    const onMove = (e: MouseEvent) => {
+      if (lastX === null || Math.hypot(e.clientX - lastX, e.clientY - (lastY ?? e.clientY)) > 2) {
+        distinct++
+        lastX = e.clientX
+        lastY = e.clientY
+        if (distinct >= 3) {
+          mousePresentRef.current = true
+          window.removeEventListener("mousemove", onMove)
+        }
+      }
+    }
+    window.addEventListener("mousemove", onMove, { passive: true })
+    return () => window.removeEventListener("mousemove", onMove)
+  }, [coarsePointer])
+
   const effectiveImdbId = resolvedImdbId ?? title.imdbId
   const inList = effectiveImdbId ? isInWatchlist(effectiveImdbId) : false
   const roundedRating = roundRating(title.rating)
@@ -199,6 +243,7 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
     setPopupPos(null)
     setResolvedImdbId(title.imdbId)
     touchOpenedRef.current = false
+    setTouchOpenedUi(false)
   }
 
   // Reposition on scroll — use a ref to avoid accessing handleClose before declaration
@@ -209,18 +254,18 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
     if (!expanded) return
     computePosition()
     const onScroll = () => {
-      // Touch: ANY scroll dismisses the preview — it must never follow the
-      // page or linger while scrolling (user-reported mobile bug).
-      if (coarsePointer) { handleCloseRef.current(); return }
-      // Mouse: reposition while hovering; close once the pointer left.
-      // Hybrid devices (touchscreen + mouse): a touch-opened preview also
-      // dismisses on scroll; only a real hover keeps repositioning.
+      // A touch-opened preview (long-press) must dismiss on ANY scroll — it
+      // must never follow the page or linger while scrolling (the
+      // user-reported mobile bug). A mouse-opened preview — including a real
+      // mouse on a hybrid touch-screen laptop — repositions while hovered and
+      // closes once the pointer has left the card/popup.
+      if (touchOpenedRef.current) { handleCloseRef.current(); return }
       computePosition()
-      if (!isHovering.current || touchOpenedRef.current) handleCloseRef.current()
+      if (!isHovering.current) handleCloseRef.current()
     }
     window.addEventListener("scroll", onScroll, true)
     return () => window.removeEventListener("scroll", onScroll, true)
-  }, [expanded, computePosition, coarsePointer])
+  }, [expanded, computePosition])
 
   const startTrailerTimer = (key: string | null | undefined) => {
     if (!key) return
@@ -254,6 +299,7 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
   const openPreview = (fromTouch = false) => {
     isHovering.current = true
     touchOpenedRef.current = fromTouch
+    setTouchOpenedUi(fromTouch)
     if (closeTimer.current) { clearTimeout(closeTimer.current); closeTimer.current = null }
     if (fromTouch) { expandNow(); return }
     if (hoverTimer.current) clearTimeout(hoverTimer.current)
@@ -261,17 +307,20 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
   }
 
   const handleEnter = () => {
-    // On touch devices taps emit synthetic mouseenter (iOS sticky hover) —
-    // ignore them; the preview opens ONLY via the 500ms long-press.
-    if (coarsePointer) return
+    // Pure touch devices: taps emit synthetic mouseenter (iOS sticky hover) —
+    // ignore them; the preview opens ONLY via the 500ms long-press. Hybrid
+    // devices (touch screen + real mouse, detected above): a verified real
+    // mouse earns normal hover behavior even though matchMedia says coarse.
+    if (coarsePointer && !mousePresentRef.current) return
     openPreview()
   }
 
   const handleLeave = () => {
-    // Touch: synthetic mouseleave (e.g. sticky-hover release) must not close
-    // a preview the user just long-pressed open — touch dismissal is handled
-    // by scroll / finger movement / the scrim only.
-    if (coarsePointer) return
+    // Pure touch: synthetic mouseleave (e.g. sticky-hover release) must not
+    // close a preview the user just long-pressed open — touch dismissal is
+    // handled by scroll / finger movement / the scrim only. (Hybrid devices
+    // with a verified real mouse get normal mouse-leave behavior.)
+    if (coarsePointer && !mousePresentRef.current) return
     isHovering.current = false
     // Small delay so moving from card to popup doesn't close it
     closeTimer.current = setTimeout(() => handleClose(), 200)
@@ -344,13 +393,13 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
   }
 
   const handlePopupEnter = () => {
-    if (coarsePointer) return
+    if (coarsePointer && !mousePresentRef.current) return
     isHovering.current = true
     if (closeTimer.current) { clearTimeout(closeTimer.current); closeTimer.current = null }
   }
 
   const handlePopupLeave = () => {
-    if (coarsePointer) return
+    if (coarsePointer && !mousePresentRef.current) return
     isHovering.current = false
     closeTimer.current = setTimeout(() => handleClose(), 200)
   }
@@ -445,8 +494,9 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
       {/* Portal popup — rendered to document.body with position:fixed */}
       {expanded && popupPos && typeof document !== "undefined" && createPortal(
         <>
-        {/* Touch: dim scrim behind the popup — tap anywhere to dismiss */}
-        {coarsePointer && (
+        {/* Touch-opened popover: dim scrim behind the popup — tap to dismiss.
+            (Mouse-opened previews — desktop AND hybrid — skip it.) */}
+        {touchOpenedUi && (
           <div
             className="fixed inset-0 z-[199] bg-black/50"
             onClick={() => handleClose()}
@@ -488,8 +538,9 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
               {title.type === "series" ? <Tv className="h-3 w-3" /> : <Film className="h-3 w-3" />}
               {title.type === "series" ? t("seriesShort") : t("movieShort")}
             </span>
-            {/* Touch: explicit close button (44px) — discoverable dismissal */}
-            {coarsePointer && (
+            {/* Touch-opened popover: explicit close button (44px) — discoverable
+                dismissal. (Mouse-opened previews close on mouse-leave instead.) */}
+            {touchOpenedUi && (
               <button
                 onClick={handleClose}
                 className="absolute left-2 top-2 grid h-11 w-11 place-items-center rounded-full bg-black/60 text-white transition active:scale-90"
