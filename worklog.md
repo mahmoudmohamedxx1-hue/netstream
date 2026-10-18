@@ -4247,3 +4247,30 @@ Work Log:
 
 Stage Summary:
 - The browser edition now navigates like the mobile edition: a centered floating pill dock (Home/Series/Movies/My List) with a morphing white active pill replaces the top GooeyNav, the top bar is logo+actions only, and desktop controls got mobile-edition comfort — 40px player selects (after fixing a shadcn specificity bug that had silently clamped them to 36px), roomier player buttons, 40px preview-card circles with press feedback. Mobile is byte-identical in behavior. Live in production on all domains.
+
+---
+Task ID: 24
+Agent: main (Super Z)
+Task: User request — "MAKE ROW IMDB TOP MOVIES AND SERIES TO BE LIKE THE MOBILE EDITION AS MOVIES AND SERIES SECTION DOESNT PLAY THE POSTERS SO FIX THAT BUGS"
+
+Work Log:
+- INVESTIGATION (extensive, agent-browser mobile + desktop emulation on dev AND production):
+  * Verified working: mobile long-press preview (home IMDB Top rows AND Movies/Series sections), mobile quick tap → TitleDetail → Play (production: Batman: Knightfall tt32333324 → MoviesHub iframe), desktop hover on fine-pointer, /api/tmdb/lookup + /api/tmdb/[imdbId] (trailers present for every sampled title), tmdb- fallback chain handling.
+  * ROOT CAUSE 1 — IMDB Top rows on the browser edition: hoverDelay was 3000ms ("let users read the rank numerals") — 6× slower than mobile's 500ms long-press and 3× slower than every other row. Hovering visibly did NOTHING for 3 seconds → "the posters don't play".
+  * ROOT CAUSE 2 — Movies/Series sections on the browser edition: coarse-pointer devices that run the DESKTOP layout (touch-screen laptops, ≥lg tablets with a mouse — the "browser edition" on hybrid hardware) had ALL hover previews disabled: handleEnter/handleLeave hard-returned on coarsePointer, so a real mouse hover never played anything and most users never discover the long-press.
+- FIX 1 (tmdb-home.tsx, commit ffa24b1): numbered rows hoverDelay 3000 → 500 — mobile-edition speed.
+- FIX 2 (hover-preview-card.tsx, same commit): hybrid-device support.
+  * Real-mouse detection: a window mousemove listener (only mounted when coarsePointer) requires 3 DISTINCT cursor positions (>2px apart) — a real mouse produces a continuous changing stream; taps synthesize at most 1-2 moves at the tap point — before setting mousePresentRef=true.
+  * handleEnter/handleLeave/handlePopupEnter/handlePopupLeave now gate on `coarsePointer && !mousePresentRef.current`: pure touch devices keep tap-proof behavior (quick tap's synthetic mouseenter can't open the preview; touchend also cancels any armed hover timer as a second safety), hybrid devices get normal hover.
+  * New `touchOpenedUi` state (reactive mirror of touchOpenedRef) now gates the scrim + X button — the precise "opened by touch" signal replaces the blunt coarsePointer: touch-opened popovers keep mobile affordances, mouse-opened ones (desktop AND hybrid) keep the desktop idiom.
+  * Scroll handler now branches on touchOpenedRef instead of coarsePointer: touch-opened → dismiss on any scroll; mouse-opened (incl. hybrid) → reposition while hovered, close when the pointer left.
+- GATES: eslint clean; tsc 0 src errors; production build passes.
+- VERIFICATION (agent-browser; the headless browser natively reports coarse pointer = perfect hybrid simulator):
+  * Dev hybrid 1440×900, IMDB Top card: 4-move mouse approach → hover → preview OPENS with 4 action buttons + YouTube trailer, NO scrim/X (desktop idiom); scrollBy 250 while hovering → preview stays open, repositions (popupTop follows card).
+  * Dev hybrid, Movies "Browse All" grid card: same approach → preview opens (verified the arming moves must precede the landing move — real mice always do).
+  * Dev pure-touch regression (390×844, dispatched TouchEvents): long-press → popover WITH scrim + X + 4×44px buttons; scrollBy 200 → dismissed; quick tap → TitleDetail opens (Spider-Man detail confirmed via snapshot).
+  * PRODUCTION (deploy dpl_5bmP7P9qTS5dqyRjQsrqYYkfATJ9, READY, netstream-navy 200): bundle byte-check — mousemove detector ✓, z-[199] scrim ✓, "Close preview" ✓, numbered-rows ?500 hoverDelay ✓. Live hybrid tests: IMDB Top Movies row hover → popup opens (no scrim/X, trailer playing, screenshot scripts/audit/24-prod-imdbtop-hover.png); Movies grid hover with instrumented 4 moves → popup opens (4 buttons). NOTE: an initial prod "failure" was a test artifact — the relaunched browser had reset to a 500px viewport and early moves raced post-tab-switch card mounts; retested under settled conditions → passes.
+- netstream-best follows latest production per task-19 documentation.
+
+Stage Summary:
+- The IMDB Top Movies/Series rows now open their trailer previews at mobile-edition speed (500ms instead of 3s), and the Movies/Series sections play posters on hover for hybrid touch-screen laptops/tablets running the desktop layout — the two reasons posters "didn't play" on the browser edition. Pure-touch mobile behavior is unchanged (long-press popover with scrim/X, scroll-dismiss, tap-to-detail), desktop fine-pointer behavior unchanged. Live in production on all domains.
