@@ -498,11 +498,11 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
                 <X className="h-5 w-5" />
               </button>
             )}
-            {/* Mute toggle — 44px on touch, 28px on desktop */}
+            {/* Mute toggle — 44px on touch, 36px on desktop */}
             {showTrailer && !trailerFailed && (
               <button
                 onClick={() => setMuted(m => !m)}
-                className="absolute bottom-2 right-2 grid h-11 w-11 place-items-center rounded-full border border-white/40 bg-black/60 text-white transition hover:bg-black/80 active:scale-90 sm:h-7 sm:w-7 sm:active:scale-100"
+                className="absolute bottom-2 right-2 grid h-11 w-11 place-items-center rounded-full border border-white/40 bg-black/60 text-white transition hover:bg-black/80 active:scale-90 sm:h-9 sm:w-9 sm:active:scale-95"
                 aria-label={muted ? "Unmute" : "Mute"}
               >
                 {muted ? <VolumeX className="h-4 w-4 sm:h-3.5 sm:w-3.5" /> : <Volume2 className="h-4 w-4 sm:h-3.5 sm:w-3.5" />}
@@ -514,20 +514,21 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
           </div>
 
           {/* Action buttons + metadata — all in the same card, no scrolling needed.
-              44px targets on touch (HIG), compact 36px circles on desktop. */}
+              44px targets on touch (HIG), 40px circles with press feedback on
+              desktop — comfortable, mobile-edition-sized controls everywhere. */}
           <div className="p-3">
             <div className="flex items-center gap-2">
-              <button onClick={() => { handleClose(); onPlay(title) }} className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-white text-black transition hover:bg-white/85 active:scale-90 sm:h-9 sm:w-9 sm:active:scale-100" aria-label={t("play")}><Play className="h-4 w-4 fill-black" /></button>
-              <button onClick={handleAdd} disabled={!effectiveImdbId} className={cn("inline-flex h-11 w-11 items-center justify-center rounded-full border-2 transition active:scale-90 sm:h-9 sm:w-9 sm:active:scale-100", inList ? "border-white/60 text-white" : "border-white/40 text-white hover:border-white")} aria-label={inList ? "Remove" : "Add"}>{inList ? <Check className="h-4 w-4" /> : <Plus className="h-4 w-4" />}</button>
+              <button onClick={() => { handleClose(); onPlay(title) }} className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-white text-black transition hover:bg-white/85 active:scale-90 sm:h-10 sm:w-10 sm:active:scale-95" aria-label={t("play")}><Play className="h-4 w-4 fill-black" /></button>
+              <button onClick={handleAdd} disabled={!effectiveImdbId} className={cn("inline-flex h-11 w-11 items-center justify-center rounded-full border-2 transition active:scale-90 sm:h-10 sm:w-10 sm:active:scale-95", inList ? "border-white/60 text-white" : "border-white/40 text-white hover:border-white")} aria-label={inList ? "Remove" : "Add"}>{inList ? <Check className="h-4 w-4" /> : <Plus className="h-4 w-4" />}</button>
               <button
                 onClick={() => setDownloadOpen(true)}
                 disabled={!effectiveImdbId}
-                className="inline-flex h-11 w-11 items-center justify-center rounded-full border-2 border-white/40 text-white transition hover:border-white disabled:opacity-40 active:scale-90 sm:h-9 sm:w-9 sm:active:scale-100"
+                className="inline-flex h-11 w-11 items-center justify-center rounded-full border-2 border-white/40 text-white transition hover:border-white disabled:opacity-40 active:scale-90 sm:h-10 sm:w-10 sm:active:scale-95"
                 aria-label={t("downloadVideo")}
                 title={t("downloadVideo")}
               ><Download className="h-4 w-4" /></button>
-              <button className="inline-flex h-11 w-11 items-center justify-center rounded-full border-2 border-white/40 text-white transition hover:border-white active:scale-90 sm:h-9 sm:w-9 sm:active:scale-100" aria-label="Like"><ThumbsUp className="h-4 w-4" /></button>
-              <button onClick={() => { handleClose(); onPlay(title) }} className="ml-auto inline-flex h-11 w-11 items-center justify-center rounded-full border-2 border-white/40 text-white transition hover:border-white active:scale-90 sm:h-9 sm:w-9 sm:active:scale-100" aria-label="More info"><ChevronDown className="h-4 w-4" /></button>
+              <button className="inline-flex h-11 w-11 items-center justify-center rounded-full border-2 border-white/40 text-white transition hover:border-white active:scale-90 sm:h-10 sm:w-10 sm:active:scale-95" aria-label="Like"><ThumbsUp className="h-4 w-4" /></button>
+              <button onClick={() => { handleClose(); onPlay(title) }} className="ml-auto inline-flex h-11 w-11 items-center justify-center rounded-full border-2 border-white/40 text-white transition hover:border-white active:scale-90 sm:h-10 sm:w-10 sm:active:scale-95" aria-label="More info"><ChevronDown className="h-4 w-4" /></button>
             </div>
             <div className="mt-2.5 flex flex-wrap items-center gap-2 text-[11px] text-white/80">
               {mp && <span className="font-semibold text-green-400">{mp}% Match</span>}

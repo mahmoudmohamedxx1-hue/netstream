@@ -1,11 +1,10 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { Search, Languages, Home, Film, Tv, Bookmark, Download } from "lucide-react"
+import { Search, Languages, Download } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useLang } from "@/lib/lang-context"
 import DecryptedText from "@/components/react-bits/DecryptedText"
-import { GooeyNav } from "@/components/react-bits/GooeyNav"
 
 // Ad-block toggle state — shared across the app via localStorage.
 // (Exported for use by player-modal.tsx; the navbar itself no longer exposes
@@ -22,12 +21,11 @@ export function setAdBlockEnabled(enabled: boolean) {
 
 type Props = {
   onSearch: () => void
-  active?: string
   onNav?: (key: string) => void
   onDownloads?: () => void
 }
 
-export function Navbar({ onSearch, active = "home", onNav, onDownloads }: Props) {
+export function Navbar({ onSearch, onNav, onDownloads }: Props) {
   const [scrolled, setScrolled] = useState(false)
   const { t, toggle, isArabic } = useLang()
 
@@ -38,13 +36,10 @@ export function Navbar({ onSearch, active = "home", onNav, onDownloads }: Props)
     return () => window.removeEventListener("scroll", onScroll)
   }, [])
 
-  // GooeyNav items with icons for Movies/Series types
-  const navItems = [
-    { key: "home", label: t("home"), icon: <Home className="h-4 w-4" /> },
-    { key: "series", label: t("series"), icon: <Tv className="h-4 w-4" /> },
-    { key: "movies", label: t("movies"), icon: <Film className="h-4 w-4" /> },
-    { key: "mylist", label: t("mylist"), icon: <Bookmark className="h-4 w-4" /> },
-  ]
+  // Primary navigation lives in the bottom tab bar on EVERY screen size now
+  // (MobileTabBar: full-width thumb bar < lg, centered floating pill dock on
+  // desktop) — the top navbar is logo + actions only, matching the mobile
+  // edition's layout on the browser edition.
 
   return (
     <header
@@ -84,17 +79,9 @@ export function Navbar({ onSearch, active = "home", onNav, onDownloads }: Props)
           />
         </button>
 
-        {/* Desktop navigation — on mobile this is replaced by the bottom
-            MobileTabBar (thumb-zone, labeled, 56px targets). The old
-            icon-only top row was 28×28 per button — far below the 44px
-            touch-target minimum and unreachable one-handed. */}
-        <div className="ml-2 hidden lg:block">
-          <GooeyNav
-            items={navItems}
-            active={active}
-            onChange={(key) => onNav?.(key)}
-          />
-        </div>
+        {/* Primary navigation is the bottom tab bar (all screen sizes) —
+            the navbar keeps logo + language/downloads/search, exactly like
+            the mobile edition. */}
 
         <div className="ml-auto flex items-center gap-1 sm:gap-2">
           {/* Language toggle (EN ↔ AR with RTL flip) — 44×44 touch target */}

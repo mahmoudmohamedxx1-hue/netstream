@@ -1639,7 +1639,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
               because our items use complex JSX — SelectValue would mirror that JSX
               into the trigger and double the logo. */}
           <Select value={sourceId} onValueChange={handleSourceChange}>
-            <SelectTrigger className="h-11 w-[200px] border-white/20 bg-white/5 text-xs text-white sm:h-9">
+            <SelectTrigger className="h-11! w-[200px] border-white/20 bg-white/5 text-xs text-white sm:h-10!">
               <ProviderLogo source={source} size="sm" />
               <span className="truncate text-white/80">
                 <span className="text-white/50">Server:</span>{" "}
@@ -1793,7 +1793,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
           <button
             onClick={() => setShowAdvanced((v) => !v)}
             className={cn(
-              "h-11 rounded-md px-2.5 text-[10px] font-semibold transition sm:h-9",
+              "h-11 rounded-md px-2.5 text-[10px] font-semibold transition sm:h-10",
               showAdvanced
                 ? "bg-primary text-primary-foreground"
                 : "bg-white/10 text-white/70 hover:bg-white/20"
@@ -1805,7 +1805,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
 
           {/* Quality */}
           <Select value={quality} onValueChange={handleQualityChange}>
-            <SelectTrigger className="h-11 w-[110px] border-white/20 bg-white/5 text-xs text-white sm:h-9">
+            <SelectTrigger className="h-11! w-[110px] border-white/20 bg-white/5 text-xs text-white sm:h-10!">
               <span className="text-white/50">Quality:</span>
               <SelectValue />
             </SelectTrigger>
@@ -1827,7 +1827,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
                 setLoaded(false)
               }}
             >
-              <SelectTrigger className="h-11 w-[130px] border-white/20 bg-white/5 text-xs text-white sm:h-9">
+              <SelectTrigger className="h-11! w-[130px] border-white/20 bg-white/5 text-xs text-white sm:h-10!">
                 <span className="text-white/50">Season:</span>
                 <SelectValue />
               </SelectTrigger>
@@ -1848,7 +1848,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
             </span>
             <button
               onClick={reload}
-              className="inline-flex h-11 w-11 items-center justify-center gap-1.5 rounded-md bg-white/10 text-xs font-semibold text-white transition hover:bg-white/20 active:scale-90 sm:h-auto sm:w-auto sm:justify-start sm:px-2.5 sm:py-1.5"
+              className="inline-flex h-11 w-11 items-center justify-center gap-1.5 rounded-md bg-white/10 text-xs font-semibold text-white transition hover:bg-white/20 active:scale-90 sm:h-auto sm:w-auto sm:justify-start sm:px-3.5 sm:py-2.5"
               aria-label={t("reload")} data-testid="reload-button"
               title={`${t("reload")} (R)`}
             >
@@ -1856,7 +1856,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
             </button>
             <button
               onClick={handleNextServer}
-              className="inline-flex h-11 w-11 items-center justify-center gap-1.5 rounded-md bg-white/10 text-xs font-semibold text-white transition hover:bg-white/20 active:scale-90 sm:h-auto sm:w-auto sm:justify-start sm:px-2.5 sm:py-1.5"
+              className="inline-flex h-11 w-11 items-center justify-center gap-1.5 rounded-md bg-white/10 text-xs font-semibold text-white transition hover:bg-white/20 active:scale-90 sm:h-auto sm:w-auto sm:justify-start sm:px-3.5 sm:py-2.5"
               aria-label="Next server" data-testid="next-server"
               title="Next working server (N)"
             >
@@ -1865,7 +1865,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
             </button>
             <button
               onClick={() => setServerCheckOpen(true)}
-              className="inline-flex h-11 w-11 items-center justify-center gap-1.5 rounded-md bg-white/10 text-xs font-semibold text-white transition hover:bg-white/20 active:scale-90 sm:h-auto sm:w-auto sm:justify-start sm:px-2.5 sm:py-1.5"
+              className="inline-flex h-11 w-11 items-center justify-center gap-1.5 rounded-md bg-white/10 text-xs font-semibold text-white transition hover:bg-white/20 active:scale-90 sm:h-auto sm:w-auto sm:justify-start sm:px-3.5 sm:py-2.5"
               title={`${t("serverStatus")} (T)`}
             >
               <Activity className="h-3.5 w-3.5" />
@@ -1873,7 +1873,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
             </button>
             <button
               onClick={openPiP}
-              className="inline-flex h-11 w-11 items-center justify-center gap-1.5 rounded-md bg-white/10 text-xs font-semibold text-white transition hover:bg-white/20 active:scale-90 sm:h-auto sm:w-auto sm:justify-start sm:px-2.5 sm:py-1.5"
+              className="inline-flex h-11 w-11 items-center justify-center gap-1.5 rounded-md bg-white/10 text-xs font-semibold text-white transition hover:bg-white/20 active:scale-90 sm:h-auto sm:w-auto sm:justify-start sm:px-3.5 sm:py-2.5"
               title="Picture in Picture (stays on top across tabs)"
             >
               <PictureInPicture2 className="h-3.5 w-3.5" />
@@ -1881,7 +1881,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
             </button>
             <button
               onClick={toggleFullscreen}
-              className="inline-flex h-11 w-11 items-center justify-center gap-1.5 rounded-md bg-white/10 text-xs font-semibold text-white transition hover:bg-white/20 active:scale-90 sm:h-auto sm:w-auto sm:justify-start sm:px-2.5 sm:py-1.5"
+              className="inline-flex h-11 w-11 items-center justify-center gap-1.5 rounded-md bg-white/10 text-xs font-semibold text-white transition hover:bg-white/20 active:scale-90 sm:h-auto sm:w-auto sm:justify-start sm:px-3.5 sm:py-2.5"
               title={isFullscreen ? "Exit fullscreen (F)" : "Fullscreen (F)"}
             >
               {isFullscreen ? <Minimize className="h-3.5 w-3.5" /> : <Maximize className="h-3.5 w-3.5" />}
@@ -1889,14 +1889,14 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
             </button>
             <button
               onClick={openInNewTab}
-              className="inline-flex h-11 w-11 items-center justify-center gap-1.5 rounded-md bg-white/10 text-xs font-semibold text-white transition hover:bg-white/20 active:scale-90 sm:h-auto sm:w-auto sm:justify-start sm:px-2.5 sm:py-1.5"
+              className="inline-flex h-11 w-11 items-center justify-center gap-1.5 rounded-md bg-white/10 text-xs font-semibold text-white transition hover:bg-white/20 active:scale-90 sm:h-auto sm:w-auto sm:justify-start sm:px-3.5 sm:py-2.5"
               title="Open in new tab"
             >
               <ExternalLink className="h-3.5 w-3.5" />
             </button>
             <button
               onClick={() => setDownloadOpen(true)}
-              className="inline-flex h-11 w-11 items-center justify-center gap-1.5 rounded-md bg-white/10 text-xs font-semibold text-white transition hover:bg-white/20 active:scale-90 sm:h-auto sm:w-auto sm:justify-start sm:px-2.5 sm:py-1.5"
+              className="inline-flex h-11 w-11 items-center justify-center gap-1.5 rounded-md bg-white/10 text-xs font-semibold text-white transition hover:bg-white/20 active:scale-90 sm:h-auto sm:w-auto sm:justify-start sm:px-3.5 sm:py-2.5"
               title={t("downloadVideo")}
             >
               <Download className="h-3.5 w-3.5" />
@@ -1904,7 +1904,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
             </button>
             <button
               onClick={() => setSubtitleOpen(true)}
-              className="inline-flex h-11 w-11 items-center justify-center gap-1.5 rounded-md bg-white/10 text-xs font-semibold text-white transition hover:bg-white/20 active:scale-90 sm:h-auto sm:w-auto sm:justify-start sm:px-2.5 sm:py-1.5"
+              className="inline-flex h-11 w-11 items-center justify-center gap-1.5 rounded-md bg-white/10 text-xs font-semibold text-white transition hover:bg-white/20 active:scale-90 sm:h-auto sm:w-auto sm:justify-start sm:px-3.5 sm:py-2.5"
               title={t("subtitles")}
             >
               <Captions className="h-3.5 w-3.5" />
@@ -1913,7 +1913,7 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
             <button
               onClick={handleToggleList}
               className={cn(
-                "inline-flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition active:scale-90 sm:min-h-0 sm:min-w-0",
+                "inline-flex min-h-11 min-w-11 items-center justify-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold transition active:scale-90 sm:min-h-0 sm:min-w-0 sm:py-2.5",
                 inList
                   ? "bg-white/10 text-white hover:bg-white/20"
                   : "bg-white text-black hover:bg-white/80"

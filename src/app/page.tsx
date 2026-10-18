@@ -462,13 +462,14 @@ function HomeContent() {
     nav === "home" && !player && !detail && !searchOpen && !imdbOpen
 
   return (
-    /* Bottom clearance for the mobile tab bar (56px bar + 8px gap +
-       home-indicator inset); desktop (lg+) has no tab bar → no padding. */
-    <div className="flex min-h-screen flex-col bg-[#0a0a0a] pb-[calc(64px+env(safe-area-inset-bottom))] lg:pb-0">
+    /* Bottom clearance for the bottom navigation on EVERY screen size now:
+       mobile = full-width tab bar (56px + safe-area inset), desktop (lg+) =
+       centered floating dock (bottom-6 + 64px pill) → lg:pb-28 keeps the
+       footer/content clear of the dock. */
+    <div className="flex min-h-screen flex-col bg-[#0a0a0a] pb-[calc(64px+env(safe-area-inset-bottom))] lg:pb-28">
       <PullToRefresh />
       <Navbar
         onSearch={openSearch}
-        active={nav}
         onNav={(k) => handleSetNav(k as NavKey)}
         onDownloads={() => setDlPanelOpen(true)}
       />
@@ -521,9 +522,10 @@ function HomeContent() {
 
       {(!player && !detail) && <Footer />}
 
-      {/* Mobile bottom tab bar — thumb-zone primary navigation (< lg).
-          Renders below every overlay (z-40 < modal z-90+), so dialogs
-          cover it; hidden while nothing else is needed. */}
+      {/* Bottom navigation on every screen size — mobile: full-width
+          thumb-zone tab bar; desktop: centered floating pill dock (the
+          mobile edition's navigation on the browser edition). Renders below
+          every overlay (z-40 < modal z-90+), so dialogs cover it. */}
       <MobileTabBar
         active={nav}
         onNav={(k) => handleSetNav(k as NavKey)}
