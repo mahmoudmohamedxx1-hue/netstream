@@ -366,6 +366,11 @@ export function HeroCarousel({ titles, onPlay }: Props) {
               delay={1500}
               muted={muted}
               onAutoMuted={() => setMuted(true)}
+              // Embed-blocked/gone video: clear the SITE (not the key) — the
+              // iframe unmounts + the mute toggle hides, while the "Trailer"
+              // YouTube link button keeps working (it's a plain hyperlink).
+              // The next cycle resets both states anyway.
+              onUnavailable={() => setTrailerSite(null)}
               background
             />
           </motion.div>

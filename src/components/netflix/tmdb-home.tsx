@@ -924,6 +924,10 @@ export function TmdbHome({ onPlay, onPlayNow, continueWatching, myList, onPlayHi
                 delay={1500}
                 muted={muted}
                 onAutoMuted={() => setMuted(true)}
+                // Embed-blocked/gone video (YouTube onError 101/150): drop the
+                // key — the iframe unmounts (backdrop shows), the mute toggle
+                // hides, and the next hero cycle resolves a fresh trailer.
+                onUnavailable={() => setTrailerKey(null)}
                 background
               />
             </motion.div>

@@ -534,11 +534,15 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
                 (500ms) + trailer timer (800ms) already provide the delay, so
                 the component's own delay is set to 0. */}
             <TrailerIframe
-              trailerKey={showTrailer ? trailerKey : null}
+              trailerKey={showTrailer && !trailerFailed ? trailerKey : null}
               title={title.title}
               delay={0}
               muted={muted}
               onAutoMuted={() => setMuted(true)}
+              // Embed-blocked/gone video: flag it — the iframe unmounts
+              // (backdrop shows) and the mute toggle hides (its render is
+              // already gated on !trailerFailed). Fresh popup = fresh state.
+              onUnavailable={() => setTrailerFailed(true)}
               background
             />
             <div className="absolute inset-0 bg-gradient-to-t from-[#181818] via-transparent to-transparent" />

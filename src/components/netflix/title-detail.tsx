@@ -54,6 +54,11 @@ function TitleDetailInner({ title, open, onClose, onPlay }: Props) {
   const [selectedEpisode, setSelectedEpisode] = useState(1)
   const [detailMuted, setDetailMuted] = useState(false)
   const [downloadOpen, setDownloadOpen] = useState(false)
+  // Set when YouTube reported a fatal embed error (101/150 — embed blocked
+  // by the uploader / video gone). Gates both the trailer key we pass down
+  // and the mute toggle. Resets naturally on the next title because the
+  // wrapper remounts TitleDetailInner with a fresh `key`.
+  const [trailerDead, setTrailerDead] = useState(false)
 
   // The hero trailer auto-plays via the reusable <TrailerIframe> component.
   // We only pass the key when the modal is open AND the TMDB data has resolved
@@ -157,11 +162,15 @@ function TitleDetailInner({ title, open, onClose, onPlay }: Props) {
                     key when the modal is open and TMDB returned a YouTube trailer.
                     The component handles the 1.2s delay before mounting. */}
                 <TrailerIframe
-                  trailerKey={open && tmdb?.trailerSite === "YouTube" ? tmdb.trailerKey : null}
+                  trailerKey={open && !trailerDead && tmdb?.trailerSite === "YouTube" ? tmdb.trailerKey : null}
                   title={displayTitle}
                   delay={1200}
                   muted={detailMuted}
                   onAutoMuted={() => setDetailMuted(true)}
+                  // Embed-blocked/gone video: stop passing the key — the
+                  // iframe unmounts (backdrop shows) and the mute toggle
+                  // hides below.
+                  onUnavailable={() => setTrailerDead(true)}
                   background
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0a] via-[#0a0a0a]/40 to-transparent" />
@@ -174,7 +183,7 @@ function TitleDetailInner({ title, open, onClose, onPlay }: Props) {
 
                 {/* Mute toggle — 44×44 touch target, visible whenever a valid
                     YouTube trailer exists */}
-                {open && tmdb?.trailerSite === "YouTube" && tmdb.trailerKey && (
+                {open && !trailerDead && tmdb?.trailerSite === "YouTube" && tmdb.trailerKey && (
                   <button
                     onClick={() => setDetailMuted((m) => !m)}
                     aria-label={detailMuted ? "Unmute" : "Mute"}
