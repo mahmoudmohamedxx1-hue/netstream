@@ -21,7 +21,6 @@ import { normalizeImdbId } from "@/lib/vidsrc"
 import { useToast } from "@/hooks/use-toast"
 import { useLang } from "@/lib/lang-context"
 import { cn } from "@/lib/utils"
-import { RevealCard } from "./reveal"
 
 // Quick-query chips shown in the designed no-results state — popular
 // franchises that reliably return rich results in both locales.
@@ -112,10 +111,6 @@ export function SearchOverlay({ open, onClose, onPlay, onPlayDirect }: Props) {
   const [imdbSearching, setImdbSearching] = useState(false)
   const [peopleSearching, setPeopleSearching] = useState(false)
   const [imdbConfigured, setImdbConfigured] = useState<boolean | null>(null)
-  // Bumped every time a new batch of TMDB results lands — used as a React key
-  // on the results grid so each new result set replays the staggered entrance
-  // (cards animate as a fresh group instead of only the changed keys).
-  const [resultsGen, setResultsGen] = useState(0)
 
   // Keyboard navigation: `selectedIdx` is the index into the flat list of
   // playable results (TMDB results first, then catalog matches). -1 means
@@ -388,11 +383,9 @@ export function SearchOverlay({ open, onClose, onPlay, onPlayDirect }: Props) {
         setImdbConfigured(true)
         setImdbResults(merged)
         setPeopleResults(personData.items ?? [])
-        setResultsGen((g) => g + 1)
       } catch {
         setImdbResults([])
         setPeopleResults([])
-        setResultsGen((g) => g + 1)
       } finally {
         setImdbSearching(false)
         setPeopleSearching(false)
@@ -951,12 +944,12 @@ export function SearchOverlay({ open, onClose, onPlay, onPlayDirect }: Props) {
                     </div>
                   </div>
                 ) : (
-                  <div key={`results-${resultsGen}`} className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
                     {imdbResults.map((t, idx) => {
                       const isSelected = idx === selectedIdx
                       return (
-                        <RevealCard key={t.tmdbId ?? t.imdbId ?? `r-${idx}`} index={idx} step={0.04} maxDelay={0.3}>
                         <button
+                          key={t.tmdbId ?? t.imdbId ?? `r-${idx}`}
                           ref={(el) => { itemRefs.current[idx] = el }}
                           onClick={() => playAt(idx)}
                           className={cn(
@@ -988,7 +981,6 @@ export function SearchOverlay({ open, onClose, onPlay, onPlayDirect }: Props) {
                             </span>
                           </div>
                         </button>
-                        </RevealCard>
                       )
                     })}
                   </div>

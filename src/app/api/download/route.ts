@@ -56,6 +56,30 @@ export async function GET(req: NextRequest) {
   const variantParam = url.searchParams.get("variant")
   const variantIndex = variantParam !== null ? parseInt(variantParam, 10) : -1
 
+  // ─── Mode -1: MyCima fresh-resolve mode ───────────────────────────────
+  // ?mycima=1&title=…&type=movie|series&season=1&episode=1&index=0
+  // MyCima/ArabSeed links are short-lived and can die between the dialog's
+  // probe and the user's click — so the click re-resolves a FRESH source
+  // (same pipeline the probe used) and streams it in this one request.
+  if (url.searchParams.get("mycina") === "1" || url.searchParams.get("mycima") === "1") {
+    const mTitle = (url.searchParams.get("title") || "").trim()
+    const mType = url.searchParams.get("mtype") === "series" ? "series" : "movie"
+    const mSeason = url.searchParams.get("season") || "1"
+    const mEpisode = url.searchParams.get("episode") || "1"
+    const mIndex = parseInt(url.searchParams.get("index") || "0", 10) || 0
+    if (!mTitle) return new NextResponse("title required for mycima mode", { status: 400 })
+    const { resolveEmbedSources } = await import("@/lib/download-sources")
+    // forceFresh: the click must re-resolve — the probe's cached URL may be
+    // dead by the time the user taps Download.
+    const sources = await resolveEmbedSources(mTitle, mType, mSeason, mEpisode, true)
+    const pick = sources[mIndex] ?? sources[0]
+    if (!pick) return new NextResponse("No fresh source found — try probing again", { status: 404 })
+    if (pick.kind === "mp4") {
+      return downloadDirect(pick.url, pick.referer, rawFilename.includes(".") ? rawFilename : rawFilename + ".mp4", req)
+    }
+    return downloadFromEmbed(pick.url, pick.referer, rawFilename, req, -1)
+  }
+
   // ─── Mode 0: Embed mode (extract + download in one request) ────────────
   // This is the preferred mode for MixDrop/VOE/HGCloud — it extracts the
   // direct video URL and immediately downloads it, avoiding token expiration.

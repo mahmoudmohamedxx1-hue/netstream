@@ -9,7 +9,6 @@ import { Input } from "@/components/ui/input"
 import { HeroCarousel, type HeroTitle } from "./hero-carousel"
 import { RowScrollButtons } from "./row-scroll-buttons"
 import { RowEdgeFades } from "./row-edge-fades"
-import { Reveal, RevealCard } from "./reveal"
 import type { CardTitle } from "./content-card"
 import { cn } from "@/lib/utils"
 import { useLang } from "@/lib/lang-context"
@@ -634,18 +633,13 @@ export function TmdbBrowseGrid({ type, onPlay, initialCategory, headerTitle, hea
         <>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-4">
             {display.map((t, i) => (
-              // Staggered scroll-in entrance — cards rise into view in waves
-              // of 8 (index within the current 20-item page, delay capped),
-              // so both the initial grid and every infinite-scroll append
-              // cascade instead of popping in.
-              <RevealCard key={`${t.imdbId ?? t.tmdbId}-${i}`} index={i % 20} step={0.045} maxDelay={0.36}>
-                <HoverPreviewCard
-                  title={t}
-                  onPlay={handleClick}
-                  landscape={true}
-                  inGrid={true}
-                />
-              </RevealCard>
+              <HoverPreviewCard
+                key={`${t.imdbId ?? t.tmdbId}-${i}`}
+                title={t}
+                onPlay={handleClick}
+                landscape={true}
+                inGrid={true}
+              />
             ))}
           </div>
 
@@ -687,10 +681,8 @@ function BrowseRow({
 
   if (items.length === 0) return null
 
-  // Scroll-in reveal — same choreography as the home rows (rise + fade,
-  // once, signature curve).
   return (
-    <Reveal as="section" className="group/row relative py-3">
+    <section className="group/row relative py-3">
       <h3 className="mb-3 flex items-center gap-2 px-4 text-base font-bold text-white sm:px-6 md:text-lg">
         {title}
         <span className="text-[10px] font-normal text-white/30">{items.length}</span>
@@ -715,6 +707,6 @@ function BrowseRow({
         <RowEdgeFades />
         <RowScrollButtons scrollerRef={scrollerRef} />
       </div>
-    </Reveal>
+    </section>
   )
 }

@@ -405,9 +405,13 @@ function PlayerShell({ title, onClose }: { title: PlayerTitle; onClose: () => vo
   // Track playback progress (elapsed time as a proxy for video.currentTime
   // since the iframe is cross-origin and we can't read it). Reports final
   // progress to WatchHistory on close so Continue Watching shows a red bar.
+  // `initialPosition` seeds the timer with the SAVED position when resuming —
+  // the recorded position continues from where the user left off instead of
+  // restarting at 0 (which used to overwrite their saved progress).
   const { progress: watchProgress, stop: stopProgress } = usePlaybackProgress({
     imdbId: title.imdbId,
     runtimeMinutes: meta?.runtimeMinutes ?? null,
+    initialPosition: title.position ?? 0,
     onProgress: ({ position, progress: pct, duration }) => {
       // Only persist every 30s to avoid hammering IndexedDB.
       if (position > 0 && position % 30 === 0) {

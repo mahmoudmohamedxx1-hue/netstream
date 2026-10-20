@@ -2,6 +2,8 @@
 // Used by /api/download-movie (metadata probe) and /api/download-file
 // (full streaming download).
 
+import { searchMycima } from "./video-extract"
+
 export type DownloadVariant = {
   url: string          // absolute media-playlist URL (unproxied, upstream)
   resolution: string   // e.g. "1920x1080"
@@ -330,4 +332,73 @@ export function formatBytes(bytes: number): string {
   if (!isFinite(bytes) || bytes <= 0) return "—"
   if (bytes > 1024 ** 3) return `${(bytes / 1024 ** 3).toFixed(2)} GB`
   return `${Math.round(bytes / 1024 ** 2)} MB`
+}
+
+// ─── Embed-source fallback (2026-10-20) ─────────────────────────────────────
+//
+// The vidora API (moviesapi.to) only serves titles IT has encoded — measured
+// 2026-10-20: ~50% of trending movies / ~30% of series, and almost no old
+// classics ("Movie not yet encoded"). Every other modern provider player is
+// a JS app whose stream API is Turnstile/encrypted (vidsrc.sh data API needs
+// a browser; vsembed is Cloudflare-walled), so server-side HLS extraction
+// is not possible for them.
+//
+// What IS reachable server-side: MyCima/ArabSeed (alking.mycima.cv) — the
+// verified-alive Arabic index whose pipeline (searchMycima) already resolves
+// DIRECT link.mycima.cv MP4s and MixDrop/VOE-class embeds. When vidora
+// misses, these are offered as one-tap downloads via /api/download
+// (?url= for direct MP4s, ?embed= for atomic extract+download).
+
+export type EmbedDownloadSource = {
+  provider: string   // "mycima"
+  host: string       // display host (FastVIP, MyCima MP4, MixDrop…)
+  kind: "mp4" | "embed"
+  url: string        // direct MP4 (kind=mp4) or embed page (kind=embed)
+  referer: string    // referer that unlocks the host
+  quality: string
+}
+
+const embedSourceCache = new Map<string, { at: number; sources: EmbedDownloadSource[] }>()
+const EMBED_CACHE_TTL = 10 * 60 * 1000
+
+export async function resolveEmbedSources(
+  title: string,
+  type: "movie" | "series",
+  season: string,
+  episode: string,
+  /** Skip the cache — used at download-click time so the user always gets
+   *  a freshly resolved link (MyCima URLs are short-lived and can die even
+   *  within the cache TTL). */
+  forceFresh = false
+): Promise<EmbedDownloadSource[]> {
+  const key = `mycima|${title}|${type}|${season}|${episode}`
+  if (!forceFresh) {
+    const hit = embedSourceCache.get(key)
+    if (hit && Date.now() - hit.at < EMBED_CACHE_TTL) return hit.sources
+  }
+  let sources: EmbedDownloadSource[] = []
+  try {
+    const { sources: found } = await searchMycima(
+      title,
+      type,
+      parseInt(season, 10) || 1,
+      parseInt(episode, 10) || 1
+    )
+    sources = found.slice(0, 6).map((s) => ({
+      provider: "mycima",
+      host: s.host,
+      kind: s.kind === "mp4" ? ("mp4" as const) : ("embed" as const),
+      url: s.url,
+      referer: s.referer,
+      quality: s.quality || (s.kind === "mp4" ? "SD/HD" : "Auto"),
+    }))
+  } catch {
+    sources = []
+  }
+  embedSourceCache.set(key, { at: Date.now(), sources })
+  if (embedSourceCache.size > 50) {
+    const sorted = [...embedSourceCache.entries()].sort((a, b) => a[1].at - b[1].at)
+    for (const [k] of sorted.slice(0, 25)) embedSourceCache.delete(k)
+  }
+  return sources
 }

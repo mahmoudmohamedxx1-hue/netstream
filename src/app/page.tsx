@@ -1,6 +1,6 @@
 "use client"
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { motion, AnimatePresence, MotionConfig } from "framer-motion"
 import { Navbar } from "@/components/netflix/navbar"
@@ -339,8 +339,12 @@ function HomeContent() {
     updateUrl({ detailId: t.imdbId, playId: null, search: false, push: true })
   }, [updateUrl])
 
-  // Play directly (skips detail) — used by "Continue Watching" and IMDB dialog
+  // Play directly (skips detail) — used by "Continue Watching" and IMDB dialog.
+  // Passes the SAVED position + sourceId through so the player shows the
+  // "Resuming from…" banner, restores the last server, and seeds progress
+  // tracking at the saved minute (Continue Watching resume).
   const openPlayer = useCallback((t: CardTitle | Title | SavedTitle) => {
+    const extra = t as { position?: number | null; sourceId?: string | null; backdrop?: string | null }
     setPlayer({
       imdbId: t.imdbId,
       title: t.title,
@@ -351,6 +355,8 @@ function HomeContent() {
       rating: t.rating ?? null,
       season: (t as { season?: number | null }).season ?? null,
       episode: (t as { episode?: number | null }).episode ?? null,
+      position: extra.position ?? null,
+      sourceId: extra.sourceId ?? null,
     })
     setDetail(null)
     setSearchOpen(false)
@@ -488,6 +494,28 @@ function HomeContent() {
   const keyboardNavEnabled =
     nav === "home" && !player && !detail && !searchOpen && !imdbOpen
 
+  // ── Continue Watching refresh signal ────────────────────────────────────
+  // The player persists the final position to IndexedDB on close, but
+  // TmdbHome's useClientWatchHistory hook only loads once on mount — the
+  // row went stale until a full page reload. Bump a counter every time the
+  // player (or title detail) closes so the home view re-reads IndexedDB
+  // and the row reflects what was just watched.
+  const [historyRefresh, setHistoryRefresh] = useState(0)
+  const prevOverlayOpenRef = useRef(false)
+  useEffect(() => {
+    const overlayOpen = !!player || !!detail
+    // Deferred to a microtask per the react-hooks/set-state-in-effect rule —
+    // still runs before the next paint, so the row refreshes immediately.
+    if (prevOverlayOpenRef.current && !overlayOpen) {
+      Promise.resolve().then(() => setHistoryRefresh((n) => n + 1))
+      // The player's final upsertWatchItem is DEBOUNCED 300ms inside
+      // client-history before it commits to IndexedDB — refresh again after
+      // that lands so the row always shows the true final position.
+      setTimeout(() => setHistoryRefresh((n) => n + 1), 700)
+    }
+    prevOverlayOpenRef.current = overlayOpen
+  }, [player, detail])
+
   return (
     /* Bottom clearance for the bottom navigation on EVERY screen size now:
        mobile = full-width tab bar (56px + safe-area inset), desktop (lg+) =
@@ -512,15 +540,11 @@ function HomeContent() {
           className="pointer-events-none absolute inset-x-0 top-0 z-0 h-[72svh] bg-[radial-gradient(ellipse_90%_60%_at_50%_-12%,rgba(229,9,20,0.08),transparent_65%)]"
         />
         {/* View transition — subtle fade+slide when switching between Home /
-            Series / Movies / My List. `mode="wait"` so the outgoing view
-            exits before the new one mounts (no layout jump). Disabled
-            automatically for reduced-motion users via MotionConfig.
-            NOTE: no `initial={false}` here — it propagated through
-            PresenceContext and silently suppressed the whileInView reveal
-            choreography (rows/grid cards) inside every view. The first-load
-            entrance is a 0.18s fade — imperceptible, and it makes the whole
-            app feel alive on open. */}
-        <AnimatePresence mode="wait">
+            Series / Movies / My List. `initial={false}` so the first paint is
+            instant (no animation on page load), `mode="wait"` so the outgoing
+            view exits before the new one mounts (no layout jump). Disabled
+            automatically for reduced-motion users via MotionConfig. */}
+        <AnimatePresence mode="wait" initial={false}>
           <motion.div
             key={nav}
             className="relative z-10"
@@ -548,6 +572,7 @@ function HomeContent() {
                   myList={myListCards}
                   onPlayHistory={openPlayer}
                   keyboardNavEnabled={keyboardNavEnabled}
+                  historyRefreshKey={historyRefresh}
                 />
 
                 {/* Library banner */}
@@ -643,8 +668,6 @@ function MyListView({
   onSearch: () => void
 }) {
   const { t: tr } = useLang()
-  // Signature rise-in easing (same curve as the hero text cascade).
-  const EASE: [number, number, number, number] = [0.2, 0.7, 0.3, 1]
 
   // Enhancement E: export watchlist + history as JSON for backup/restore.
   const handleExport = async () => {
@@ -712,12 +735,9 @@ function MyListView({
           {items.map((t, i) => {
             const rating = roundRating(t.rating)
             return (
-              <motion.button
+              <button
                 key={t.imdbId}
                 onClick={() => onPlay(t)}
-                initial={{ opacity: 0, y: 16 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.4, delay: Math.min(i * 0.035, 0.45), ease: EASE }}
                 className="group relative aspect-[2/3] overflow-hidden rounded-md bg-neutral-900 text-left transition-transform duration-200 active:scale-[0.97] sm:hover:scale-[1.03]"
               >
                 <Poster
@@ -745,7 +765,7 @@ function MyListView({
                     <Play className="h-3 w-3 fill-white" /> {tr("play")}
                   </span>
                 </div>
-              </motion.button>
+              </button>
             )
           })}
         </div>

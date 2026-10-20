@@ -64,10 +64,23 @@ type SourceInfo = {
   m3u8Url?: string
   referer?: string
   variants?: Variant[]
+  embedSources?: EmbedSourceInfo[]
   error?: string
 }
 
-type Phase = "idle" | "probing" | "ready" | "downloading" | "converting" | "done" | "error"
+// Fallback source resolved from MyCima/ArabSeed when vidora has no encode.
+// kind=mp4 → direct downloadable URL; kind=embed → player page that
+// /api/download?embed=… extracts + downloads atomically.
+type EmbedSourceInfo = {
+  provider: string
+  host: string
+  kind: "mp4" | "embed"
+  url: string
+  referer: string
+  quality: string
+}
+
+type Phase = "idle" | "probing" | "ready" | "ready-embed" | "downloading" | "converting" | "done" | "error"
 
 type ParsedClientPlaylist = {
   segments: string[]       // already-proxied URLs
@@ -161,6 +174,7 @@ export function DownloadHelper({
   const { t, isArabic } = useLanguage()
   const [phase, setPhase] = useState<Phase>("idle")
   const [source, setSource] = useState<SourceInfo | null>(null)
+  const [embedSources, setEmbedSources] = useState<EmbedSourceInfo[]>([])
   const [progress, setProgress] = useState(0)
   const [stats, setStats] = useState({ downloaded: 0, total: 0, speed: 0, eta: 0, segsDone: 0, segsTotal: 0 })
   const [statusText, setStatusText] = useState("")
@@ -213,7 +227,7 @@ export function DownloadHelper({
 
   useEffect(() => {
     if (open) {
-      setPhase("idle"); setSource(null); setError(""); setProgress(0)
+      setPhase("idle"); setSource(null); setEmbedSources([]); setError(""); setProgress(0)
       setStats({ downloaded: 0, total: 0, speed: 0, eta: 0, segsDone: 0, segsTotal: 0 })
       cancelRef.current = false
     }
@@ -235,13 +249,17 @@ export function DownloadHelper({
     setPhase("probing")
     setStatusText(t("dlProbing"))
     try {
-      const p = new URLSearchParams({ imdbId, type })
+      const p = new URLSearchParams({ imdbId, type, title })
       if (type === "series") { p.set("season", String(season ?? 1)); p.set("episode", String(episode ?? 1)) }
       const res = await fetch(`/api/download-movie?${p.toString()}`)
       const data: SourceInfo = await res.json()
       if (data.success && data.variants && data.variants.length > 0) {
         setSource(data)
         setPhase("ready")
+      } else if (data.success && data.embedSources && data.embedSources.length > 0) {
+        // Fallback: direct/embed sources from MyCima (vidora had no encode)
+        setEmbedSources(data.embedSources)
+        setPhase("ready-embed")
       } else {
         setError(data.error || t("downloadNoSources"))
         setPhase("error")
@@ -250,7 +268,34 @@ export function DownloadHelper({
       setError(String(e instanceof Error ? e.message : e))
       setPhase("error")
     }
-  }, [imdbId, type, season, episode, t])
+  }, [imdbId, type, season, episode, title, t])
+
+  // One-tap direct/embed download. Uses the mycima FRESH-RESOLVE mode — the
+  // probe's URLs are cached and short-lived, so the click re-resolves the
+  // source server-side and streams it in the same request (Content-Disposition
+  // → the browser's native download manager handles progress/pause/resume).
+  // We can't observe progress from JS, so the history records an honest
+  // "started" entry like server mode.
+  const downloadEmbedSource = useCallback((s: EmbedSourceInfo, index: number) => {
+    const p = new URLSearchParams({
+      mycima: "1",
+      title,
+      mtype: type,
+      index: String(index),
+      filename: `${safeTitle}${suffix}`,
+    })
+    if (type === "series") { p.set("season", String(season ?? 1)); p.set("episode", String(episode ?? 1)) }
+    addDownloadRecord({
+      imdbId, type, season: type === "series" ? (season ?? 1) : null,
+      episode: type === "series" ? (episode ?? 1) : null,
+      title, poster: poster ?? null,
+      mode: "server", status: "started",
+      container: "mp4", quality: s.quality,
+      bytes: 0, sizeText: "—",
+      filename: `${safeTitle}${suffix}.mp4`,
+    })
+    window.location.href = `/api/download?${p.toString()}`
+  }, [imdbId, type, season, episode, title, poster, safeTitle, suffix])
 
   // ── Step 2a: fast in-browser download ────────────────────────────────────
   const downloadInBrowser = useCallback(async (variant: Variant) => {
@@ -620,6 +665,53 @@ export function DownloadHelper({
                       <AlertCircle className="size-3 shrink-0" /> {t("dlEncryptedAuto")}
                     </p>
                   )}
+                  <button
+                    onClick={probe}
+                    className="flex w-full items-center justify-center gap-2 rounded-lg border border-white/5 py-2 text-[11px] text-white/40 transition hover:bg-white/5 hover:text-white/70"
+                  >
+                    <RefreshCw className="size-3" /> {t("downloadRetry")}
+                  </button>
+                </div>
+              )}
+
+              {/* ── Phase: ready-embed (MyCima direct/embed sources) ── */}
+              {phase === "ready-embed" && embedSources.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-white/30">
+                    {isArabic ? "مصادر تحميل مباشرة" : "Direct download sources"}
+                  </p>
+                  <p className="text-[10px] leading-relaxed text-white/35">
+                    {isArabic
+                      ? "هذا العنوان غير مُشفّر على مزوّد التحميل الأساسي — هذه مصادر بديلة (التحميل عبر متصفحك)."
+                      : "This title isn't encoded on our primary download provider — these alternative sources download via your browser's download manager."}
+                  </p>
+                  {embedSources.map((s, i) => (
+                    <div key={i} className="flex items-center gap-3 rounded-xl border border-white/5 bg-white/[0.03] p-3">
+                      <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-primary/20">
+                        <HardDriveDownload className="size-4 text-primary" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <p className="text-xs font-semibold text-white">{s.host}</p>
+                          <span className={cn(
+                            "rounded px-1.5 py-0.5 text-[9px] font-bold",
+                            s.kind === "mp4" ? "bg-emerald-500/20 text-emerald-400" : "bg-sky-500/20 text-sky-400"
+                          )}>
+                            {s.kind === "mp4" ? "MP4" : "EXTRACT"}
+                          </span>
+                          <span className="rounded bg-white/10 px-1.5 py-0.5 text-[9px] text-white/60">{s.quality}</span>
+                        </div>
+                        <p className="mt-0.5 text-[10px] text-white/40">{s.provider === "mycima" ? "MyCima / ArabSeed" : s.provider}</p>
+                      </div>
+                      <button
+                        onClick={() => downloadEmbedSource(s, i)}
+                        className="flex shrink-0 items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-[11px] font-bold text-white transition hover:bg-primary/85 active:scale-[0.98]"
+                      >
+                        <Download className="size-3.5" />
+                        {t("download")}
+                      </button>
+                    </div>
+                  ))}
                   <button
                     onClick={probe}
                     className="flex w-full items-center justify-center gap-2 rounded-lg border border-white/5 py-2 text-[11px] text-white/40 transition hover:bg-white/5 hover:text-white/70"

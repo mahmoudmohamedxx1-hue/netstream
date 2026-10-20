@@ -10,7 +10,6 @@ import { HoverPreviewCard } from "./hover-preview-card"
 import { TrailerIframe } from "./trailer-iframe"
 import { RowScrollButtons } from "./row-scroll-buttons"
 import { RowEdgeFades } from "./row-edge-fades"
-import { Reveal } from "./reveal"
 import { useLang } from "@/lib/lang-context"
 import { useClientWatchHistory } from "@/hooks/use-client-watch-history"
 import { cn } from "@/lib/utils"
@@ -154,12 +153,23 @@ type Props = {
   // never interferes with the player's R/N/T/F shortcuts, the search
   // overlay's arrow-key nav, or text input fields.
   keyboardNavEnabled?: boolean
+  // Bumped by page.tsx whenever the player/title-detail overlay CLOSES —
+  // re-reads IndexedDB so the Continue Watching row reflects what was just
+  // watched without a full page reload.
+  historyRefreshKey?: number
 }
 
-export function TmdbHome({ onPlay, onPlayNow, continueWatching, myList, onPlayHistory, keyboardNavEnabled }: Props) {
+export function TmdbHome({ onPlay, onPlayNow, continueWatching, myList, onPlayHistory, keyboardNavEnabled, historyRefreshKey }: Props) {
   const { t, isArabic } = useLang()
   // IndexedDB-backed Continue Watching — loads from browser storage, no API needed
-  const { items: cwItems, loaded: cwLoaded, error: cwError } = useClientWatchHistory()
+  const { items: cwItems, loaded: cwLoaded, error: cwError, refresh: refreshCw } = useClientWatchHistory()
+
+  // Re-read Continue Watching from IndexedDB when the parent signals that
+  // the player just closed (the player persists the final position there).
+  useEffect(() => {
+    if (historyRefreshKey === undefined) return
+    refreshCw()
+  }, [historyRefreshKey, refreshCw])
 
   // Map IndexedDB items to CardTitle shape for the LocalRow component
   const cwCards: CardTitle[] = cwItems.map((h) => ({
@@ -1201,10 +1211,8 @@ function TmdbRow({ row, onPlay, numbered, landscape, rowIndex, focusedCard, setC
   // English title if no mapping exists (e.g. for genre-based rows).
   const rowTitle = ROW_TITLE_MAP[row.title] ? t(ROW_TITLE_MAP[row.title]) : row.title
 
-  // Scroll-in reveal: the row rises into view the first time it enters the
-  // viewport (once). Rows below the fold no longer sit pre-revealed.
   return (
-    <Reveal as="section" className="group/row relative py-3">
+    <section className="group/row relative py-3">
       <h3 className="mb-2 flex items-center gap-2 px-4 text-base font-semibold text-white/90 sm:px-8 md:text-lg">
         {rowTitle}
         <span className="text-[10px] font-normal text-white/30">{row.titles.length} {t("titles")}</span>
@@ -1245,7 +1253,7 @@ function TmdbRow({ row, onPlay, numbered, landscape, rowIndex, focusedCard, setC
         <RowEdgeFades />
         <RowScrollButtons scrollerRef={scrollerRef} />
       </div>
-    </Reveal>
+    </section>
   )
 }
 
@@ -1295,9 +1303,8 @@ function LocalRow({ title, titles, onPlay, showProgress, rowIndex, focusedCard, 
   if (titles.length === 0) return null
   // Translate the row title via the mapping (Continue Watching / My List)
   const rowTitle = ROW_TITLE_MAP[title] ? t(ROW_TITLE_MAP[title]) : title
-  // Scroll-in reveal — same choreography as the TMDB rows above.
   return (
-    <Reveal as="section" className="group/row relative py-3">
+    <section className="group/row relative py-3">
       <h3 className="mb-2 px-4 text-base font-semibold text-white/90 sm:px-8 md:text-lg">{rowTitle}</h3>
       {/* Relative wrapper: scopes edge fades + arrows to the card strip. */}
       <div className="relative">
@@ -1379,6 +1386,6 @@ function LocalRow({ title, titles, onPlay, showProgress, rowIndex, focusedCard, 
         <RowEdgeFades />
         <RowScrollButtons scrollerRef={scrollerRef} />
       </div>
-    </Reveal>
+    </section>
   )
 }

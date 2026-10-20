@@ -27,14 +27,23 @@ import { useCallback, useEffect, useRef, useState } from "react"
 type Opts = {
   imdbId: string
   runtimeMinutes?: number | null
+  /** Saved playback position (seconds) to RESUME from — the wall-clock timer
+   *  starts pre-seeded at this value so the reported position (and the
+   *  IndexedDB record) continues from where the user left off instead of
+   *  restarting at 0 and overwriting their saved progress. */
+  initialPosition?: number | null
   onProgress?: (info: { position: number; progress: number; duration: number }) => void
 }
 
-export function usePlaybackProgress({ imdbId, runtimeMinutes, onProgress }: Opts) {
+export function usePlaybackProgress({ imdbId, runtimeMinutes, initialPosition, onProgress }: Opts) {
   const [position, setPosition] = useState(0)
   const startRef = useRef<number>(Date.now())
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const saveRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  // Latest resume seed — read inside the timer (re)start effect without
+  // being a dep (it must NOT restart the timer when a parent re-renders).
+  const initialPositionRef = useRef(initialPosition)
+  initialPositionRef.current = initialPosition
   const onProgressRef = useRef(onProgress)
   onProgressRef.current = onProgress
 
@@ -48,10 +57,14 @@ export function usePlaybackProgress({ imdbId, runtimeMinutes, onProgress }: Opts
     return d > 0 ? Math.min(100, Math.max(0, (p / d) * 100)) : 0
   }, [])
 
-  // (Re)start the timer whenever the title changes
+  // (Re)start the timer whenever the title changes. When resuming, the
+  // start timestamp is back-dated so `elapsed` already equals the saved
+  // position — the red progress bar, the IndexedDB record, and the
+  // "Resuming from…" banner all stay in sync.
   useEffect(() => {
-    setPosition(0)
-    startRef.current = Date.now()
+    const seed = Math.max(0, Math.floor(Number(initialPositionRef.current) || 0))
+    setPosition(seed)
+    startRef.current = Date.now() - seed * 1000
 
     // Tick every 1s to update the UI position display
     tickRef.current = setInterval(() => {
@@ -72,6 +85,8 @@ export function usePlaybackProgress({ imdbId, runtimeMinutes, onProgress }: Opts
       tickRef.current = null
       saveRef.current = null
     }
+    // initialPosition is read via ref at (re)start time only — deliberately
+    // NOT a dep so it can't restart the timer.
   }, [imdbId, duration, calcProgress])
 
   // Stop the timer and report FINAL position.
