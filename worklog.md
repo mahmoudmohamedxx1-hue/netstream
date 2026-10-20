@@ -4364,3 +4364,36 @@ Work Log:
 
 Stage Summary:
 - Staggered entrances fully disabled (task 26's motion choreography unwired; everything renders instantly). Downloads fixed with a MyCima/ArabSeed fallback layer + fresh-resolve one-tap downloads + honest error states — the root cause was moviesapi's vidora encode library only covering ~50% of trending titles and almost no classics (every alternative player is Turnstile/JS-walled, verified by probing 15+ endpoints). Continue Watching now truly resumes: position + server pass through to the player, the progress timer seeds at the saved minute (no more history destruction), and the row refreshes live after every close. Live in production on all domains.
+
+---
+Task ID: 28
+Agent: main (Super Z)
+Task: User request — "i want the default in showing the trailer in title or in the hero or anywhere to unmuted not muted" (trailers must start WITH sound everywhere)
+
+Work Log:
+- SURVEY: every trailer flows through ONE shared component (trailer-iframe.tsx) used by 4 surfaces — home hero (tmdb-home.tsx), browse hero (hero-carousel.tsx), hover preview popup (hover-preview-card.tsx), title detail (title-detail.tsx) — each with its own `useState(true)` muted state; the embed URL hardcoded `mute=1`. player-modal.tsx's direct-video path already played unmuted-first (no change needed).
+- REWRITE of trailer-iframe.tsx (the core change):
+  * `muted` prop now defaults to FALSE — every surface starts UNMUTED.
+  * The embed URL's mute flag is snapshotted ONCE at mount (mute=0 when unmuted): the src template is now dynamic BUT keyed to the mount record, so toggling mute afterwards still goes through postMessage only — the trailer NEVER reloads/restarts (verified live: toggle click → unMute acknowledged with no new iframe load).
+  * Command delivery moved to iframe onLoad (the old effect fired at mount time, before the YouTube widget could listen — an unMute command there would have been silently lost) + a 400ms belt-and-braces resend of handshake + mute sync.
+  * Blocked-autoplay fallback: YouTube widget handshake ("listening") + infoDelivery playerState tracking (listener filtered by e.source so the hero and a hover-popup trailer never mix states); when mounted unmuted, a probe at 1.8s checks whether playback started — if YouTube reported a stalled state (-1/5/0/2, i.e. the browser refused unmuted autoplay), it falls back to muted playback (mute + playVideo) and calls the new onAutoMuted prop so the parent's toggle icon/aria-label stays truthful. The probe auto-cancels the moment a playing/buffering (1/3) state arrives — a slow-starting trailer is never wrongly muted — and never guesses when no state was received.
+  * Unmute self-heal: clicking unmute on a stalled trailer also sends playVideo (the click grants page user activation, which permits playback inside embeds).
+- 4 call sites flipped to unmuted default + onAutoMuted wiring: tmdb-home hero (muted=false + comment), hover-preview popup, title-detail (detailMuted=false), hero-carousel browse hero.
+- LINT FIXES: react-hooks/refs (ref mirroring moved into an effect — render-phase ref writes are banned) and react-hooks/set-state-in-effect (removed synchronous setMount(null); the render guard already unmounts on null key).
+- GATES: eslint exit 0; tsc 0 src errors; production build compiles (12.5s).
+- DEV VERIFICATION (agent-browser, 1440×900 + 390×844, YouTube-message collector injected to read real player state):
+  * Home hero: iframe mounts with mute=0 and YouTube reports m:false, volume 100 (truly unmuted); toggle shows "Mute" (unmuted state).
+  * Blocked-autoplay fallback E2E (this headless Chrome enforces user-gesture policy): player stalls at s:-1 → probe fires → mute command acknowledged (M infoDelivery) → toggle flips to "Unmute" → NEXT hero cycles mount with mute=1 (preference snapshot) — the whole chain observed live, repeatedly, on every hero cycle.
+  * Toggle: real click on "Unmute" → parent flips → unMute command acknowledged (U infoDelivery) → iframe did NOT reload (no new load, src unchanged — no-restart design intact); after the click the preference persisted and the next cycle mounted mute=0 again.
+  * Hover preview popup: popup trailer mounted mute=0 (unmuted default) while the hero trailer (muted) played behind it — two simultaneous iframes with isolated states via e.source filtering; popup's own fallback + toggle sync verified.
+  * Title detail (?detail=tt14976292 via popup More info): detail trailer mounted mute=0 + fallback + toggle sync.
+  * Browse hero (Movies tab → HeroCarousel): trailer mounted mute=0 + fallback + toggle sync.
+  * Mobile 390×844: hero trailer mute=0 + visible unmuted toggle + mobile tab bar intact; tap-to-detail regression PASSES (?detail=tt14976292); detail trailer mute=0 + fallback.
+  * Zero console/page errors on both viewports.
+  * ENV LIMITATION (documented, not a bug): this headless browser blocks ALL iframe autoplay (even muted, even with sticky activation — s never leaves -1 all session), so actual playback start cannot be demonstrated in the harness. On real browsers unmuted autoplay after any click/tap is standard Chrome/WebKit behavior and the muted fallback is the universally-allowed path; all wiring (commands delivered + acknowledged by YouTube, state sync, snapshots) is verified end-to-end.
+- GIT NOTE: local main had a duplicate task-27 worklog commit (same content, different sha) — verified byte-identical, rebased only the trailers commit onto origin/main.
+- PRODUCTION: push c5ee8c6 → deploy dpl_4UFqE4iDcQJ2G6rJx548a6uyAKCH READY + PROMOTED (sha c5ee8c6a, netstream-navy 200 in 0.89s). Bundle byte-check on page-c5910cb24f5cd892.js: onAutoMuted ×2 ✓, "listening" handshake ✓, dynamic `autoplay=1&mute=` template ✓, unMute ✓, old hardcoded `mute=1&controls=0` 0 occurrences ✓. Live smoke: collector caught the first trailer mounting unmuted (m:false) then the fallback mute — identical chain to dev. Screenshots: audit/task28/ (dev-desktop-browse-hero, dev-mobile-detail, prod-hero-trailer).
+- netstream-best follows latest production per task-19 documentation.
+
+Stage Summary:
+- Trailers now start WITH SOUND everywhere (home hero, browse hero, hover preview popup, title detail) via a rewritten shared TrailerIframe: unmuted-by-default embed URLs (mute flag snapshotted at mount so toggles never reload the trailer), postMessage commands delivered only after the YouTube widget is actually listening, an automatic muted fallback with truthful toggle sync when the browser blocks unmuted autoplay (fresh direct loads), and a self-healing unmute that kicks stalled playback after the user's click. Live in production on all domains.
