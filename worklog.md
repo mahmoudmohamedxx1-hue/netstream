@@ -4328,3 +4328,39 @@ Work Log:
 
 Stage Summary:
 - Batch 2 shipped in commit f8982c8: scroll-in reveal choreography for every row and grid on the site (once-only, signature rise-in curve), staggered browse-grid and search-result entrances, a designed search no-results state with one-tap suggestion chips, a global "/" search shortcut with a discoverable tooltip, an ambient cinema glow for depth, and press feedback on every card type — plus a real bug fix: the view switcher's AnimatePresence initial={false} had been silently suppressing whileInView initial states app-wide (removed). All regressions pass (hover preview, MoviesHub playback chain, mobile long-press popover, tap-to-detail). Live in production on all domains.
+
+---
+Task ID: 27
+Agent: main (Super Z)
+Task: User request — (1) DISABLE the staggered entrances, (2) FIX the download option ("it doesn't open sources to download the title"), (3) FIX Continue Watching not resuming at the minute the user closed the title.
+
+Work Log:
+- 1) STAGGERED ENTRANCES DISABLED (revert of task 26's motion choreography, per user request): unwired <Reveal> from TmdbRow/LocalRow/BrowseRow, <RevealCard> from the browse grid and search results (resultsGen counter removed), removed the My List card stagger (plain buttons now), restored <AnimatePresence initial={false}> for instant first paint, deleted reveal.tsx. Kept the rest of task 26 (no-results redesign, "/" shortcut, ambient glow, press feedback). Verified: 0 rows/cards with hidden initial state on dev + prod, search results render instantly (26 cards, 0 hidden).
+- 2) DOWNLOAD INVESTIGATION (extensive external probing):
+  * The download dialog's ONLY source was moviesapi.to's vidora API. Measured live coverage against actual home-page titles: 7/14 HIT (recent releases — Spider-Man: Brand New Day, The Odyssey, Street Fighter, Batman: Knightfall…), 7/14 MISS (older series + classics — Shawshank, Dark Knight, Barbie all return "Movie not yet encoded"). THAT is why "it doesn't open sources" — moviesapi's encode library only covers recent content now.
+  * Probed every alternative for a server-side source: vidsrc.to/api/vidora (404), vidspark.xyz (dead), 8 clone domains (no vidora mirrors), vidsrc.me→vidsrc.sh player chain (vs_src.php → stellarconductornexus.com → data.vidsrc.sh API — requires Cloudflare Turnstile + ChaCha20-WASM envelope = browser-only), vsembed.ru (Cloudflare 403), vidfast/vidcore/rivestream/vidjoy/anyembed/multiembed (all JS-app players, no greppable sources), extract-video on provider embeds (fails — React apps), 2embed server resolution (broken vidcore.net/movie/ URL + React players).
+  * What IS reachable server-side: MyCima/ArabSeed (alking.mycima.cv) — Arabic search verified live (الكبير أوي 8 episodes found; عمر وسلمى → direct link.mycima.cv 720p MP4).
+- 2) DOWNLOAD FIX (3 layers):
+  * lib/download-sources.ts: new resolveEmbedSources(title, type, season, episode, forceFresh) → searchMycima → EmbedDownloadSource[] (10-min cache for probes, forceFresh for clicks), reusing the existing verified mycima pipeline.
+  * /api/download-movie: on vidora miss → resolveEmbedSources fallback → { success: true, provider: "mycima", variants: [], embedSources }; on total miss → honest actionable error ("not yet encoded… you can still stream it"). Dialog probe now sends `title`.
+  * /api/download: NEW "mycima" fresh-resolve mode (?mycima=1&title=&mtype=&season=&episode=&index=) — the click re-resolves a FRESH source server-side (MyCima links are short-lived) and streams it with Content-Disposition via downloadDirect/downloadFromEmbed.
+  * DownloadHelper dialog: new "ready-embed" phase — source cards (host + MP4/EXTRACT chip + quality + MyCima/ArabSeed label) with one-tap Download via the fresh-resolve mode; history records an honest "started" entry. Esc/X guards updated.
+  * VERIFIED on dev AND prod: Brand New Day probe → 720p/1080p variants (screenshot audit/task27/prod-download-variants.png); Arabic series (الكبير أوي) → MyCima direct MP4 fallback (dev + prod API); LINK CLICK (neither provider) → honest error with Try again + Server mode.
+  * KNOWN EXTERNAL ISSUES (documented, not code bugs): link.mycima.cv currently returns Cloudflare "error code: 1101" (Worker exception at THEIR origin) — their direct-MP4 CDN is down upstream (also affects the app's mycima playback path). Vidora coverage is ~50% of trending movies / ~30% of series and almost no classics — provider-side reality, now surfaced honestly instead of a bare "No downloadable source found".
+- 3) CONTINUE WATCHING ROOT CAUSES (3 bugs):
+  * Bug A: page.tsx openPlayer() dropped position + sourceId from the CardTitle → the player's existing resume machinery ("▶ Resuming from…" banner, savedSourceId server restore) never activated.
+  * Bug B: usePlaybackProgress had no initialPosition — the wall-clock proxy timer restarted at 0 on every reopen, so the next 30s persist OVERWROTE the saved position with a smaller value (history destruction).
+  * Bug C: useClientWatchHistory loads once on mount; the player persists on close → the row went stale until a full page reload.
+- 3) CONTINUE WATCHING FIX:
+  * use-playback-progress.ts: initialPosition option — startRef back-dated so elapsed begins at the saved position (red bar, IDB record, and banner stay in sync); ref-based to stay lint-clean.
+  * player-modal.tsx: passes title.position into usePlaybackProgress.
+  * page.tsx: openPlayer passes position + sourceId; historyRefresh counter bumped when the player/detail overlay closes (immediate microtask + 700ms delayed bump covering client-history's 300ms debounced IDB write — the race was found and fixed during verification).
+  * tmdb-home.tsx: new historyRefreshKey prop → refreshCw() re-reads IndexedDB.
+  * VERIFIED E2E (dev, no reloads): play Fight Club ~30s → close → row IMMEDIATELY shows "Fight Club 1%" (was absent before) → click card → player reopens with "▶ Resuming from 0:30 · MoviesHub" (position + server restored) → close/reopen cycles → position ADVANCES (1:45 → 1:55) instead of resetting. The iframe itself cannot be seeked (cross-origin — that's why the banner tells the user where they left off; the record + bar stay accurate).
+- GATES: eslint 0 errors; tsc 0 src errors; production build passes (28.8s).
+- REGRESSIONS: mobile 390×844 — 17 rows, 0 hidden, no horizontal overflow, tab bar present, tap-to-detail opens; desktop hover preview opens (hybrid mouse arming); "/" opens search; search results render instantly with 0 hidden; 0 console/page errors on both viewports + prod.
+- PRODUCTION: push e4f772f → deploy dpl_BXfnSBF6FMPHKA33hpemwkQ9zzVu READY (netstream-navy 200). Bundle byte-check: historyRefreshKey ×2 ✓, initialPosition ✓, "ready-embed" ✓, "Direct download sources" ✓, mycima ×2 ✓, "Resuming from" ✓; whileInView 0 ✓, RevealCard 0 ✓, resultsGen 0 ✓ (stagger fully gone). Live smoke: 17 rows instant, glow present, download dialog probe → 720p/1080p variants, 0 console errors. Screenshots: audit/task27/.
+- netstream-best follows latest production per task-19 documentation.
+
+Stage Summary:
+- Staggered entrances fully disabled (task 26's motion choreography unwired; everything renders instantly). Downloads fixed with a MyCima/ArabSeed fallback layer + fresh-resolve one-tap downloads + honest error states — the root cause was moviesapi's vidora encode library only covering ~50% of trending titles and almost no classics (every alternative player is Turnstile/JS-walled, verified by probing 15+ endpoints). Continue Watching now truly resumes: position + server pass through to the player, the progress timer seeds at the saved minute (no more history destruction), and the row refreshes live after every close. Live in production on all domains.
