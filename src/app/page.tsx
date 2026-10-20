@@ -378,6 +378,32 @@ function HomeContent() {
     updateUrl({ search: true })
   }, [updateUrl])
 
+  // ── Global "/" shortcut — opens search from anywhere (YouTube / GitHub
+  // idiom). Skipped while typing in a field or when any overlay is open, so
+  // it never fights the player's R/N/T/F shortcuts or the search overlay's
+  // own arrow-key navigation. The navbar search button carries a "(/)"
+  // tooltip hint so the shortcut is discoverable.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey) return
+      const target = e.target as HTMLElement | null
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable)
+      ) {
+        return
+      }
+      if (player || detail || searchOpen || imdbOpen || dlPanelOpen) return
+      e.preventDefault()
+      openSearch()
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [player, detail, searchOpen, imdbOpen, dlPanelOpen, openSearch])
+
   // AI Chat — when the AI suggests a title, open the detail page.
   // If we have an imdbId, open directly. If we only have a tmdbId, do a
   // lookup first to resolve the imdbId.
@@ -475,15 +501,29 @@ function HomeContent() {
         onDownloads={() => setDlPanelOpen(true)}
       />
 
-      <main className="flex-1" style={{ display: player || detail ? "none" : undefined }}>
+      <main className="relative flex-1" style={{ display: player || detail ? "none" : undefined }}>
+        {/* Ambient cinema glow — a barely-there red radial wash anchored to
+            the top of the page, behind all content. Gives the flat #0a0a0a
+            background a sense of depth over the hero (the "screen light"
+            feel of a dark theater) without touching readability. Hidden
+            automatically whenever the player/detail overlay takes over. */}
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 top-0 z-0 h-[72svh] bg-[radial-gradient(ellipse_90%_60%_at_50%_-12%,rgba(229,9,20,0.08),transparent_65%)]"
+        />
         {/* View transition — subtle fade+slide when switching between Home /
-            Series / Movies / My List. `initial={false}` so the first paint is
-            instant (no animation on page load), `mode="wait"` so the outgoing
-            view exits before the new one mounts (no layout jump). Disabled
-            automatically for reduced-motion users via MotionConfig. */}
-        <AnimatePresence mode="wait" initial={false}>
+            Series / Movies / My List. `mode="wait"` so the outgoing view
+            exits before the new one mounts (no layout jump). Disabled
+            automatically for reduced-motion users via MotionConfig.
+            NOTE: no `initial={false}` here — it propagated through
+            PresenceContext and silently suppressed the whileInView reveal
+            choreography (rows/grid cards) inside every view. The first-load
+            entrance is a 0.18s fade — imperceptible, and it makes the whole
+            app feel alive on open. */}
+        <AnimatePresence mode="wait">
           <motion.div
             key={nav}
+            className="relative z-10"
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}

@@ -10,6 +10,7 @@ import { HoverPreviewCard } from "./hover-preview-card"
 import { TrailerIframe } from "./trailer-iframe"
 import { RowScrollButtons } from "./row-scroll-buttons"
 import { RowEdgeFades } from "./row-edge-fades"
+import { Reveal } from "./reveal"
 import { useLang } from "@/lib/lang-context"
 import { useClientWatchHistory } from "@/hooks/use-client-watch-history"
 import { cn } from "@/lib/utils"
@@ -1200,8 +1201,10 @@ function TmdbRow({ row, onPlay, numbered, landscape, rowIndex, focusedCard, setC
   // English title if no mapping exists (e.g. for genre-based rows).
   const rowTitle = ROW_TITLE_MAP[row.title] ? t(ROW_TITLE_MAP[row.title]) : row.title
 
+  // Scroll-in reveal: the row rises into view the first time it enters the
+  // viewport (once). Rows below the fold no longer sit pre-revealed.
   return (
-    <section className="group/row relative py-3 nf-fade-in">
+    <Reveal as="section" className="group/row relative py-3">
       <h3 className="mb-2 flex items-center gap-2 px-4 text-base font-semibold text-white/90 sm:px-8 md:text-lg">
         {rowTitle}
         <span className="text-[10px] font-normal text-white/30">{row.titles.length} {t("titles")}</span>
@@ -1242,7 +1245,7 @@ function TmdbRow({ row, onPlay, numbered, landscape, rowIndex, focusedCard, setC
         <RowEdgeFades />
         <RowScrollButtons scrollerRef={scrollerRef} />
       </div>
-    </section>
+    </Reveal>
   )
 }
 
@@ -1292,8 +1295,9 @@ function LocalRow({ title, titles, onPlay, showProgress, rowIndex, focusedCard, 
   if (titles.length === 0) return null
   // Translate the row title via the mapping (Continue Watching / My List)
   const rowTitle = ROW_TITLE_MAP[title] ? t(ROW_TITLE_MAP[title]) : title
+  // Scroll-in reveal — same choreography as the TMDB rows above.
   return (
-    <section className="group/row relative py-3">
+    <Reveal as="section" className="group/row relative py-3">
       <h3 className="mb-2 px-4 text-base font-semibold text-white/90 sm:px-8 md:text-lg">{rowTitle}</h3>
       {/* Relative wrapper: scopes edge fades + arrows to the card strip. */}
       <div className="relative">
@@ -1313,7 +1317,7 @@ function LocalRow({ title, titles, onPlay, showProgress, rowIndex, focusedCard, 
                 tabIndex={0}
                 onClick={() => onPlay(tt)}
                 className={cn(
-                  "group/card relative aspect-video w-[68vw] shrink-0 rounded-md transition sm:w-[280px] md:w-[320px]",
+                  "group/card relative aspect-video w-[68vw] shrink-0 rounded-md transition duration-300 active:scale-[0.97] sm:w-[280px] md:w-[320px]",
                   isFocused
                     ? "z-20 scale-105 ring-2 ring-white ring-offset-2 ring-offset-black"
                     : "ring-0"
@@ -1375,6 +1379,6 @@ function LocalRow({ title, titles, onPlay, showProgress, rowIndex, focusedCard, 
         <RowEdgeFades />
         <RowScrollButtons scrollerRef={scrollerRef} />
       </div>
-    </section>
+    </Reveal>
   )
 }

@@ -470,7 +470,7 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
           <button
             ref={(el) => { cardRefInternal.current = el; cardRef?.(el) }}
             onClick={() => { handleClose(); onPlay(title) }}
-            className={cn("specular-card-outline block h-full w-full overflow-hidden rounded-md bg-neutral-900 text-left transition-transform duration-200 ", focused ? "z-20 scale-105 ring-2 ring-white ring-offset-2 ring-offset-black focus:outline-none" : "focus:outline-none")}
+            className={cn("specular-card-outline block h-full w-full overflow-hidden rounded-md bg-neutral-900 text-left transition-transform duration-200 active:scale-[0.97]", focused ? "z-20 scale-105 ring-2 ring-white ring-offset-2 ring-offset-black focus:outline-none" : "focus:outline-none")}
           >
             <div className="relative h-full bg-neutral-900">
               {true ? (

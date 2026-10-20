@@ -111,6 +111,7 @@ export function Navbar({ onSearch, onNav, onDownloads }: Props) {
           <button
             onClick={onSearch}
             aria-label={t("search")} data-testid="search-button"
+            title={`${t("search")} (/)`}
             className="flex h-11 w-11 items-center justify-center rounded-full text-white transition hover:bg-white/10 active:scale-90"
           >
             <Search className="h-5 w-5" />

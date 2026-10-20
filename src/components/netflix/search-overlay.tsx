@@ -13,7 +13,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { Search, X, Play, Film, Tv, Link2, Sparkles, Loader2, User, History } from "lucide-react"
+import { Search, X, Play, Film, Tv, Link2, Sparkles, Loader2, User, History, SearchX } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Poster } from "./poster"
 import { CATALOG, type Title } from "@/lib/movies-data"
@@ -21,6 +21,11 @@ import { normalizeImdbId } from "@/lib/vidsrc"
 import { useToast } from "@/hooks/use-toast"
 import { useLang } from "@/lib/lang-context"
 import { cn } from "@/lib/utils"
+import { RevealCard } from "./reveal"
+
+// Quick-query chips shown in the designed no-results state — popular
+// franchises that reliably return rich results in both locales.
+const NO_RESULT_SUGGESTIONS = ["Dune", "Batman", "Breaking Bad", "Interstellar", "Money Heist"]
 
 type ImdbSearchItem = {
   imdbId: string | null
@@ -89,7 +94,7 @@ function loadRecentSearches(): string[] {
 }
 
 export function SearchOverlay({ open, onClose, onPlay, onPlayDirect }: Props) {
-  const { t } = useLang()
+  const { t, isArabic } = useLang()
   const [query, setQuery] = useState("")
   const [imdb, setImdb] = useState("")
   const [type, setType] = useState<"movie" | "series">("movie")
@@ -107,6 +112,10 @@ export function SearchOverlay({ open, onClose, onPlay, onPlayDirect }: Props) {
   const [imdbSearching, setImdbSearching] = useState(false)
   const [peopleSearching, setPeopleSearching] = useState(false)
   const [imdbConfigured, setImdbConfigured] = useState<boolean | null>(null)
+  // Bumped every time a new batch of TMDB results lands — used as a React key
+  // on the results grid so each new result set replays the staggered entrance
+  // (cards animate as a fresh group instead of only the changed keys).
+  const [resultsGen, setResultsGen] = useState(0)
 
   // Keyboard navigation: `selectedIdx` is the index into the flat list of
   // playable results (TMDB results first, then catalog matches). -1 means
@@ -379,9 +388,11 @@ export function SearchOverlay({ open, onClose, onPlay, onPlayDirect }: Props) {
         setImdbConfigured(true)
         setImdbResults(merged)
         setPeopleResults(personData.items ?? [])
+        setResultsGen((g) => g + 1)
       } catch {
         setImdbResults([])
         setPeopleResults([])
+        setResultsGen((g) => g + 1)
       } finally {
         setImdbSearching(false)
         setPeopleSearching(false)
@@ -916,20 +927,40 @@ export function SearchOverlay({ open, onClose, onPlay, onPlayDirect }: Props) {
                   {!imdbSearching && `(${imdbResults.length})`}
                 </p>
                 {!imdbSearching && imdbResults.length === 0 ? (
-                  <p className="py-4 text-center text-xs text-white/40">
-                    No results found.
-                  </p>
+                  // Designed no-results state — a dead-end "No results found."
+                  // line is a dead end; give the user the query echo, a hint,
+                  // and one-tap suggestion chips that re-run the search.
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-6 py-10 text-center">
+                    <SearchX className="mx-auto mb-3 h-10 w-10 text-white/25" aria-hidden />
+                    <p className="text-sm font-semibold text-white">
+                      {isArabic ? `لا توجد نتائج عن "${query.trim()}"` : `No results for "${query.trim()}"`}
+                    </p>
+                    <p className="mt-1 text-xs text-white/50">
+                      {isArabic ? "جرّب كلمة مختلفة أو اختر أحد الاقتراحات:" : "Try a different term or pick a suggestion:"}
+                    </p>
+                    <div className="mt-4 flex flex-wrap justify-center gap-2">
+                      {NO_RESULT_SUGGESTIONS.map((s) => (
+                        <button
+                          key={s}
+                          onClick={() => { setQuery(s); inputRef.current?.focus() }}
+                          className="rounded-full border border-white/15 bg-white/5 px-3.5 py-2 text-xs font-semibold text-white/80 transition hover:border-primary/60 hover:bg-primary/15 hover:text-white active:scale-95"
+                        >
+                          {s}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 ) : (
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+                  <div key={`results-${resultsGen}`} className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
                     {imdbResults.map((t, idx) => {
                       const isSelected = idx === selectedIdx
                       return (
+                        <RevealCard key={t.tmdbId ?? t.imdbId ?? `r-${idx}`} index={idx} step={0.04} maxDelay={0.3}>
                         <button
-                          key={t.tmdbId ?? t.imdbId ?? `r-${idx}`}
                           ref={(el) => { itemRefs.current[idx] = el }}
                           onClick={() => playAt(idx)}
                           className={cn(
-                            "group flex gap-3 rounded-lg border p-2 text-left transition",
+                            "group flex w-full gap-3 rounded-lg border p-2 text-left transition active:scale-[0.98]",
                             isSelected
                               ? "border-primary bg-primary/[0.08] ring-2 ring-primary/60"
                               : "border-primary/20 bg-primary/[0.03] hover:border-primary/40 hover:bg-primary/[0.08]"
@@ -957,6 +988,7 @@ export function SearchOverlay({ open, onClose, onPlay, onPlayDirect }: Props) {
                             </span>
                           </div>
                         </button>
+                        </RevealCard>
                       )
                     })}
                   </div>
