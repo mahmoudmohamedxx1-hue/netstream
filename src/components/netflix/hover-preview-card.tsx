@@ -7,7 +7,8 @@
 // This avoids the CSS spec issue where overflow-x:auto forces overflow-y:auto,
 // which clips the popup and forces the user to scroll.
 //
-// FIX 2: The popup autoplays a muted YouTube trailer (via youtube-nocookie)
+// FIX 2: The popup autoplays an UNMUTED YouTube trailer by default (with an
+//         automatic muted fallback when the browser blocks unmuted autoplay)
 // after ~800ms, cross-fading from the backdrop image. If the trailer errors
 // or doesn't exist, the backdrop image stays — never a black box.
 //
@@ -135,7 +136,7 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
   const [previewLoading, setPreviewLoading] = useState(false)
   const [showTrailer, setShowTrailer] = useState(false)
   const [trailerFailed, setTrailerFailed] = useState(false)
-  const [muted, setMuted] = useState(true)
+  const [muted, setMuted] = useState(false)
   const [resolvedImdbId, setResolvedImdbId] = useState<string | null>(title.imdbId)
   const [downloadOpen, setDownloadOpen] = useState(false)
   const [popupPos, setPopupPos] = useState<{ left: number; top: number; width: number } | null>(null)
@@ -537,6 +538,7 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
               title={title.title}
               delay={0}
               muted={muted}
+              onAutoMuted={() => setMuted(true)}
               background
             />
             <div className="absolute inset-0 bg-gradient-to-t from-[#181818] via-transparent to-transparent" />

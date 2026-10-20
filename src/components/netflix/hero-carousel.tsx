@@ -113,7 +113,7 @@ export function HeroCarousel({ titles, onPlay }: Props) {
   // Trailer / logo / maturity state
   const [trailerKey, setTrailerKey] = useState<string | null>(null)
   const [trailerSite, setTrailerSite] = useState<string | null>(null)
-  const [muted, setMuted] = useState(true)
+  const [muted, setMuted] = useState(false)
   const [heroLogo, setHeroLogo] = useState<string | null>(null)
   const [heroMaturity, setHeroMaturity] = useState<string | null>(null)
 
@@ -365,6 +365,7 @@ export function HeroCarousel({ titles, onPlay }: Props) {
               title={current.title}
               delay={1500}
               muted={muted}
+              onAutoMuted={() => setMuted(true)}
               background
             />
           </motion.div>

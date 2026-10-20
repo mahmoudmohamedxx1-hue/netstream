@@ -202,11 +202,15 @@ export function TmdbHome({ onPlay, onPlayNow, continueWatching, myList, onPlayHi
   // longer keep separate `showTrailer` / `playTrailerManually` / `trailerFailed`
   // states because they were contradictory and gated autoplay behind a manual
   // button. Now every hero title with a valid YouTube trailer autoplays.
-  // `muted` tracks the user's mute preference and persists across hero cycles.
+  // `muted` tracks the user's mute preference and persists across hero cycles
+  // (defaults to FALSE — trailers start WITH sound per user preference; if the
+  // browser blocks unmuted autoplay, TrailerIframe falls back to muted and
+  // tells us via onAutoMuted, flipping this state so the toggle icon stays
+  // truthful).
   // `heroLogo` / `heroMaturity` come from the same TMDB detail fetch.
   const [trailerKey, setTrailerKey] = useState<string | null>(null)
   const [trailerSite, setTrailerSite] = useState<string | null>(null)
-  const [muted, setMuted] = useState(true)
+  const [muted, setMuted] = useState(false)
   const [heroLogo, setHeroLogo] = useState<string | null>(null)
   const [heroMaturity, setHeroMaturity] = useState<string | null>(null)
 
@@ -919,6 +923,7 @@ export function TmdbHome({ onPlay, onPlayNow, continueWatching, myList, onPlayHi
                 title={current.title}
                 delay={1500}
                 muted={muted}
+                onAutoMuted={() => setMuted(true)}
                 background
               />
             </motion.div>

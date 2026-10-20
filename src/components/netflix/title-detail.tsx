@@ -52,7 +52,7 @@ function TitleDetailInner({ title, open, onClose, onPlay }: Props) {
   const [showCast, setShowCast] = useState(false)
   const [selectedSeason, setSelectedSeason] = useState(1)
   const [selectedEpisode, setSelectedEpisode] = useState(1)
-  const [detailMuted, setDetailMuted] = useState(true)
+  const [detailMuted, setDetailMuted] = useState(false)
   const [downloadOpen, setDownloadOpen] = useState(false)
 
   // The hero trailer auto-plays via the reusable <TrailerIframe> component.
@@ -161,6 +161,7 @@ function TitleDetailInner({ title, open, onClose, onPlay }: Props) {
                   title={displayTitle}
                   delay={1200}
                   muted={detailMuted}
+                  onAutoMuted={() => setDetailMuted(true)}
                   background
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0a] via-[#0a0a0a]/40 to-transparent" />
