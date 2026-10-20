@@ -59,7 +59,13 @@ export async function GET(req: NextRequest) {
         year: (r.release_date ?? r.first_air_date ?? "").slice(0, 4),
         rating: r.vote_average ? String(r.vote_average) : null,
         poster: r.poster_path ? `${TMDB_IMG}${r.poster_path}` : null,
-        backdrop: r.backdrop_path ? `${TMDB_IMG.replace("w500", "original")}${r.backdrop_path}` : null,
+        // Right-sized backdrops: row cards are ~320px wide — w780 (~100KB)
+        // is ~10× lighter than "original" (~1.5MB), which was queueing
+        // hundreds of MB of image fetches on the home page and making the
+        // lazy blur-up feel slow. The hero keeps full resolution via the
+        // new `backdropLarge` field below (consumed by tmdb-home.tsx).
+        backdrop: r.backdrop_path ? `${TMDB_IMG.replace("w500", "w780")}${r.backdrop_path}` : null,
+        backdropLarge: r.backdrop_path ? `${TMDB_IMG.replace("w500", "original")}${r.backdrop_path}` : null,
         overview: r.overview ?? "",
       }
     })

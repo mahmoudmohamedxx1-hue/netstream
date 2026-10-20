@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useCallback, useState } from "react"
 import { cn } from "@/lib/utils"
 
 // Deterministic gradient based on title hash, used when no poster / poster fails.
@@ -36,7 +36,20 @@ type Props = {
 
 export function Poster({ title, src, alt, className, year }: Props) {
   const [failed, setFailed] = useState(false)
+  // Blur-up load: the image mounts hidden (opacity-0, slightly blurred,
+  // 4% oversized) and cross-fades to full sharpness once it has decoded —
+  // the Disney+/Apple TV+ progressive-reveal feel. Raw images never "pop"
+  // into the layout mid-scroll anymore.
+  const [loaded, setLoaded] = useState(false)
   const showImg = src && !failed
+
+  // Cached images can finish loading BEFORE React attaches the onLoad
+  // handler (the img element is already complete at ref time) — check
+  // img.complete in the ref callback so those render instantly with no
+  // stuck-invisible state and no pointless re-fade on re-visits.
+  const attachImg = useCallback((el: HTMLImageElement | null) => {
+    if (el?.complete && el.naturalWidth > 0) setLoaded(true)
+  }, [])
 
   return (
     <div
@@ -45,11 +58,17 @@ export function Poster({ title, src, alt, className, year }: Props) {
     >
       {showImg ? (
         <img
+          ref={attachImg}
           src={src}
           alt={alt ?? title}
           loading="lazy"
+          decoding="async"
+          onLoad={() => setLoaded(true)}
           onError={() => setFailed(true)}
-          className="h-full w-full object-cover"
+          className={cn(
+            "h-full w-full object-cover transition-[opacity,filter,transform] duration-500 ease-out",
+            loaded ? "opacity-100 blur-0 scale-100" : "opacity-0 blur-sm scale-[1.04]"
+          )}
         />
       ) : (
         <div className="absolute inset-0 flex flex-col items-center justify-center p-3 text-center">

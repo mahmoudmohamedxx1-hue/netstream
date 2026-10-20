@@ -444,12 +444,18 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
              overlaps it from the right. z-0 = behind, z-10 = poster on top. */
           <div className="pointer-events-none absolute bottom-0 left-0 z-0 flex items-end" style={{ height: "100%" }}>
             <span
-              className="select-none font-black text-transparent"
+              // Netflix-authentic Top-10 numeral: solid near-black fill with a
+              // thick white outline (the real top-10 treatment — the old ghost
+              // outline at 25% opacity read as a rendering glitch). A soft
+              // drop shadow lifts the numeral off the poster behind it.
+              className="select-none font-black"
               style={{
                 fontSize: rank >= 10
                   ? "clamp(50px, 7vw, 100px)"
                   : "clamp(80px, 12vw, 160px)",
-                WebkitTextStroke: "2px rgba(255,255,255,0.25)",
+                color: "#0a0a0a",
+                WebkitTextStroke: "3px rgba(255,255,255,0.85)",
+                filter: "drop-shadow(0 2px 6px rgba(0,0,0,0.55))",
                 fontFamily: "Arial Black, sans-serif",
                 display: "block",
                 lineHeight: "0.8",
@@ -470,7 +476,7 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
               {true ? (
                 <>
                   <Poster title={title.title} src={title.backdrop ?? title.poster} year={title.year} alt={title.title} className="h-full w-full" />
-                  {roundedRating && <span className="absolute left-2 top-2 inline-flex items-center gap-0.5 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-yellow-400"><Star className="h-2.5 w-2.5 fill-yellow-400" />{roundedRating}</span>}
+                  {roundedRating && <span className="absolute left-2 top-2 inline-flex items-center gap-0.5 rounded-full bg-black/50 px-1.5 py-0.5 text-[10px] font-semibold text-yellow-400 backdrop-blur-sm"><Star className="h-2.5 w-2.5 fill-yellow-400" />{roundedRating}</span>}
                   <div className="absolute inset-x-0 bottom-0 flex flex-col justify-end bg-gradient-to-t from-black/90 via-black/40 to-transparent p-2 pt-8">
                     <p className="line-clamp-1 text-xs font-bold text-white drop-shadow">{title.title}</p>
                     {title.year && <p className="text-[10px] text-white/60">{title.year}</p>}
@@ -479,7 +485,7 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
               ) : (
                 <>
                   <Poster title={title.title} src={title.poster} year={title.year} alt={title.title} className="h-full w-full" />
-                  {roundedRating && <span className="absolute left-2 top-2 inline-flex items-center gap-0.5 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-yellow-400"><Star className="h-2.5 w-2.5 fill-yellow-400" />{roundedRating}</span>}
+                  {roundedRating && <span className="absolute left-2 top-2 inline-flex items-center gap-0.5 rounded-full bg-black/50 px-1.5 py-0.5 text-[10px] font-semibold text-yellow-400 backdrop-blur-sm"><Star className="h-2.5 w-2.5 fill-yellow-400" />{roundedRating}</span>}
                   <div className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/90 via-black/30 to-transparent p-2 opacity-0 transition group-hover/card:opacity-100">
                     <p className="line-clamp-2 text-xs font-bold text-white">{title.title}</p>
                     <p className="text-[10px] text-white/60">{title.year}</p>

@@ -19,6 +19,7 @@ import type { DownloadRecord } from "@/lib/download-history"
 import { Footer } from "@/components/netflix/footer"
 import { PullToRefresh } from "@/components/netflix/pull-to-refresh"
 import { OfflineIndicator } from "@/components/netflix/offline-indicator"
+import { ScrollToTop } from "@/components/netflix/scroll-to-top"
 import { AIChat } from "@/components/netflix/ai-chat"
 import { Poster } from "@/components/netflix/poster"
 import {
@@ -28,7 +29,7 @@ import {
 } from "@/lib/movies-data"
 import { useLibrary, type SavedTitle } from "@/lib/library-store"
 import { useLang } from "@/lib/lang-context"
-import { Play, Bookmark, History, Search as SearchIcon, Film, Tv, Download } from "lucide-react"
+import { Play, Bookmark, History, Search as SearchIcon, Film, Tv, Download, Star } from "lucide-react"
 
 type NavKey = "home" | "series" | "movies" | "mylist"
 
@@ -516,11 +517,16 @@ function HomeContent() {
                 <ImdbBanner onOpen={openSearch} />
               </>
             )}
-          </motion.div>
-        </AnimatePresence>
-      </main>
+            </motion.div>
+          </AnimatePresence>
 
-      {(!player && !detail) && <Footer />}
+          {/* Back-to-top FAB — mounted inside <main> so it automatically
+              hides whenever the player or title-detail overlay takes over
+              (main is display:none in that state). */}
+          <ScrollToTop />
+        </main>
+
+        {(!player && !detail) && <Footer onNav={(k) => handleSetNav(k as NavKey)} />}
 
       {/* Bottom navigation on every screen size — mobile: full-width
           thumb-zone tab bar; desktop: centered floating pill dock (the
@@ -580,6 +586,13 @@ function HomeContent() {
   )
 }
 
+// Round a TMDB rating string to 1 decimal for badge display.
+function roundRating(r: string | null | undefined): string | null {
+  if (!r) return null
+  const n = Number(r)
+  return Number.isNaN(n) ? null : n.toFixed(1)
+}
+
 function MyListView({
   items,
   onPlay,
@@ -590,6 +603,8 @@ function MyListView({
   onSearch: () => void
 }) {
   const { t: tr } = useLang()
+  // Signature rise-in easing (same curve as the hero text cascade).
+  const EASE: [number, number, number, number] = [0.2, 0.7, 0.3, 1]
 
   // Enhancement E: export watchlist + history as JSON for backup/restore.
   const handleExport = async () => {
@@ -653,26 +668,46 @@ function MyListView({
           </button>
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
-          {items.map((t) => (
-            <button
-              key={t.imdbId}
-              onClick={() => onPlay(t)}
-              className="group relative aspect-[2/3] overflow-hidden rounded-md bg-neutral-900 text-left"
-            >
-              <Poster
-                title={t.title}
-                src={t.poster}
-                year={t.year}
-                className="h-full w-full transition group-hover:scale-105"
-              />
-              <div className="absolute inset-0 flex items-end bg-gradient-to-t from-black/80 to-transparent p-2 opacity-0 transition group-hover:opacity-100">
-                <span className="inline-flex items-center gap-1 text-xs font-semibold text-white">
-                  <Play className="h-3.5 w-3.5 fill-white" /> {tr("play")}
-                </span>
-              </div>
-            </button>
-          ))}
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 md:grid-cols-4 lg:grid-cols-6">
+          {items.map((t, i) => {
+            const rating = roundRating(t.rating)
+            return (
+              <motion.button
+                key={t.imdbId}
+                onClick={() => onPlay(t)}
+                initial={{ opacity: 0, y: 16 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.4, delay: Math.min(i * 0.035, 0.45), ease: EASE }}
+                className="group relative aspect-[2/3] overflow-hidden rounded-md bg-neutral-900 text-left transition-transform duration-200 active:scale-[0.97] sm:hover:scale-[1.03]"
+              >
+                <Poster
+                  title={t.title}
+                  src={t.poster}
+                  year={t.year}
+                  className="h-full w-full"
+                />
+                {rating && (
+                  <span className="absolute left-2 top-2 inline-flex items-center gap-0.5 rounded-full bg-black/50 px-1.5 py-0.5 text-[10px] font-semibold text-yellow-400 backdrop-blur-sm">
+                    <Star className="h-2.5 w-2.5 fill-yellow-400" />{rating}
+                  </span>
+                )}
+                {/* Info overlay — ALWAYS visible on touch (no hover there),
+                    hover/focus reveal on pointer devices. */}
+                <div className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/90 via-black/25 to-transparent p-2.5 transition-opacity duration-300 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-visible:opacity-100">
+                  <p className="line-clamp-2 text-xs font-bold text-white">{t.title}</p>
+                  <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[10px] text-white/60">
+                    {t.year}
+                    <span className="rounded border border-white/25 bg-black/40 px-1 text-[8px] font-bold uppercase tracking-wide text-white/70">
+                      {t.type === "series" ? tr("seriesShort") : tr("movieShort")}
+                    </span>
+                  </p>
+                  <span className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-semibold text-white">
+                    <Play className="h-3 w-3 fill-white" /> {tr("play")}
+                  </span>
+                </div>
+              </motion.button>
+            )
+          })}
         </div>
       )}
     </div>

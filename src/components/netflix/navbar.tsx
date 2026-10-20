@@ -44,9 +44,12 @@ export function Navbar({ onSearch, onNav, onDownloads }: Props) {
   return (
     <header
       className={cn(
-        "fixed inset-x-0 top-0 z-50 transition-colors duration-300",
+        "fixed inset-x-0 top-0 z-50 transition-all duration-300",
         scrolled
-          ? "bg-[#0a0a0a]"
+          ? // Frosted glass on scroll — the modern premium idiom (Apple TV+ /
+            // maxtv): translucent near-black + backdrop blur + a hairline
+            // bottom border + a soft drop shadow, instead of flat solid black.
+            "border-b border-white/[0.06] bg-[#0a0a0a]/75 shadow-[0_8px_28px_rgba(0,0,0,0.45)] backdrop-blur-xl"
           : "bg-gradient-to-b from-black/80 via-black/40 to-transparent"
       )}
     >

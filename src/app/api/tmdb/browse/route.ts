@@ -92,7 +92,11 @@ export async function GET(req: NextRequest) {
       year: (r.release_date ?? r.first_air_date ?? "").slice(0, 4),
       rating: r.vote_average ? String(r.vote_average) : null,
       poster: r.poster_path ? `${TMDB_IMG}${r.poster_path}` : null,
-      backdrop: r.backdrop_path ? `${TMDB_IMG}${r.backdrop_path}` : null,
+      // w780 (was w500): the browse hero stretches this across the viewport
+      // where w500 read soft on desktop; grid cards are ~330px so w780 is
+      // still right-sized for them. ~100KB vs ~40KB — good quality/payload
+      // balance for both consumers.
+      backdrop: r.backdrop_path ? `${TMDB_IMG.replace("w500", "w780")}${r.backdrop_path}` : null,
       overview: r.overview ?? "",
     }))
 

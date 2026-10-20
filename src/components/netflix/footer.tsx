@@ -5,8 +5,22 @@ import { useLang } from "@/lib/lang-context"
 import { CurvedLoop } from "@/components/react-bits/CurvedLoop"
 import DecryptedText from "@/components/react-bits/DecryptedText"
 
-export function Footer() {
-  const { t } = useLang()
+// Footer — pro layout: quick-navigation links (real actions via onNav, never
+// dead "#"), app download card, socials, TMDB attribution (required when
+// using TMDB data, and a credibility marker), and the disclaimer.
+//
+// onNav is optional so the footer still renders standalone (e.g. future
+// static pages) — links are simply omitted when it's absent.
+export function Footer({ onNav }: { onNav?: (k: string) => void }) {
+  const { t, isArabic } = useLang()
+
+  const quickLinks: Array<{ key: string; label: string }> = [
+    { key: "home", label: t("home") },
+    { key: "series", label: t("series") },
+    { key: "movies", label: t("movies") },
+    { key: "mylist", label: t("mylist") },
+  ]
+
   return (
     <footer className="mt-auto border-t border-white/5 bg-[#0a0a0a] px-4 py-10 pb-[max(2.5rem,env(safe-area-inset-bottom))] text-white/60 sm:px-8">
       <div className="mx-auto max-w-5xl">
@@ -43,8 +57,25 @@ export function Footer() {
           </div>
         </div>
 
+        {/* Quick navigation — functional links to the four main views.
+            Buttons (not <a href="#">) because navigation is client-side
+            state (see page.tsx handleSetNav). */}
+        {onNav && (
+          <nav aria-label="Footer" className="mb-6 flex flex-wrap items-center gap-x-6 gap-y-2 text-sm font-medium">
+            {quickLinks.map((l) => (
+              <button
+                key={l.key}
+                onClick={() => onNav(l.key)}
+                className="rounded transition hover:text-white active:scale-95"
+              >
+                {l.label}
+              </button>
+            ))}
+          </nav>
+        )}
+
         <div className="mb-6 flex items-center gap-4">
-          <a href="#" aria-label="GitHub" className="inline-flex -m-2 items-center justify-center p-3 transition hover:text-white">
+          <a href="https://github.com/mahmoudmohamedxx1-hue/netstream" target="_blank" rel="noopener noreferrer" aria-label="GitHub" className="inline-flex -m-2 items-center justify-center p-3 transition hover:text-white">
             <Github className="h-5 w-5" />
           </a>
           <a href="#" aria-label="Twitter" className="inline-flex -m-2 items-center justify-center p-3 transition hover:text-white">
@@ -58,7 +89,21 @@ export function Footer() {
           </a>
         </div>
 
+        {/* TMDB attribution — required by TMDB's terms of use when their
+            data/posters power the product, and a credibility marker. */}
         <p className="mt-6 text-xs text-white/40">
+          {isArabic ? "بيانات وصور المنتج مقدَّمة من " : "Product data & images by "}
+          <a
+            href="https://www.themoviedb.org/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-semibold text-white/60 underline decoration-white/30 underline-offset-2 transition hover:text-white hover:decoration-white/60"
+          >
+            TMDB
+          </a>
+          {isArabic ? "." : "."}
+        </p>
+        <p className="mt-2 text-xs text-white/40">
           {t("disclaimer")}
         </p>
         <p className="mt-2 text-xs text-white/40">

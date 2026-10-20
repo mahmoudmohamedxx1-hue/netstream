@@ -9,6 +9,7 @@ import type { CardTitle } from "./content-card"
 import { HoverPreviewCard } from "./hover-preview-card"
 import { TrailerIframe } from "./trailer-iframe"
 import { RowScrollButtons } from "./row-scroll-buttons"
+import { RowEdgeFades } from "./row-edge-fades"
 import { useLang } from "@/lib/lang-context"
 import { useClientWatchHistory } from "@/hooks/use-client-watch-history"
 import { cn } from "@/lib/utils"
@@ -132,6 +133,10 @@ type TmdbTitle = {
   rating: string | null
   poster: string | null
   backdrop: string | null
+  // Full-resolution backdrop (TMDB "original") — used ONLY by the hero,
+  // which stretches across the viewport. Row cards use `backdrop` (w780,
+  // ~10× lighter). Optional: older cached API payloads may lack it.
+  backdropLarge?: string | null
   overview: string
 }
 
@@ -827,9 +832,10 @@ export function TmdbHome({ onPlay, onPlayNow, continueWatching, myList, onPlayHi
           before it becomes active — no white flash, no progressive JPEG
           shimmer during the transition. `link rel=preload as=image` fetches
           at low priority in the background. */}
-      {heroTitles.map((tt) =>
-        tt?.backdrop ? <link key={tt.tmdbId} rel="preload" as="image" href={tt.backdrop} /> : null
-      )}
+      {heroTitles.map((tt) => {
+        const heroSrc = tt?.backdropLarge ?? tt?.backdrop
+        return heroSrc ? <link key={tt.tmdbId} rel="preload" as="image" href={heroSrc} /> : null
+      })}
 
       {/* ═══════════════════════════════════════════════════════════════════════
           PREMIUM HERO CAROUSEL (maxtv-smooth)
@@ -881,9 +887,9 @@ export function TmdbHome({ onPlay, onPlayNow, continueWatching, myList, onPlayHi
                   dragging (isDragging) so the finger-follow feels solid, and
                   runs 8s → scale 1.08 with a linear ease for a cinematic drift.
                   `will-change:transform` promotes to its own compositor layer. */}
-              {current.backdrop ? (
+              {(current.backdropLarge ?? current.backdrop) ? (
                 <motion.img
-                  src={current.backdrop}
+                  src={current.backdropLarge ?? current.backdrop ?? undefined}
                   alt={current.title}
                   className="h-full w-full object-cover object-top"
                   animate={isDragging ? { scale: 1 } : { scale: 1.08 }}
@@ -1205,31 +1211,37 @@ function TmdbRow({ row, onPlay, numbered, landscape, rowIndex, focusedCard, setC
           mobile screen, so the page felt unscrollable. pan-x pan-y lets the
           browser axis-lock: horizontal swipes scroll the row, vertical swipes
           scroll the page (native app behavior). */}
-      <div ref={scrollerRef} className="netflix-row-scroller flex touch-pan-x touch-pan-y gap-2 overflow-x-auto overflow-y-visible overscroll-x-contain px-4 pb-6 pt-1 sm:gap-3 sm:px-8">
-        {row.titles.map((tt, i) => (
-          <div key={`${tt.tmdbId}-${i}`} data-row-card className="shrink-0">
-            <HoverPreviewCard
-              title={tt}
-              onPlay={onPlay}
-              rank={numbered ? i + 1 : undefined}
-              landscape={landscape}
-              focused={focusedCard === i}
-              // Numbered (IMDB Top) rows open the preview at MOBILE-EDITION
-              // speed (500ms — same as the mobile long-press). The previous
-              // 3s delay (added "to let users read the rank numerals") made
-              // the rows feel dead on desktop: nothing visibly reacts to the
-              // hover, so users reported the trailers "don't play".
-              hoverDelay={numbered ? 500 : 1000}
-              cardRef={
-                setCardRef && rowIndex !== undefined
-                  ? (el) => setCardRef(rowIndex, i, el)
-                  : undefined
-              }
-            />
-          </div>
-        ))}
+      {/* The relative wrapper scopes the edge fades + scroll arrows to the
+          CARD STRIP only (not the row header above), and vertically centers
+          the arrows on the posters themselves. */}
+      <div className="relative">
+        <div ref={scrollerRef} className="netflix-row-scroller flex touch-pan-x touch-pan-y gap-2 overflow-x-auto overflow-y-visible overscroll-x-contain px-4 pb-6 pt-1 sm:gap-3 sm:px-8">
+          {row.titles.map((tt, i) => (
+            <div key={`${tt.tmdbId}-${i}`} data-row-card className="shrink-0">
+              <HoverPreviewCard
+                title={tt}
+                onPlay={onPlay}
+                rank={numbered ? i + 1 : undefined}
+                landscape={landscape}
+                focused={focusedCard === i}
+                // Numbered (IMDB Top) rows open the preview at MOBILE-EDITION
+                // speed (500ms — same as the mobile long-press). The previous
+                // 3s delay (added "to let users read the rank numerals") made
+                // the rows feel dead on desktop: nothing visibly reacts to the
+                // hover, so users reported the trailers "don't play".
+                hoverDelay={numbered ? 500 : 1000}
+                cardRef={
+                  setCardRef && rowIndex !== undefined
+                    ? (el) => setCardRef(rowIndex, i, el)
+                    : undefined
+                }
+              />
+            </div>
+          ))}
+        </div>
+        <RowEdgeFades />
+        <RowScrollButtons scrollerRef={scrollerRef} />
       </div>
-      <RowScrollButtons scrollerRef={scrollerRef} />
     </section>
   )
 }
@@ -1283,82 +1295,86 @@ function LocalRow({ title, titles, onPlay, showProgress, rowIndex, focusedCard, 
   return (
     <section className="group/row relative py-3">
       <h3 className="mb-2 px-4 text-base font-semibold text-white/90 sm:px-8 md:text-lg">{rowTitle}</h3>
-      <div ref={scrollerRef} className="netflix-row-scroller flex touch-pan-x touch-pan-y gap-2 overflow-x-auto overflow-y-visible overscroll-x-contain px-4 pb-6 pt-1 sm:gap-3 sm:px-8">
-        {titles.map((tt, i) => {
-          const rating = roundRating(tt.rating)
-          const isFocused = focusedCard === i
-          return (
-            <button
-              key={tt.imdbId + i}
-              data-row-card
-              ref={
-                setCardRef && rowIndex !== undefined
-                  ? (el) => setCardRef(rowIndex, i, el)
-                  : undefined
-              }
-              tabIndex={0}
-              onClick={() => onPlay(tt)}
-              className={cn(
-                "group/card relative aspect-video w-[68vw] shrink-0 rounded-md transition sm:w-[280px] md:w-[320px]",
-                isFocused
-                  ? "z-20 scale-105 ring-2 ring-white ring-offset-2 ring-offset-black"
-                  : "ring-0"
-              )}
-            >
-              <div className="relative h-full overflow-hidden rounded-md bg-neutral-900">
-                <Poster title={tt.title} src={tt.poster ?? tt.backdrop ?? null} year={tt.year} alt={tt.title} className="h-full w-full transition duration-300 group-hover/card:opacity-90" />
-                {rating && (
-                  <span className="absolute left-2 top-2 inline-flex items-center gap-0.5 rounded bg-black/60 px-1.5 py-0.5 text-[10px] font-semibold text-yellow-400">
-                    <Star className="h-2.5 w-2.5 fill-yellow-400" />{rating}
-                  </span>
+      {/* Relative wrapper: scopes edge fades + arrows to the card strip. */}
+      <div className="relative">
+        <div ref={scrollerRef} className="netflix-row-scroller flex touch-pan-x touch-pan-y gap-2 overflow-x-auto overflow-y-visible overscroll-x-contain px-4 pb-6 pt-1 sm:gap-3 sm:px-8">
+          {titles.map((tt, i) => {
+            const rating = roundRating(tt.rating)
+            const isFocused = focusedCard === i
+            return (
+              <button
+                key={tt.imdbId + i}
+                data-row-card
+                ref={
+                  setCardRef && rowIndex !== undefined
+                    ? (el) => setCardRef(rowIndex, i, el)
+                    : undefined
+                }
+                tabIndex={0}
+                onClick={() => onPlay(tt)}
+                className={cn(
+                  "group/card relative aspect-video w-[68vw] shrink-0 rounded-md transition sm:w-[280px] md:w-[320px]",
+                  isFocused
+                    ? "z-20 scale-105 ring-2 ring-white ring-offset-2 ring-offset-black"
+                    : "ring-0"
                 )}
-                {/* Progress bar — calculated from position / duration, not from a stored percentage */}
-                {showProgress && (() => {
-                  // Calculate displayProgress from the latest valid position and duration
-                  const displayProgress =
-                    tt.duration != null && tt.duration > 0 && tt.position != null
-                      ? Math.min(100, Math.max(0, Math.round((Math.min(tt.position, tt.duration) / tt.duration) * 100)))
-                      : tt.progress ?? 0
-                  if (displayProgress <= 0) return null
-                  return (
-                    <>
-                      <div className="absolute bottom-0 left-0 right-0 z-10">
-                        <div className="h-1 w-full bg-white/20">
-                          <div className="h-full bg-primary transition-[width] duration-500" style={{ width: `${displayProgress}%` }} />
-                        </div>
-                      </div>
-                      {/* Time label — shows position / duration */}
-                      {tt.position != null && tt.duration != null && tt.duration > 0 && (
-                        <div className="absolute bottom-1.5 left-2 z-10 rounded bg-black/70 px-1.5 py-0.5 text-[9px] font-bold text-white/90">
-                          {Math.floor(tt.position / 60)}:{String(Math.floor(tt.position % 60)).padStart(2, "0")} / {Math.floor(tt.duration / 60)}:{String(Math.floor(tt.duration % 60)).padStart(2, "0")}
-                        </div>
-                      )}
-                    </>
-                  )
-                })()}
-                {/* Hover overlay */}
-                <div className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/90 via-black/30 to-transparent p-2 opacity-100 transition group-hover/card:opacity-100 sm:opacity-0">
-                  <p className="line-clamp-2 text-xs font-bold text-white">{tt.title}</p>
-                  <p className="text-[10px] text-white/60">
-                    {tt.year}
-                    {tt.season && tt.episode ? ` · S${tt.season} E${tt.episode}` : ""}
-                  </p>
-                  {showProgress && tt.progress != null && tt.progress > 0 ? (
-                    <span className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-primary">
-                      <Play className="h-3 w-3 fill-current" /> {t("resume")}
-                    </span>
-                  ) : (
-                    <span className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-primary">
-                      <Play className="h-3 w-3 fill-current" /> {t("play")}
+              >
+                <div className="relative h-full overflow-hidden rounded-md bg-neutral-900">
+                  <Poster title={tt.title} src={tt.poster ?? tt.backdrop ?? null} year={tt.year} alt={tt.title} className="h-full w-full transition duration-300 group-hover/card:opacity-90" />
+                  {rating && (
+                    <span className="absolute left-2 top-2 inline-flex items-center gap-0.5 rounded-full bg-black/50 px-1.5 py-0.5 text-[10px] font-semibold text-yellow-400 backdrop-blur-sm">
+                      <Star className="h-2.5 w-2.5 fill-yellow-400" />{rating}
                     </span>
                   )}
+                  {/* Progress bar — calculated from position / duration, not from a stored percentage */}
+                  {showProgress && (() => {
+                    // Calculate displayProgress from the latest valid position and duration
+                    const displayProgress =
+                      tt.duration != null && tt.duration > 0 && tt.position != null
+                        ? Math.min(100, Math.max(0, Math.round((Math.min(tt.position, tt.duration) / tt.duration) * 100)))
+                        : tt.progress ?? 0
+                    if (displayProgress <= 0) return null
+                    return (
+                      <>
+                        <div className="absolute bottom-0 left-0 right-0 z-10">
+                          <div className="h-1 w-full bg-white/20">
+                            <div className="h-full bg-primary transition-[width] duration-500" style={{ width: `${displayProgress}%` }} />
+                          </div>
+                        </div>
+                        {/* Time label — shows position / duration */}
+                        {tt.position != null && tt.duration != null && tt.duration > 0 && (
+                          <div className="absolute bottom-1.5 left-2 z-10 rounded bg-black/70 px-1.5 py-0.5 text-[9px] font-bold text-white/90">
+                            {Math.floor(tt.position / 60)}:{String(Math.floor(tt.position % 60)).padStart(2, "0")} / {Math.floor(tt.duration / 60)}:{String(Math.floor(tt.duration % 60)).padStart(2, "0")}
+                          </div>
+                        )}
+                      </>
+                    )
+                  })()}
+                  {/* Hover overlay */}
+                  <div className="absolute inset-0 flex flex-col justify-end bg-gradient-to-t from-black/90 via-black/30 to-transparent p-2 opacity-100 transition group-hover/card:opacity-100 sm:opacity-0">
+                    <p className="line-clamp-2 text-xs font-bold text-white">{tt.title}</p>
+                    <p className="text-[10px] text-white/60">
+                      {tt.year}
+                      {tt.season && tt.episode ? ` · S${tt.season} E${tt.episode}` : ""}
+                    </p>
+                    {showProgress && tt.progress != null && tt.progress > 0 ? (
+                      <span className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-primary">
+                        <Play className="h-3 w-3 fill-current" /> {t("resume")}
+                      </span>
+                    ) : (
+                      <span className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-primary">
+                        <Play className="h-3 w-3 fill-current" /> {t("play")}
+                      </span>
+                    )}
+                  </div>
                 </div>
-              </div>
-            </button>
-          )
-        })}
+              </button>
+            )
+          })}
+        </div>
+        <RowEdgeFades />
+        <RowScrollButtons scrollerRef={scrollerRef} />
       </div>
-      <RowScrollButtons scrollerRef={scrollerRef} />
     </section>
   )
 }

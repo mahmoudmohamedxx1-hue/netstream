@@ -8,6 +8,7 @@ import { Poster } from "./poster"
 import { Input } from "@/components/ui/input"
 import { HeroCarousel, type HeroTitle } from "./hero-carousel"
 import { RowScrollButtons } from "./row-scroll-buttons"
+import { RowEdgeFades } from "./row-edge-fades"
 import type { CardTitle } from "./content-card"
 import { cn } from "@/lib/utils"
 import { useLang } from "@/lib/lang-context"
@@ -703,6 +704,7 @@ function BrowseRow({
             </div>
           ))}
         </div>
+        <RowEdgeFades />
         <RowScrollButtons scrollerRef={scrollerRef} />
       </div>
     </section>
