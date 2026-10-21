@@ -137,6 +137,9 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
   const [showTrailer, setShowTrailer] = useState(false)
   const [trailerFailed, setTrailerFailed] = useState(false)
   const [muted, setMuted] = useState(false)
+  // The HUMAN's mute preference (toggle clicks only) — passed as `userMuted`
+  // so a browser-forced auto-mute never silences the next popup trailer.
+  const [userMuted, setUserMuted] = useState(false)
   const [resolvedImdbId, setResolvedImdbId] = useState<string | null>(title.imdbId)
   const [downloadOpen, setDownloadOpen] = useState(false)
   const [popupPos, setPopupPos] = useState<{ left: number; top: number; width: number } | null>(null)
@@ -538,7 +541,10 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
               title={title.title}
               delay={0}
               muted={muted}
-              onAutoMuted={() => setMuted(true)}
+              userMuted={userMuted}
+              // Automatic mute-state changes (browser-forced fallback,
+              // interaction restore, mount alignment) sync the toggle.
+              onMutedChange={setMuted}
               // Embed-blocked/gone video: flag it — the iframe unmounts
               // (backdrop shows) and the mute toggle hides (its render is
               // already gated on !trailerFailed). Fresh popup = fresh state.
@@ -564,7 +570,11 @@ export function HoverPreviewCard({ title, onPlay, onAddToList, rank, landscape, 
             {/* Mute toggle — 44px on touch, 36px on desktop */}
             {showTrailer && !trailerFailed && (
               <button
-                onClick={() => setMuted(m => !m)}
+                onClick={() => {
+                  const next = !muted
+                  setUserMuted(next)
+                  setMuted(next)
+                }}
                 className="absolute bottom-2 right-2 grid h-11 w-11 place-items-center rounded-full border border-white/40 bg-black/60 text-white transition hover:bg-black/80 active:scale-90 sm:h-9 sm:w-9 sm:active:scale-95"
                 aria-label={muted ? "Unmute" : "Mute"}
               >

@@ -53,6 +53,9 @@ function TitleDetailInner({ title, open, onClose, onPlay }: Props) {
   const [selectedSeason, setSelectedSeason] = useState(1)
   const [selectedEpisode, setSelectedEpisode] = useState(1)
   const [detailMuted, setDetailMuted] = useState(false)
+  // The HUMAN's mute preference (toggle clicks only) — passed as `userMuted`
+  // so a browser-forced auto-mute never silences the next trailer.
+  const [detailUserMuted, setDetailUserMuted] = useState(false)
   const [downloadOpen, setDownloadOpen] = useState(false)
   // Set when YouTube reported a fatal embed error (101/150 — embed blocked
   // by the uploader / video gone). Gates both the trailer key we pass down
@@ -166,7 +169,10 @@ function TitleDetailInner({ title, open, onClose, onPlay }: Props) {
                   title={displayTitle}
                   delay={1200}
                   muted={detailMuted}
-                  onAutoMuted={() => setDetailMuted(true)}
+                  userMuted={detailUserMuted}
+                  // Automatic mute-state changes (browser-forced fallback,
+                  // interaction restore, mount alignment) sync the toggle.
+                  onMutedChange={setDetailMuted}
                   // Embed-blocked/gone video: stop passing the key — the
                   // iframe unmounts (backdrop shows) and the mute toggle
                   // hides below.
@@ -185,7 +191,11 @@ function TitleDetailInner({ title, open, onClose, onPlay }: Props) {
                     YouTube trailer exists */}
                 {open && !trailerDead && tmdb?.trailerSite === "YouTube" && tmdb.trailerKey && (
                   <button
-                    onClick={() => setDetailMuted((m) => !m)}
+                    onClick={() => {
+                      const next = !detailMuted
+                      setDetailUserMuted(next)
+                      setDetailMuted(next)
+                    }}
                     aria-label={detailMuted ? "Unmute" : "Mute"}
                     className="absolute right-16 top-3 z-20 grid h-11 w-11 place-items-center rounded-full border border-white/40 bg-black/60 text-white transition hover:bg-black/80 active:scale-90"
                   >

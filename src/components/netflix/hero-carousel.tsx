@@ -114,6 +114,9 @@ export function HeroCarousel({ titles, onPlay }: Props) {
   const [trailerKey, setTrailerKey] = useState<string | null>(null)
   const [trailerSite, setTrailerSite] = useState<string | null>(null)
   const [muted, setMuted] = useState(false)
+  // The HUMAN's mute preference (toggle clicks only) — passed as `userMuted`
+  // so a browser-forced auto-mute on one hero cycle never silences the next.
+  const [userMuted, setUserMuted] = useState(false)
   const [heroLogo, setHeroLogo] = useState<string | null>(null)
   const [heroMaturity, setHeroMaturity] = useState<string | null>(null)
 
@@ -365,7 +368,10 @@ export function HeroCarousel({ titles, onPlay }: Props) {
               title={current.title}
               delay={1500}
               muted={muted}
-              onAutoMuted={() => setMuted(true)}
+              userMuted={userMuted}
+              // Automatic mute-state changes (browser-forced fallback,
+              // interaction restore, mount alignment) sync the toggle.
+              onMutedChange={setMuted}
               // Embed-blocked/gone video: clear the SITE (not the key) — the
               // iframe unmounts + the mute toggle hides, while the "Trailer"
               // YouTube link button keeps working (it's a plain hyperlink).
@@ -469,7 +475,11 @@ export function HeroCarousel({ titles, onPlay }: Props) {
                 )}
                 {trailerSite === "YouTube" && trailerKey && (
                   <button
-                    onClick={() => setMuted((m) => !m)}
+                    onClick={() => {
+                      const next = !muted
+                      setUserMuted(next)
+                      setMuted(next)
+                    }}
                     aria-label={muted ? "Unmute" : "Mute"}
                     className="inline-flex h-12 w-12 items-center justify-center rounded-md border border-white/30 bg-black/40 text-white transition hover:border-white/60 hover:bg-black/60"
                   >
