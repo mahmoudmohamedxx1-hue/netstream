@@ -1,13 +1,13 @@
 "use client"
 
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import {
   X, Play, Plus, Check, Star, Clock, Calendar, Film, Tv,
   ChevronDown, Users, Volume2, VolumeX, Download,
 } from "lucide-react"
 import { Poster } from "./poster"
-import { TrailerIframe, suppressTrailers } from "./trailer-iframe"
+import { TrailerIframe } from "./trailer-iframe"
 import { EpisodeGrid } from "./episode-grid"
 import { DownloadHelper } from "./download-helper"
 import { useTmdbTitle } from "@/hooks/use-tmdb"
@@ -52,35 +52,8 @@ function TitleDetailInner({ title, open, onClose, onPlay }: Props) {
   const [showCast, setShowCast] = useState(false)
   const [selectedSeason, setSelectedSeason] = useState(1)
   const [selectedEpisode, setSelectedEpisode] = useState(1)
-  const [detailMuted, setDetailMuted] = useState(false)
-  // The HUMAN's mute preference (toggle clicks only) — passed as `userMuted`
-  // so a browser-forced auto-mute never silences the next trailer.
-  const [detailUserMuted, setDetailUserMuted] = useState(false)
+  const [detailMuted, setDetailMuted] = useState(true)
   const [downloadOpen, setDownloadOpen] = useState(false)
-  // Set when YouTube reported a fatal embed error (101/150 — embed blocked
-  // by the uploader / video gone). Gates both the trailer key we pass down
-  // and the mute toggle. Resets naturally on the next title because the
-  // wrapper remounts TitleDetailInner with a fresh `key`.
-  const [trailerDead, setTrailerDead] = useState(false)
-
-  // ── Background-trailer suppression ────────────────────────────────────────
-  // This modal is full-screen: the HOME hero trailer behind it (and any
-  // hover-preview popup) would keep playing its audio underneath, on top of
-  // this modal's own trailer → double audio. Suppress every background
-  // trailer while open; our own trailer below passes exemptFromSuppression
-  // so it keeps playing. Owner is a per-instance ref — the wrapper remounts
-  // TitleDetailInner on every open/close (key change), so each instance
-  // registers/releases exactly once. Reference-counted, so the detail →
-  // player handoff (this closes as the player opens in the same commit)
-  // never leaves suppression stuck or flickers it off mid-handoff.
-  const suppressionOwnerRef = useRef<unknown>(null)
-  if (suppressionOwnerRef.current === null) {
-    suppressionOwnerRef.current = { owner: "title-detail" }
-  }
-  useEffect(() => {
-    if (!open) return
-    return suppressTrailers(suppressionOwnerRef.current)
-  }, [open])
 
   // The hero trailer auto-plays via the reusable <TrailerIframe> component.
   // We only pass the key when the modal is open AND the TMDB data has resolved
@@ -184,22 +157,10 @@ function TitleDetailInner({ title, open, onClose, onPlay }: Props) {
                     key when the modal is open and TMDB returned a YouTube trailer.
                     The component handles the 1.2s delay before mounting. */}
                 <TrailerIframe
-                  trailerKey={open && !trailerDead && tmdb?.trailerSite === "YouTube" ? tmdb.trailerKey : null}
+                  trailerKey={open && tmdb?.trailerSite === "YouTube" ? tmdb.trailerKey : null}
                   title={displayTitle}
                   delay={1200}
                   muted={detailMuted}
-                  userMuted={detailUserMuted}
-                  // This is the FOREGROUND surface — it owns the suppression
-                  // above (which silences the home hero behind this modal),
-                  // so its own trailer must keep playing through it.
-                  exemptFromSuppression
-                  // Automatic mute-state changes (browser-forced fallback,
-                  // interaction restore, mount alignment) sync the toggle.
-                  onMutedChange={setDetailMuted}
-                  // Embed-blocked/gone video: stop passing the key — the
-                  // iframe unmounts (backdrop shows) and the mute toggle
-                  // hides below.
-                  onUnavailable={() => setTrailerDead(true)}
                   background
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0a] via-[#0a0a0a]/40 to-transparent" />
@@ -212,13 +173,9 @@ function TitleDetailInner({ title, open, onClose, onPlay }: Props) {
 
                 {/* Mute toggle — 44×44 touch target, visible whenever a valid
                     YouTube trailer exists */}
-                {open && !trailerDead && tmdb?.trailerSite === "YouTube" && tmdb.trailerKey && (
+                {open && tmdb?.trailerSite === "YouTube" && tmdb.trailerKey && (
                   <button
-                    onClick={() => {
-                      const next = !detailMuted
-                      setDetailUserMuted(next)
-                      setDetailMuted(next)
-                    }}
+                    onClick={() => setDetailMuted((m) => !m)}
                     aria-label={detailMuted ? "Unmute" : "Mute"}
                     className="absolute right-16 top-3 z-20 grid h-11 w-11 place-items-center rounded-full border border-white/40 bg-black/60 text-white transition hover:bg-black/80 active:scale-90"
                   >

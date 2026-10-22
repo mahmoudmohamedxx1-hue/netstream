@@ -202,22 +202,11 @@ export function TmdbHome({ onPlay, onPlayNow, continueWatching, myList, onPlayHi
   // longer keep separate `showTrailer` / `playTrailerManually` / `trailerFailed`
   // states because they were contradictory and gated autoplay behind a manual
   // button. Now every hero title with a valid YouTube trailer autoplays.
-  // `muted` mirrors the trailer's real mute state and persists across hero
-  // cycles (defaults to FALSE — sound first). TrailerIframe reports every
-  // AUTOMATIC change (browser-forced muted fallback when autoplay-with-sound
-  // is refused, interaction restore, mount alignment) via onMutedChange so
-  // the toggle icon stays truthful; a browser-forced mute on one cycle never
-  // silences the next one (sound retries after the visitor's first
-  // interaction).
+  // `muted` tracks the user's mute preference and persists across hero cycles.
   // `heroLogo` / `heroMaturity` come from the same TMDB detail fetch.
   const [trailerKey, setTrailerKey] = useState<string | null>(null)
   const [trailerSite, setTrailerSite] = useState<string | null>(null)
-  const [muted, setMuted] = useState(false)
-  // The HUMAN's mute preference (toggle clicks only) — passed as `userMuted`
-  // so a browser-forced auto-mute on one hero cycle never silences the next
-  // (the slide children remount every rotation; the live `muted` state
-  // carries the auto-mute with it, this stays pure).
-  const [userMuted, setUserMuted] = useState(false)
+  const [muted, setMuted] = useState(true)
   const [heroLogo, setHeroLogo] = useState<string | null>(null)
   const [heroMaturity, setHeroMaturity] = useState<string | null>(null)
 
@@ -930,16 +919,6 @@ export function TmdbHome({ onPlay, onPlayNow, continueWatching, myList, onPlayHi
                 title={current.title}
                 delay={1500}
                 muted={muted}
-                userMuted={userMuted}
-                // Every automatic mute-state change (browser-forced muted
-                // fallback, interaction restore, mount alignment) flows
-                // back here so the toggle icon/aria-label always tells the
-                // truth.
-                onMutedChange={setMuted}
-                // Embed-blocked/gone video (YouTube onError 101/150): drop the
-                // key — the iframe unmounts (backdrop shows), the mute toggle
-                // hides, and the next hero cycle resolves a fresh trailer.
-                onUnavailable={() => setTrailerKey(null)}
                 background
               />
             </motion.div>
@@ -1092,11 +1071,7 @@ export function TmdbHome({ onPlay, onPlayNow, continueWatching, myList, onPlayHi
                       when a valid YouTube trailer exists for the hero title. */}
                   {trailerSite === "YouTube" && trailerKey && (
                     <button
-                      onClick={() => {
-                        const next = !muted
-                        setUserMuted(next)
-                        setMuted(next)
-                      }}
+                      onClick={() => setMuted((m) => !m)}
                       aria-label={muted ? "Unmute" : "Mute"}
                       className="inline-flex h-12 w-12 items-center justify-center rounded-md border border-white/30 bg-black/40 text-white transition hover:border-white/60 hover:bg-black/60"
                     >
