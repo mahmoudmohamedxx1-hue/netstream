@@ -1,13 +1,13 @@
 "use client"
 
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import {
   X, Play, Plus, Check, Star, Clock, Calendar, Film, Tv,
   ChevronDown, Users, Volume2, VolumeX, Download,
 } from "lucide-react"
 import { Poster } from "./poster"
-import { TrailerIframe } from "./trailer-iframe"
+import { TrailerIframe, suppressTrailers } from "./trailer-iframe"
 import { EpisodeGrid } from "./episode-grid"
 import { DownloadHelper } from "./download-helper"
 import { useTmdbTitle } from "@/hooks/use-tmdb"
@@ -62,6 +62,25 @@ function TitleDetailInner({ title, open, onClose, onPlay }: Props) {
   // and the mute toggle. Resets naturally on the next title because the
   // wrapper remounts TitleDetailInner with a fresh `key`.
   const [trailerDead, setTrailerDead] = useState(false)
+
+  // ── Background-trailer suppression ────────────────────────────────────────
+  // This modal is full-screen: the HOME hero trailer behind it (and any
+  // hover-preview popup) would keep playing its audio underneath, on top of
+  // this modal's own trailer → double audio. Suppress every background
+  // trailer while open; our own trailer below passes exemptFromSuppression
+  // so it keeps playing. Owner is a per-instance ref — the wrapper remounts
+  // TitleDetailInner on every open/close (key change), so each instance
+  // registers/releases exactly once. Reference-counted, so the detail →
+  // player handoff (this closes as the player opens in the same commit)
+  // never leaves suppression stuck or flickers it off mid-handoff.
+  const suppressionOwnerRef = useRef<unknown>(null)
+  if (suppressionOwnerRef.current === null) {
+    suppressionOwnerRef.current = { owner: "title-detail" }
+  }
+  useEffect(() => {
+    if (!open) return
+    return suppressTrailers(suppressionOwnerRef.current)
+  }, [open])
 
   // The hero trailer auto-plays via the reusable <TrailerIframe> component.
   // We only pass the key when the modal is open AND the TMDB data has resolved
@@ -170,6 +189,10 @@ function TitleDetailInner({ title, open, onClose, onPlay }: Props) {
                   delay={1200}
                   muted={detailMuted}
                   userMuted={detailUserMuted}
+                  // This is the FOREGROUND surface — it owns the suppression
+                  // above (which silences the home hero behind this modal),
+                  // so its own trailer must keep playing through it.
+                  exemptFromSuppression
                   // Automatic mute-state changes (browser-forced fallback,
                   // interaction restore, mount alignment) sync the toggle.
                   onMutedChange={setDetailMuted}

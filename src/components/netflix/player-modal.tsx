@@ -47,6 +47,7 @@ import { useLastProvider } from "@/hooks/use-last-provider"
 import { usePlaybackProgress } from "@/hooks/use-playback-progress"
 import { useLang } from "@/lib/lang-context"
 import { upsertWatchItem } from "@/lib/client-history"
+import { suppressTrailers } from "./trailer-iframe"
 
 // ── Favorite servers — saved in localStorage ────────────────────────────────
 const FAVORITES_KEY = "netstream:favorites"
@@ -179,6 +180,10 @@ function ProviderLogo({
   )
 }
 
+// Owner token for the trailer-suppression registry — one per app, the
+// PlayerModal is a singleton (rendered once in page.tsx).
+const PLAYER_SUPPRESSION_OWNER = { owner: "player-modal" }
+
 export function PlayerModal({ title, onClose }: Props) {
   // Lock body scroll while a title is open
   useEffect(() => {
@@ -189,6 +194,21 @@ export function PlayerModal({ title, onClose }: Props) {
       document.body.style.overflow = prev
     }
   }, [title])
+
+  // SILENCE EVERY BACKGROUND TRAILER while the player is open — the hero
+  // trailer (and any hover-preview trailer) behind this full-screen modal
+  // keeps its YouTube audio otherwise, playing OVER the movie's own sound
+  // (user-reported audio overlap). Suppression unmounts their iframes,
+  // which kills audio unconditionally (postMessage pauseVideo is dropped by
+  // ad blockers). When the player closes, the suppressed trailers remount
+  // fresh and autoplay again. Reference-counted by owner, so the detail →
+  // player handoff (one closes as the other opens in the same commit) can
+  // never flicker or leave suppression stuck.
+  const playerOpen = !!title
+  useEffect(() => {
+    if (!playerOpen) return
+    return suppressTrailers(PLAYER_SUPPRESSION_OWNER)
+  }, [playerOpen])
 
   // Close on Escape
   useEffect(() => {

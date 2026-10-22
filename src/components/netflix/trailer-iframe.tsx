@@ -36,6 +36,25 @@
 // │      sits over the trailer — one tap and sound is on (the tap is a     │
 // │      user gesture, which permits unmuted playback). The parent's       │
 // │      toggle stays in sync through onMutedChange.                       │
+// │    • SUPPRESSION (see suppressTrailers below): the player modal /      │
+// │      title detail register themselves as suppressors while they are    │
+// │      open, and every suppressed trailer UNMOUNTS its iframe — the      │
+// │      only audio kill that works even when postMessage is unavailable   │
+// │      (ad blockers). A background trailer playing over the movie the    │
+// │      visitor just opened is the worst audio bug there is. When the     │
+// │      suppressor closes, the iframe remounts fresh (Netflix restarts    │
+// │      the hero trailer when you close the player, too). Surfaces that   │
+// │      ARE the foreground (the detail modal's own trailer) pass          │
+// │      exemptFromSuppression so they keep playing.                       │
+// │    • ACTIVATION KICK: the visitor's FIRST press of ANY kind —          │
+// │      including on controls (a card, a nav link, a dot) — tells every   │
+// │      live stalled trailer to start (playVideo, no mute change).        │
+// │      Previously only non-control presses restored anything, so a      │
+// │      visitor who only clicked cards could stare at stalled            │
+// │      thumbnails for MINUTES: each browser that refuses muted           │
+// │      autoplay too (Android WebView, iOS Low Power Mode, strict         │
+// │      autoplay settings) kept showing thumbnails until the next hero    │
+// │      rotation happened to land after the first gesture.                │
 // │    • NO THUMBNAIL FLASH: while the embed loads or fights a blocked     │
 // │      autoplay, YouTube paints the video's thumbnail over the hero.     │
 // │      The iframe stays opacity-0 until the player actually reports      │
@@ -57,6 +76,16 @@
 // │      muted autoplay — zero postMessage cooperation needed). One hard   │
 // │      reload per trailer — never loops. Muted embeds that still stall   │
 // │      get ONE programmatic playVideo kick.                              │
+// │      The supervisor does NOT give up after 10s anymore: on slow        │
+// │      networks the iframe can take tens of seconds to even load, and    │
+// │      strict browsers refuse every autoplay until a gesture — the old  │
+// │      10s cap left those embeds on their thumbnail forever (the        │
+// │      "thumbnails for minutes" bug). Escalation now runs for a 180s    │
+// │      watchdog window: the fallbacks are idempotent (guarded flags),    │
+// │      and after the first 10s a slow recovery kick fires every 5s      │
+// │      while the embed is confirmed stalled — the moment the browser    │
+// │      permits playback (gesture, policy softening, network recovery)   │
+// │      the trailer starts.                                               │
 // │    • The URL's mute flag is snapshotted per LOAD — normal mute toggles │
 // │      go through postMessage only, so the trailer never reloads on a    │
 // │      toggle. (The hard fallback deliberately remounts — nothing was    │
@@ -117,11 +146,24 @@ type Props = {
   background?: boolean
   /** Optional inline style overrides for the wrapper. */
   style?: React.CSSProperties
+  /** True for the surface that OWNS the suppression (the title-detail      
+   *  modal's own trailer): suppression exists to silence BACKGROUND        
+   *  trailers while a full-screen player/detail is open — the foreground  
+   *  surface's own trailer must keep playing through it. */
+  exemptFromSuppression?: boolean
 }
 
 // YouTube iframe player states we treat as "autoplay succeeded".
 const STATE_PLAYING = 1
 const STATE_BUFFERING = 3
+
+// Supervisor timing (ms). The ladder window is how long handshake retries +
+// first-pass escalation run; the watchdog window is how long the whole
+// supervisor lives (slow recovery kicks after a stall). See the supervisor
+// effect for why the old 10s kill was removed.
+const LADDER_WINDOW_MS = 10_000
+const WATCHDOG_WINDOW_MS = 180_000
+const RECOVERY_KICK_EVERY_MS = 5_000
 
 /** Best-effort shape of the YouTube widget protocol messages. */
 type YtWidgetMessage = {
@@ -153,6 +195,55 @@ let activationBound = false // window listeners attached (once, client-only)
 type RestoreCallback = () => void
 const restoreCallbacks = new Set<RestoreCallback>()
 
+// Fired on EVERY activation (pointerdown anywhere — controls included — and
+// keydown): each live trailer that is not already playing gets a playVideo
+// kick. This is what turns "the visitor finally touched the page" into
+// "stalled trailers start right now" instead of "maybe the next hero
+// rotation will land after the gesture".
+type ActivationKick = () => void
+const activationKicks = new Set<ActivationKick>()
+
+function fireActivationKicks() {
+  if (activationKicks.size === 0) return
+  const kicks = Array.from(activationKicks)
+  kicks.forEach((k) => k())
+}
+
+// ── Suppression registry ───────────────────────────────────────────────────
+// While a full-screen player (or the title-detail modal) is open, every
+// BACKGROUND trailer must stop making sound. postMessage pauseVideo is NOT
+// reliable for this (ad blockers strip the widget's message listener, so the
+// command is silently dropped) — the only unconditional audio kill is
+// removing the iframe from the DOM. Suppressed trailers render nothing; when
+// the last suppressor releases, they remount fresh and autoplay again.
+// Reference-counted by owner so overlapping modals (detail closing while the
+// player opens in the same commit) can never leave suppression stuck on or
+// flicker it off mid-handoff.
+type SuppressionListener = (suppressed: boolean) => void
+const suppressionOwners = new Set<unknown>()
+const suppressionListeners = new Set<SuppressionListener>()
+let suppressionActive = false
+
+/** Silence every background trailer while `owner` is open. Returns a release
+ *  function — call it when the owning surface closes. Idempotent per owner. */
+export function suppressTrailers(owner: unknown): () => void {
+  suppressionOwners.add(owner)
+  if (!suppressionActive) {
+    suppressionActive = true
+    suppressionListeners.forEach((l) => l(true))
+  }
+  let released = false
+  return () => {
+    if (released) return
+    released = true
+    suppressionOwners.delete(owner)
+    if (suppressionOwners.size === 0 && suppressionActive) {
+      suppressionActive = false
+      suppressionListeners.forEach((l) => l(false))
+    }
+  }
+}
+
 /** Was the activating press on an interactive control? (Cards' clickable
  *  cores, nav links, buttons, inputs are all real elements — a press there
  *  is the visitor DOING something, not idling on the page.) */
@@ -183,11 +274,19 @@ function bindActivationTracker() {
     "pointerdown",
     (e) => {
       lift()
+      // EVERY activation kicks stalled trailers back to life — a press on a
+      // control (card, nav, dot) is still the gesture that permits playback,
+      // and the trailer behind it should start immediately, not at the next
+      // rotation. (The non-control path additionally restores sound below.)
+      fireActivationKicks()
       if (!isInteractiveTarget(e.target)) fireRestores()
     },
     true
   )
-  window.addEventListener("keydown", () => lift(), true)
+  window.addEventListener("keydown", () => {
+    lift()
+    fireActivationKicks()
+  }, true)
   // Seed from the browser's own sticky-activation flag — covers interaction
   // that happened BEFORE the first trailer mounted (these listeners bind
   // when the first instance mounts, so early presses would be missed).
@@ -210,6 +309,7 @@ export function TrailerIframe({
   onUnavailable,
   background = true,
   style,
+  exemptFromSuppression = false,
 }: Props) {
   const { isArabic } = useLang()
 
@@ -278,6 +378,42 @@ export function TrailerIframe({
   // because the visitor chose silence) → the "Play with sound" pill shows.
   const [autoMuted, setAutoMuted] = useState(false)
   const autoMutedRef = useRef(false)
+
+  // ── Suppression state ─────────────────────────────────────────────────────
+  // True while a full-screen surface (player modal, detail modal) owns the
+  // page and this trailer is a BACKGROUND trailer: render nothing — the
+  // iframe leaves the DOM, which is the only unconditional audio kill
+  // (postMessage pauseVideo is silently dropped by ad blockers). Exempt
+  // surfaces (the detail modal's own trailer) never suppress. When
+  // suppression lifts the iframe remounts fresh (autoplay=1) and the reveal
+  // starts over — invisible in practice because the remount happens behind
+  // the closing modal.
+  const [suppressed, setSuppressed] = useState(() => !exemptFromSuppression && suppressionActive)
+  const suppressedRef = useRef(suppressed)
+  useEffect(() => {
+    // Exempt surfaces (the detail modal's own trailer) never suppress — no
+    // subscription at all.
+    if (exemptFromSuppression) return
+    const listener: SuppressionListener = (s: boolean) => {
+      suppressedRef.current = s
+      setSuppressed(s)
+      if (s) {
+        // Fresh fade-in when the trailer comes back: the remounted iframe
+        // must not flash its loading state over the hero.
+        revealedRef.current = false
+        setRevealed(false)
+      }
+    }
+    suppressionListeners.add(listener)
+    // Catch up with any suppression change that happened between the initial
+    // render and this subscription — deferred a microtask to satisfy the
+    // set-state-in-effect lint rule (same-value setState bails out, so the
+    // common case costs nothing).
+    Promise.resolve().then(() => listener(suppressionActive))
+    return () => {
+      suppressionListeners.delete(listener)
+    }
+  }, [exemptFromSuppression])
 
   const revealOnce = useCallback(() => {
     if (revealedRef.current) return
@@ -430,15 +566,18 @@ export function TrailerIframe({
   // Runs while this trailer's embed is live. The tick (every 500ms):
   //   • re-sends the handshake until YouTube answers (the widget registers
   //     its listener long after the load event — one-shots get lost);
-  //   • reveals the iframe after 8s of TOTAL radio silence (the video may
-  //     be playing without telling us — hiding a playing video is worse
-  //     than a late reveal; a confirmed-frozen embed stays hidden);
+  //   • reveals the iframe after 8s of radio silence FOLLOWING THE LOAD
+  //     event (the video may be playing without telling us — hiding a
+  //     playing video is worse than a late reveal; a confirmed-frozen embed
+  //     stays hidden);
   //   • stands down the moment playing/buffering is observed;
   //   • for UNMUTED embeds (until the user touches the toggle or the single
   //     hard fallback is spent) escalates:
   //       stall (2 ticks ≈ 1s, state-confirmed)  → mute + playVideo  (soft)
   //       still stalled 1.5s after the soft one  → remount with mute=1 (hard)
   //       no state at all 4s after load          → remount with mute=1 (hard)
+  //   • after the 10s ladder window, a slow recovery kick (every 5s) keeps
+  //     nudging confirmed-stalled embeds with playVideo until 180s.
   // Both fallbacks mark the page "sound blocked" (unmutedBlocked) so later
   // trailers on an un-interacted page mount muted DIRECTLY instead of
   // repeating this stall dance — and they flag autoMuted so the "Play with
@@ -451,8 +590,11 @@ export function TrailerIframe({
   // browsers that refuse every programmatic play.
   useEffect(() => {
     // Stale record (trailerKey changed during the mount delay) — nothing is
-    // rendered, nothing to supervise.
-    if (!mount || mount.key !== trailerKey) return
+    // rendered, nothing to supervise. Suppressed trailers render nothing
+    // either (the iframe is out of the DOM — its audio is dead), but the
+    // moment suppression lifts this effect re-runs and re-arms over the
+    // freshly remounted iframe.
+    if (!mount || mount.key !== trailerKey || suppressed) return
 
     // Per-load reset (also runs after the hard-fallback remount).
     loadedRef.current = false
@@ -464,6 +606,7 @@ export function TrailerIframe({
     const startedAt = Date.now()
     let stallStreak = 0
     let softAt = 0
+    let lastKickAt = 0
 
     const playing = () =>
       receivedStateRef.current &&
@@ -496,17 +639,31 @@ export function TrailerIframe({
         return
       }
 
+      const elapsed = Date.now() - startedAt
+
       // 1) Handshake until answered. The widget is what plays the video —
       //    if it is not answering yet, nothing is playing yet either.
-      if (!receivedStateRef.current) sendListening()
+      //    Retries stop after the ladder window: by then the widget either
+      //    answered or is not going to, and the safety reveal below owns
+      //    the visibility decision from there.
+      if (!receivedStateRef.current && elapsed <= LADDER_WINDOW_MS) sendListening()
 
       // 1b) Radio-silence safety reveal: the widget never answered a
-      //     single handshake in 8s. It may genuinely be playing without
-      //     reporting (aggressive ad blockers strip postMessages) — prefer
-      //     showing a late video over hiding a playing one. When states DO
-      //     arrive we always know the truth, so a confirmed-frozen embed
-      //     stays hidden behind the parent's clean backdrop.
-      if (!receivedStateRef.current && Date.now() - startedAt >= 8000) revealOnce()
+      //     single handshake in the 8s after the iframe LOADED. It may
+      //     genuinely be playing without reporting (aggressive ad blockers
+      //     strip postMessages) — prefer showing a late video over hiding a
+      //     playing one. Requiring the load event matters: a still-loading
+      //     iframe has nothing worth revealing (blank box / dead
+      //     thumbnail), and on slow networks it can take tens of seconds
+      //     to load — revealing early just painted YouTube's static
+      //     thumbnail over the clean backdrop.
+      if (
+        !receivedStateRef.current &&
+        loadedAtRef.current !== 0 &&
+        Date.now() - loadedAtRef.current >= 8000
+      ) {
+        revealOnce()
+      }
 
       // 2) Playback confirmed → stand down for good.
       if (playing()) {
@@ -519,9 +676,17 @@ export function TrailerIframe({
         return
       }
 
-      // 3) Never supervise forever (the unmute self-heal in the toggle
-      //    effect keeps working regardless — its listener never stops).
-      if (Date.now() - startedAt > 10000) {
+      // 3) Watchdog cap. The OLD code killed the whole supervisor at 10s,
+      //    which abandoned slow-loading iframes (nothing supervised them
+      //    once they finally loaded) and strict browsers that refuse every
+      //    autoplay until a gesture (nothing ever retried — the visitor
+      //    stared at a static thumbnail until some later hero rotation
+      //    happened to land after their first click). The fallbacks below
+      //    are all flag-guarded and idempotent, so they keep running safely;
+      //    only the periodic recovery kick in (5) repeats. Rotating surfaces
+      //    (hero slides) unmount long before 180s — the long window only
+      //    matters on static surfaces (title detail) and slow networks.
+      if (elapsed > WATCHDOG_WINDOW_MS) {
         clearInterval(interval)
         return
       }
@@ -573,7 +738,10 @@ export function TrailerIframe({
 
       // 4c) Radio silence — YouTube never answered a single handshake in the
       //     4s after the iframe loaded. If the trailer were actually playing
-      //     it would have answered long before now → remount muted.
+      //     it would have answered long before now → remount muted. NOTE:
+      //     this also catches SLOW-LOADING iframes that finish loading after
+      //     the ladder window (slow networks) — the old 10s kill left those
+      //     unsupervised forever, parked on YouTube's thumbnail.
       if (
         !softFellBackRef.current &&
         !receivedStateRef.current &&
@@ -581,11 +749,78 @@ export function TrailerIframe({
         Date.now() - loadedAtRef.current >= 4000
       ) {
         hardFallback()
+        return
+      }
+
+      // 5) Slow recovery kick — the watchdog heart of the "thumbnails for
+      //    minutes" fix. After the ladder window, keep nudging a
+      //    CONFIRMED-stalled embed every 5s (state received, never
+      //    playing). Strict browsers refuse every autoplay until a gesture
+      //    (Android WebView, iOS Low Power Mode, hardened settings) and
+      //    slow networks deliver the loaded iframe late — in both cases the
+      //    moment the browser finally permits playback, one of these kicks
+      //    (or the activation kick on the visitor's first press) starts
+      //    the trailer instead of leaving it on a static thumbnail until
+      //    the next hero rotation. Radio-silent embeds are deliberately
+      //    left alone here: we cannot know they are stalled, and a mute
+      //    command could silence audio that is actually playing but not
+      //    reporting (the 4c hard fallback already owns that case).
+      if (
+        elapsed > LADDER_WINDOW_MS &&
+        stalled() &&
+        !userTouchedRef.current &&
+        loadedRef.current &&
+        Date.now() - lastKickAt >= RECOVERY_KICK_EVERY_MS
+      ) {
+        lastKickAt = Date.now()
+        if (!mount.muted && !pageActivated && !softFellBackRef.current) {
+          // Same policy as the soft fallback: the browser has not permitted
+          // unmuted playback yet, so recover MUTED and show the honest pill.
+          softFellBackRef.current = true
+          softAt = Date.now()
+          sendCommand("mute")
+          sendCommand("playVideo")
+          unmutedBlocked = true
+          autoMutedRef.current = true
+          setAutoMuted(true)
+          reportAutoMuteChange(true)
+        } else {
+          // Muted embed, or the page is activated (a gesture permits sound
+          // now) — a plain kick is enough and never changes the audio.
+          sendCommand("playVideo")
+        }
       }
     }, 500)
 
     return () => clearInterval(interval)
-  }, [mount, trailerKey, sendCommand, sendListening, revealOnce, reportAutoMuteChange])
+  }, [mount, trailerKey, suppressed, sendCommand, sendListening, revealOnce, reportAutoMuteChange])
+
+  // ── Activation kick ──────────────────────────────────────────────────────
+  // The visitor's first press of ANY kind — including on controls (a card,
+  // a nav link, a carousel dot) — grants the page user activation, which is
+  // exactly what a stalled embed needs to be allowed to play. Every live
+  // trailer that is not confirmed playing gets a playVideo kick the instant
+  // that happens. No mute changes here: sound restore stays a deliberate
+  // non-control-press/pill-tap behavior, and suppressed trailers are skipped
+  // (their iframe is out of the DOM — nothing to kick).
+  useEffect(() => {
+    if (!mount) return
+    const kick = () => {
+      if (suppressedRef.current) return
+      if (
+        receivedStateRef.current &&
+        (playerStateRef.current === STATE_PLAYING ||
+          playerStateRef.current === STATE_BUFFERING)
+      ) {
+        return
+      }
+      sendCommand("playVideo")
+    }
+    activationKicks.add(kick)
+    return () => {
+      activationKicks.delete(kick)
+    }
+  }, [mount, sendCommand])
 
   // ── Interaction restore ─────────────────────────────────────────────────
   // The browser muted this trailer (autoMuted) because the visitor had not
@@ -658,9 +893,11 @@ export function TrailerIframe({
     reportAutoMuteChange(false)
   }
 
-  // Render nothing when there's no key, or when the current key hasn't
-  // finished its delay yet. The backdrop underneath stays visible.
-  if (!trailerKey || !mount || mount.key !== trailerKey) return null
+  // Render nothing when there's no key, when the current key hasn't finished
+  // its delay yet, or while SUPPRESSED (a player/detail modal owns the page —
+  // the iframe leaves the DOM, which kills its audio unconditionally). The
+  // backdrop underneath stays visible in all three cases.
+  if (!trailerKey || !mount || mount.key !== trailerKey || suppressed) return null
 
   // The mute flag is baked in per LOAD from the mount record — toggling the
   // `muted` prop afterwards must NOT change the src (that would reload and
