@@ -4504,3 +4504,28 @@ Work Log:
 
 Stage Summary:
 - The latest version IS hosted on Vercel — but ONLY on netstreamx.vercel.app (verified byte-level + live E2E; all task-31 trailer fixes present and functioning there). The other three Vercel domains (navy/v0/best) are dead with 402 DEPLOYMENT_DISABLED (account plan limits — needs the account owner to resolve billing/usage in the Vercel dashboard; deployments there will keep failing until then), and netstream.space-z.ai is recycled (410). The Android APK ships a frozen Oct-3 standalone build with both trailer bugs baked in and can never pick up server fixes — anyone testing via the APK will keep seeing the old behavior regardless of what is deployed. The SW no longer caches error pages, so future outages degrade to the last-good cached shell instead of a cached "Payment Required" screen. Direct all users to https://netstreamx.vercel.app until the other domains are re-enabled.
+---
+Task ID: 33
+Agent: main (Super Z)
+Task: User report — "return to the version before i told you for the first time to make the default to trailers to be unmute because i think you messed up so much as the trailers now stopped to play" (full rollback request: trailers stopped playing entirely after tasks 28-31)
+
+Work Log:
+- EXECUTED FULL ROLLBACK to the pre-task-28 code state (commit e4f772f — the version before the unmute-by-default request):
+  * Baseline identified precisely: every commit after e4f772f was task 28-32 work; the code deltas were exactly 6 src files + public/sw.js.
+  * git checkout e4f772f -- trailer-iframe.tsx, tmdb-home.tsx, hero-carousel.tsx, title-detail.tsx, hover-preview-card.tsx, player-modal.tsx (all trailer machinery + suppression call sites).
+  * KEPT public/sw.js v3 (task-32 error-response guard): unrelated to trailer playback (only prevents caching 402/5xx error pages on dead origins); reverting it would reintroduce the cached-error-page bug.
+  * Result: net -1024 / +56 lines. Old behavior restored exactly: single reusable TrailerIframe, ALWAYS muted autoplay (autoplay=1&mute=1&controls=0&loop=1&playsinline, youtube.com embed, enablejsapi postMessage mute toggle, delay-gated mount, render-nothing on null key). All task-28-31 machinery GONE: no unmuted-first attempts, no handshake ladders, no playback supervisor, no soft/hard fallbacks, no activation manager, no "Play with sound" pill, no fade-in reveal gating, no suppression registry, no 180s watchdog.
+  * Verified by marker scan: exemptFromSuppression/suppressTrailers/userMuted/onMutedChange/"Play with sound" = 0 occurrences in src/ (remaining "player-modal"/"title-detail" hits are ordinary component references/comments).
+- GATES: eslint 0 errors; tsc 0 src errors (only pre-existing examples/skills noise); production build compiles.
+- DEV SMOKE (agent-browser 1440×900, restarted dev via restart-dev.sh):
+  * Hero trailers mount on rotation with the OLD URL pattern (JtqIas3bYhg, 3lfb_KeqdEM, HxoR_7jVBCM cycling; mute=1&controls=0 confirmed in DOM).
+  * YouTube widget API alive and answering (initialDelivery + infoDelivery muted:true received after listening probe).
+  * Unmute toggle button present; click registered.
+  * Title player opens fine on the reverted player-modal (?play=tt26743760 + vidsrc iframe); background trailer stays mounted = the original pre-task-28 behavior (muted by default, so no audio overlap unless manually unmuted — this is the version the user explicitly chose to return to).
+  * 0 page errors, 0 console errors.
+  * ENV LIMITATION (documented, same as tasks 28-32): headless harness blocks ALL iframe autoplay even muted (playerState stays -1), so video motion cannot be shown in-harness; muted autoplay is the universally-allowed path on real browsers and this exact code ran the site reliably before the unmute work.
+- PRODUCTION: commit 9f12358 pushed → netstreamx auto-deploy confirmed after ~75s (new chunk page-81ea87d1ab84b4c3.js; byte-check: mute=1&controls=0 ×1 present, exemptFromSuppression ×0). Live browser verification: hero trailers mounting with the old pattern (OFaJzL83y0Q, JtqIas3bYhg), cycling normally, 0 page/console errors. Screenshot: audit/task33/revert-live-home.png.
+- DOMAIN REMINDER (from task 32): netstreamx.vercel.app is the ONLY live domain — navy/v0/best are 402 DEPLOYMENT_DISABLED, space-z.ai is 410 recycled. All verification done against netstreamx.
+
+Stage Summary:
+- Trailers are back to the exact pre-unmute version: muted-by-default, plain iframe autoplay, reliable playback, no clever machinery. Tasks 28-31 (unmuted default, playback supervisor, activation manager, suppression registry) fully rolled back on all 6 affected files; the unrelated service-worker error-page guard (task 32) kept. Live in production on netstreamx.vercel.app (verified byte-level and in-browser). If trailer sound-by-default is ever revisited, the safest minimal approach is a single unmute postMessage on first user gesture — NOT a rewrite of the mount pipeline.
