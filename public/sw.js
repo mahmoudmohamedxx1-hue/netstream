@@ -1,4 +1,13 @@
-// NetStream Service Worker v2 — installable PWA + offline shell.
+// NetStream Service Worker v3 — installable PWA + offline shell.
+//
+// v3 changes vs v2:
+//   • NEVER cache or serve non-ok responses (402/410/5xx). Vercel returns
+//     "402 Payment Required / DEPLOYMENT_DISABLED" when the account exceeds
+//     its plan limits — v2 CACHED those error pages and served them to the
+//     user, overwriting the last good copy of the shell. Now a dead origin
+//     falls back to the last-good cached page instead of a cached error.
+//   • CACHE_NAME is intentionally unchanged ("netstream-v2") so existing
+//     users keep their last-good cached shell when this update lands.
 //
 // v2 changes vs v1:
 //   • `_next/static` is now NETWORK-FIRST (v1's cache-first served stale
@@ -81,9 +90,14 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       fetch(req)
         .then((res) => {
-          const clone = res.clone()
-          caches.open(CACHE_NAME).then((c) => c.put(req, clone))
-          return res
+          if (res.ok) {
+            const clone = res.clone()
+            caches.open(CACHE_NAME).then((c) => c.put(req, clone))
+            return res
+          }
+          // Non-ok (402/410/5xx): never cache the error body. A stale chunk
+          // beats a dead one — serve the last-good copy if we have it.
+          return caches.match(req).then((cached) => cached || res)
         })
         .catch(() => caches.match(req))
     )
@@ -109,9 +123,21 @@ self.addEventListener("fetch", (event) => {
     event.respondWith(
       fetch(req)
         .then((res) => {
-          const clone = res.clone()
-          caches.open(CACHE_NAME).then((c) => c.put(req, clone))
-          return res
+          if (res.ok) {
+            const clone = res.clone()
+            caches.open(CACHE_NAME).then((c) => c.put(req, clone))
+            return res
+          }
+          // Non-ok navigation (origin disabled / 5xx): do NOT cache the error
+          // page and do NOT serve it while a last-good copy exists.
+          return caches.match(req).then(
+            (cached) =>
+              cached ||
+              new Response(OFFLINE_HTML, {
+                status: res.status,
+                headers: { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" },
+              })
+          )
         })
         .catch(() =>
           caches.match(req).then(
